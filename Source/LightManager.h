@@ -54,10 +54,7 @@ public:
 
     uint32_t GetLightIndexForShaders( uint32_t frameIndex, uint64_t* pLightUniqueId ) const;
 
-    void Add( uint32_t frameIndex, uint64_t uniqueID, const RgLightSphericalEXT& info );
-    void Add( uint32_t frameIndex, uint64_t uniqueID, const RgLightPolygonalEXT& info );
-    void Add( uint32_t frameIndex, uint64_t uniqueID, const RgLightDirectionalEXT& info );
-    void Add( uint32_t frameIndex, uint64_t uniqueID, const RgLightSpotEXT& info );
+    void Add( uint32_t frameIndex, const LightCopy& light );
 
     void SubmitForFrame( VkCommandBuffer cmd, uint32_t frameIndex );
     void BarrierLightGrid( VkCommandBuffer cmd, uint32_t frameIndex );

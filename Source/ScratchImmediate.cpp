@@ -22,6 +22,8 @@
 
 #include <cassert>
 
+#include "Common.h"
+#include "DrawFrameInfo.h"
 #include "RgException.h"
 
 namespace
@@ -262,7 +264,9 @@ void RTGL1::ScratchImmediate::EndPrimitive()
 namespace
 {
 
-void TrySetTexLayer( RgMeshPrimitiveInfo* pTarget, uint32_t layerIndex, std::span< RgFloat2D > src )
+template< uint32_t LayerIndex >
+    requires( LayerIndex >= 1 && LayerIndex <= 3 )
+void TrySetTexLayer( RgMeshPrimitiveInfo& target, std::span< RgFloat2D > src )
 {
     if( src.empty() )
     {
@@ -270,26 +274,28 @@ void TrySetTexLayer( RgMeshPrimitiveInfo* pTarget, uint32_t layerIndex, std::spa
     }
 
     // each texcoord is tied to each vertex, so amount must be the same
-    if( src.size() != pTarget->vertexCount )
+    if( src.size() != target.vertexCount )
     {
         assert( 0 );
         return;
     }
 
-    // nowhere to set
-    if( !pTarget || !pTarget->pEditorInfo )
+    auto layers = RTGL1::pnext::find< RgMeshPrimitiveTextureLayersEXT >( &target );
+    if( !layers )
     {
         assert( 0 );
-        return;
+        throw RTGL1::RgException(
+            RG_RESULT_WRONG_FUNCTION_ARGUMENT,
+            "Can't find RgMeshPrimitiveTextureLayersEXT on a RgMeshPrimitiveInfo" );
     }
 
-    const RgEditorTextureLayerInfo* dst = nullptr;
+    RgTextureLayer* dst = nullptr;
 
-    switch( layerIndex )
+    switch( LayerIndex )
     {
-        case 1: dst = &pTarget->pEditorInfo->layer1; break;
-        case 2: dst = &pTarget->pEditorInfo->layer2; break;
-        case 3: dst = &pTarget->pEditorInfo->layer3; break;
+        case 1: dst = layers->pLayer1; break;
+        case 2: dst = layers->pLayer2; break;
+        case 3: dst = layers->pLayer3; break;
         default: assert( 0 ); return;
     }
 
@@ -297,10 +303,12 @@ void TrySetTexLayer( RgMeshPrimitiveInfo* pTarget, uint32_t layerIndex, std::spa
     if( !dst )
     {
         assert( 0 );
-        return;
+        throw RTGL1::RgException(
+            RG_RESULT_WRONG_FUNCTION_ARGUMENT,
+            "RgTextureLayer member of RgMeshPrimitiveTextureLayersEXT was null" );
     }
 
-    const_cast< RgEditorTextureLayerInfo* >( dst )->pTexCoord = src.data();
+    dst->pTexCoord = src.data();
 }
 
 }
@@ -318,7 +326,7 @@ void RTGL1::ScratchImmediate::SetToPrimitive( RgMeshPrimitiveInfo* pTarget )
     pTarget->pIndices   = accumIndices.data();
     pTarget->indexCount = uint32_t( accumIndices.size() );
 
-    TrySetTexLayer( pTarget, 1, texLayer1 );
-    TrySetTexLayer( pTarget, 2, texLayer2 );
-    TrySetTexLayer( pTarget, 3, texLayer3 );
+    TrySetTexLayer< 1 >( *pTarget, texLayer1 );
+    TrySetTexLayer< 2 >( *pTarget, texLayer2 );
+    TrySetTexLayer< 3 >( *pTarget, texLayer3 );
 }

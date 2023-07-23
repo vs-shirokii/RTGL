@@ -173,7 +173,7 @@ RTGL1::UploadResult RTGL1::Scene::UploadLight( uint32_t         frameIndex,
             if( !isStatic )
             {
                 assert( lightManager );
-                lightManager->Add( frameIndex, light.base.uniqueID, specific );
+                lightManager->Add( frameIndex, light );
             }
         },
         light.extension );
@@ -189,26 +189,26 @@ void RTGL1::Scene::SubmitStaticLights( uint32_t          frameIndex,
 {
     for( const LightCopy& l : staticLights )
     {
-        std::visit(
-            [ & ]< typename T >( const T& specific ) {
-                // SHIPPING HACK - BEGIN: tint sun if underwater
-                if constexpr( std::is_same_v< RgLightDirectionalEXT, T > )
-                {
-                    if( isUnderwater )
-                    {
-                        RgLightDirectionalEXT tinted = specific;
+        // SHIPPING HACK - BEGIN: tint sun if underwater
+        if( isUnderwater )
+        {
+            if( auto sun = std::get_if< RgLightDirectionalEXT >( &l.extension ) )
+            {
+                auto tintedSun  = RgLightDirectionalEXT{ *sun };
+                tintedSun.color = underwaterColor;
 
-                        tinted.color = underwaterColor;
+                lightManager.Add( frameIndex,
+                                  LightCopy{
+                                      .base       = l.base,
+                                      .extension  = tintedSun,
+                                      .additional = l.additional,
+                                  } );
+                continue;
+            }
+        }
+        // SHIPPING HACK - END
 
-                        lightManager.Add( frameIndex, l.base.uniqueID, tinted );
-                        return;
-                    }
-                }
-                // SHIPPING HACK - END
-
-                lightManager.Add( frameIndex, l.base.uniqueID, specific );
-            },
-            l.extension );
+        lightManager.Add( frameIndex, l );
     }
 }
 
@@ -334,11 +334,11 @@ std::optional< uint64_t > RTGL1::Scene::TryGetVolumetricLight(
     }
 
     // if nothing, just try find sun
-    for( const GenericLight& var : staticLights )
+    for( const auto& l : staticLights )
     {
-        if( auto sun = std::get_if< RgDirectionalLightUploadInfo >( &var ) )
+        if( auto sun = std::get_if< RgLightDirectionalEXT >( &l.extension ) )
         {
-            return sun->uniqueID;
+            return l.base.uniqueID;
         }
     }
 
@@ -357,9 +357,9 @@ bool RTGL1::Scene::StaticMeshExists( const RgMeshInfo& mesh ) const
     return staticMeshNames.contains( std::string( mesh.pMeshName ) );
 }
 
-bool RTGL1::Scene::StaticLightExists( const GenericLightPtr& light ) const
+bool RTGL1::Scene::StaticLightExists( const LightCopy& light ) const
 {
-    std::visit( []( auto&& specific ) { assert( specific->isExportable ); }, light );
+    assert( light.base.isExportable );
 
     // TODO: compare ID-s?
     return !staticLights.empty();

@@ -362,16 +362,14 @@ bool IsLightColorTooDim( const T& l )
     return false;
 }
 
-template< typename T >
-float CalculateLightStyle( const T& l, std::span< const float > lightstyles )
+float CalculateLightStyle( const std::optional< RgLightAdditionalEXT >& extra,
+                           std::span< const float >                     lightstyles )
 {
-    const RgLightExtraInfo& extra = l.extra;
-
-    if( extra.exists )
+    if( extra )
     {
-        if( extra.lightstyle >= 0 && size_t( extra.lightstyle ) < lightstyles.size() )
+        if( extra->lightstyle >= 0 && size_t( extra->lightstyle ) < lightstyles.size() )
         {
-            return lightstyles[ extra.lightstyle ];
+            return lightstyles[ extra->lightstyle ];
         }
         else
         {
@@ -383,70 +381,70 @@ float CalculateLightStyle( const T& l, std::span< const float > lightstyles )
 
 }
 
-void RTGL1::LightManager::Add( uint32_t                   frameIndex,
-                               uint64_t                   uniqueID,
-                               const RgLightSphericalEXT& info )
+void RTGL1::LightManager::Add( uint32_t frameIndex, const LightCopy& light )
 {
-    if( IsLightColorTooDim( info ) )
-    {
-        return;
-    }
+    std::visit(
+        ext::overloaded{
+            [ & ]( const RgLightDirectionalEXT& lext ) {
+                if( IsLightColorTooDim( lext ) )
+                {
+                    return;
+                }
 
-    AddInternal( frameIndex,
-                 uniqueID,
-                 EncodeAsSphereLight( info, CalculateLightStyle( info, lightstyles ) ) );
-}
+                if( dirLightCount > 0 )
+                {
+                    debug::Error( "Only one directional light is allowed" );
+                    return;
+                }
 
-void RTGL1::LightManager::Add( uint32_t                   frameIndex,
-                               uint64_t                   uniqueID,
-                               const RgLightPolygonalEXT& info )
-{
-    if( IsLightColorTooDim( info ) )
-    {
-        return;
-    }
+                AddInternal( frameIndex,
+                             light.base.uniqueID,
+                             EncodeAsDirectionalLight(
+                                 lext, CalculateLightStyle( light.additional, lightstyles ) ) );
+            },
+            [ & ]( const RgLightSphericalEXT& lext ) {
+                if( IsLightColorTooDim( lext ) )
+                {
+                    return;
+                }
 
-    RgFloat3D unnormalizedNormal = Utils::GetUnnormalizedNormal( info.positions );
-    if( Utils::Dot( unnormalizedNormal.data, unnormalizedNormal.data ) <= 0.0f )
-    {
-        return;
-    }
+                AddInternal( frameIndex,
+                             light.base.uniqueID,
+                             EncodeAsSphereLight(
+                                 lext, CalculateLightStyle( light.additional, lightstyles ) ) );
+            },
+            [ & ]( const RgLightSpotEXT& lext ) {
+                if( IsLightColorTooDim( lext ) )
+                {
+                    return;
+                }
 
-    AddInternal( frameIndex,
-                 uniqueID,
-                 EncodeAsTriangleLight(
-                     info, unnormalizedNormal, CalculateLightStyle( info, lightstyles ) ) );
-}
+                AddInternal( frameIndex,
+                             light.base.uniqueID,
+                             EncodeAsSpotLight(
+                                 lext, CalculateLightStyle( light.additional, lightstyles ) ) );
+            },
+            [ & ]( const RgLightPolygonalEXT& lext ) {
+                if( IsLightColorTooDim( lext ) )
+                {
+                    return;
+                }
 
-void RTGL1::LightManager::Add( uint32_t frameIndex, uint64_t uniqueID, const RgLightSpotEXT& info )
-{
-    if( IsLightColorTooDim( info ) || info.radius < 0.0f || info.angleOuter <= 0.0f )
-    {
-        return;
-    }
+                RgFloat3D unnormalizedNormal = Utils::GetUnnormalizedNormal( lext.positions );
+                if( Utils::Dot( unnormalizedNormal.data, unnormalizedNormal.data ) <= 0.0f )
+                {
+                    return;
+                }
 
-    AddInternal(
-        frameIndex, uniqueID, EncodeAsSpotLight( info, CalculateLightStyle( info, lightstyles ) ) );
-}
-
-void RTGL1::LightManager::Add( uint32_t                     frameIndex,
-                               uint64_t                     uniqueID,
-                               const RgLightDirectionalEXT& info )
-{
-    if( dirLightCount > 0 )
-    {
-        debug::Error( "Only one directional light is allowed" );
-        return;
-    }
-
-    if( IsLightColorTooDim( info ) || info.angularDiameterDegrees < 0.0f )
-    {
-        return;
-    }
-
-    AddInternal( frameIndex,
-                 uniqueID,
-                 EncodeAsDirectionalLight( info, CalculateLightStyle( info, lightstyles ) ) );
+                AddInternal(
+                    frameIndex,
+                    light.base.uniqueID,
+                    EncodeAsTriangleLight( lext,
+                                           unnormalizedNormal,
+                                           CalculateLightStyle( light.additional, lightstyles ) ) );
+            },
+        },
+        light.extension );
 }
 
 void RTGL1::LightManager::SubmitForFrame( VkCommandBuffer cmd, uint32_t frameIndex )
@@ -699,19 +697,21 @@ std::optional< uint64_t > RTGL1::LightManager::TryGetVolumetricLight(
         return l.uniqueID;
     };
 
-    auto isVolumetric = []( const auto& l ) {
-        return l.extra.exists && l.extra.isVolumetric;
+    auto isVolumetric = []( const LightCopy& l ) {
+        return l.additional && l.additional->isVolumetric;
     };
 
-    auto approxVolumetricIntensity =
-        [ &fromLightstyles ]( const auto& l, const std::optional< RgLightAdditionalEXT >& extra ) {
-            if( !extra || !extra->isVolumetric )
-            {
-                return 0.0f;
-            }
+    auto approxVolumetricIntensity = [ &fromLightstyles ]( const LightCopy& l ) {
+        if( !l.additional || !l.additional->isVolumetric )
+        {
+            return 0.0f;
+        }
 
-            return l.intensity * CalculateLightStyle( l, fromLightstyles );
-        };
+        float intensity =
+            std::visit( []( const auto& lext ) { return lext.intensity; }, l.extension );
+
+        return intensity * CalculateLightStyle( l.additional, fromLightstyles );
+    };
 
     struct Candidate
     {
@@ -723,14 +723,14 @@ std::optional< uint64_t > RTGL1::LightManager::TryGetVolumetricLight(
 
     for( const auto& l : from )
     {
-        float intensity = std::visit( approxVolumetricIntensity, l.extension );
+        float intensity = approxVolumetricIntensity( l );
 
         if( intensity > 0.0f )
         {
             if( !best || intensity > best->intensity )
             {
                 best = Candidate{
-                    .id        = std::visit( getId, l ),
+                    .id        = l.base.uniqueID,
                     .intensity = intensity,
                 };
             }
@@ -738,10 +738,10 @@ std::optional< uint64_t > RTGL1::LightManager::TryGetVolumetricLight(
 
         if( !any )
         {
-            if( std::visit( isVolumetric, l ) )
+            if( isVolumetric( l ) )
             {
                 any = Candidate{
-                    .id        = std::visit( getId, l ),
+                    .id        = l.base.uniqueID,
                     .intensity = intensity,
                 };
             }

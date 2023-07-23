@@ -20,6 +20,7 @@
 
 #include "VertexCollector.h"
 
+#include "DrawFrameInfo.h"
 #include "GeomInfoManager.h"
 #include "Utils.h"
 
@@ -290,9 +291,7 @@ bool RTGL1::VertexCollector::AddPrimitive( uint32_t                          fra
     }
 
 
-    const RgEditorPBRInfo* pbrInfo = ( info.pEditorInfo && info.pEditorInfo->pbrInfoExists )
-                                         ? &info.pEditorInfo->pbrInfo
-                                         : nullptr;
+    const auto pbrInfo = pnext::find< RgMeshPrimitivePBREXT >( &info );
 
     ShGeometryInstance geomInfo = {
         .model     = RG_MATRIX_TRANSPOSED( parentMesh.transform ),

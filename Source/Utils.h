@@ -65,8 +65,13 @@
     RgTransform{                \
         1.0f, 0.0f, 0.0f, 0.0f, \
         0.0f, 1.0f, 0.0f, 0.0f, \
-        0.0f, 0.0f, 1.0f, 0.0f, \
-    }
+        0.0f, 0.0f, 1.0f, 0.0f, }
+
+#define VK_TRANSFORM_IDENTITY   \
+    VkTransformMatrixKHR{       \
+        1.0f, 0.0f, 0.0f, 0.0f, \
+        0.0f, 1.0f, 0.0f, 0.0f, \
+        0.0f, 0.0f, 1.0f, 0.0f, }
 
 // clang-format on
 

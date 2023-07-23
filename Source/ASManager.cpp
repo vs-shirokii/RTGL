@@ -850,7 +850,7 @@ bool RTGL1::ASManager::SetupTLASInstanceFromBLAS( const BLASComponent& blas,
 
     instance.accelerationStructureReference = blas.GetASAddress();
 
-    instance.transform = RG_TRANSFORM_IDENTITY;
+    instance.transform = VK_TRANSFORM_IDENTITY;
 
     instance.instanceCustomIndex = 0;
 

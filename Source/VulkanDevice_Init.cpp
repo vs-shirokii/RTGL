@@ -193,7 +193,6 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
     , allowGeometryWithSkyFlag( info->allowGeometryWithSkyFlag )
     , previousFrameTime( -1.0 / 60.0 )
     , currentFrameTime( 0 )
-    , vsync( true )
 {
     ValidateCreateInfo( info );
 

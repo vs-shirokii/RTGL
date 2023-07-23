@@ -110,7 +110,7 @@ void RTGL1::DecalManager::PrepareForFrame( uint32_t frameIndex )
 }
 
 void RTGL1::DecalManager::Upload( uint32_t                                 frameIndex,
-                                  const RgDecalUploadInfo&                 uploadInfo,
+                                  const RgDecalInfo&                       uploadInfo,
                                   const std::shared_ptr< TextureManager >& textureManager )
 {
     if( decalCount >= DECAL_MAX_COUNT )

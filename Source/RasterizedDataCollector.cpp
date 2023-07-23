@@ -22,6 +22,7 @@
 
 #include <algorithm>
 
+#include "DrawFrameInfo.h"
 #include "GeomInfoManager.h"
 #include "RgException.h"
 #include "Utils.h"
@@ -219,9 +220,7 @@ void RTGL1::RasterizedDataCollector::AddPrimitive( uint32_t                   fr
     const auto textures = textureMgr->GetTexturesForLayers( info );
     const auto colors   = textureMgr->GetColorForLayers( info );
 
-    const RgEditorPBRInfo* pbrInfo = ( info.pEditorInfo && info.pEditorInfo->pbrInfoExists )
-                                         ? &info.pEditorInfo->pbrInfo
-                                         : nullptr;
+    const auto pbrInfo = pnext::find< RgMeshPrimitivePBREXT >( &info );
 
     PushInfo( rasterType ) = {
         .transform = transform,

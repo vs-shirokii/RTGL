@@ -21,6 +21,7 @@
 #include "TextureManager.h"
 
 #include "Const.h"
+#include "DrawFrameInfo.h"
 #include "RgException.h"
 #include "TextureExporter.h"
 #include "TextureOverrides.h"
@@ -772,30 +773,29 @@ uint32_t TextureManager::GetDirtMaskTextureIndex() const
     return dirtMaskTextureIndex;
 }
 
-#define IF_LAYER_EXISTS( member, field, default )                        \
-    ( ( primitive.pEditorInfo && primitive.pEditorInfo->member##Exists ) \
-          ? primitive.pEditorInfo->member.field                          \
-          : ( default ) )
-
 std::array< MaterialTextures, 4 > TextureManager::GetTexturesForLayers(
     const RgMeshPrimitiveInfo& primitive ) const
 {
+    auto layers = pnext::find< RgMeshPrimitiveTextureLayersEXT >( &primitive );
+
     return {
         GetMaterialTextures( primitive.pTextureName ),
-        GetMaterialTextures( IF_LAYER_EXISTS( layer1, pTextureName, nullptr ) ),
-        GetMaterialTextures( IF_LAYER_EXISTS( layer2, pTextureName, nullptr ) ),
-        GetMaterialTextures( IF_LAYER_EXISTS( layer3, pTextureName, nullptr ) ),
+        GetMaterialTextures( layers && layers->pLayer1 ? layers->pLayer1->pTextureName : nullptr ),
+        GetMaterialTextures( layers && layers->pLayer2 ? layers->pLayer2->pTextureName : nullptr ),
+        GetMaterialTextures( layers && layers->pLayer3 ? layers->pLayer3->pTextureName : nullptr ),
     };
 }
 
 std::array< RgColor4DPacked32, 4 > TextureManager::GetColorForLayers(
     const RgMeshPrimitiveInfo& primitive ) const
 {
+    auto layers = pnext::find< RgMeshPrimitiveTextureLayersEXT >( &primitive );
+
     return {
         primitive.color,
-        IF_LAYER_EXISTS( layer1, color, 0xFFFFFFFF ),
-        IF_LAYER_EXISTS( layer2, color, 0xFFFFFFFF ),
-        IF_LAYER_EXISTS( layer3, color, 0xFFFFFFFF ),
+        layers && layers->pLayer1 ? layers->pLayer1->color : 0xFFFFFFFF,
+        layers && layers->pLayer2 ? layers->pLayer2->color : 0xFFFFFFFF,
+        layers && layers->pLayer3 ? layers->pLayer3->color : 0xFFFFFFFF,
     };
 }
 

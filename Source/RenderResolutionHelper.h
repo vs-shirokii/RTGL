@@ -36,15 +36,15 @@ public:
     RenderResolutionHelper()  = default;
     ~RenderResolutionHelper() = default;
 
-    RenderResolutionHelper( const RenderResolutionHelper& other )     = delete;
-    RenderResolutionHelper( RenderResolutionHelper&& other ) noexcept = delete;
-    RenderResolutionHelper& operator=( const RenderResolutionHelper& other ) = delete;
+    RenderResolutionHelper( const RenderResolutionHelper& other )                = delete;
+    RenderResolutionHelper( RenderResolutionHelper&& other ) noexcept            = delete;
+    RenderResolutionHelper& operator=( const RenderResolutionHelper& other )     = delete;
     RenderResolutionHelper& operator=( RenderResolutionHelper&& other ) noexcept = delete;
 
-    void                    Setup( const RgDrawFrameRenderResolutionParams& params,
-                                   uint32_t                                 windowWidth,
-                                   uint32_t                                 windowHeight,
-                                   const std::shared_ptr< DLSS >&           dlss )
+    void Setup( const RgStartFrameRenderResolutionParams& params,
+                uint32_t                                  windowWidth,
+                uint32_t                                  windowHeight,
+                const std::shared_ptr< DLSS >&            dlss )
     {
         renderWidth  = windowWidth;
         renderHeight = windowHeight;
@@ -135,11 +135,8 @@ public:
             }
             else
             {
-                dlss->GetOptimalSettings( windowWidth,
-                                          windowHeight,
-                                          resolutionMode,
-                                          &renderWidth,
-                                          &renderHeight );
+                dlss->GetOptimalSettings(
+                    windowWidth, windowHeight, resolutionMode, &renderWidth, &renderHeight );
 
                 // ultra quality returns (0,0)
                 if( renderWidth == 0 || renderHeight == 0 )
@@ -181,7 +178,7 @@ public:
     uint32_t UpscaledWidth() const { return upscaledWidth; }
     uint32_t UpscaledHeight() const { return upscaledHeight; }
 
-    bool     IsAmdFsr2Enabled() const
+    bool IsAmdFsr2Enabled() const
     {
         return upscaleTechnique == RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2;
     }
@@ -189,11 +186,11 @@ public:
     {
         return upscaleTechnique == RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS;
     }
-    bool  IsUpscaleEnabled() const { return IsAmdFsr2Enabled() || IsNvDlssEnabled(); }
+    bool IsUpscaleEnabled() const { return IsAmdFsr2Enabled() || IsNvDlssEnabled(); }
 
     float GetAmdFsrSharpness() const { return 1.0f; } // 0.0 - max, 1.0 - min
 
-    bool  IsCASInsideFSR2() const
+    bool IsCASInsideFSR2() const
     {
         return upscaleTechnique == RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2 &&
                sharpenTechnique == RG_RENDER_SHARPEN_TECHNIQUE_AMD_CAS;
@@ -207,7 +204,7 @@ public:
     RgRenderSharpenTechnique GetSharpeningTechnique() const { return sharpenTechnique; }
     float                    GetSharpeningIntensity() const { return 1.0f; }
 
-    VkFilter                 GetBlitFilter() const
+    VkFilter GetBlitFilter() const
     {
         return upscaleTechnique == RG_RENDER_UPSCALE_TECHNIQUE_NEAREST ? VK_FILTER_NEAREST
                                                                        : VK_FILTER_LINEAR;
@@ -222,11 +219,11 @@ public:
     }
 
 private:
-    uint32_t                 renderWidth  = 0;
-    uint32_t                 renderHeight = 0;
+    uint32_t renderWidth  = 0;
+    uint32_t renderHeight = 0;
 
-    uint32_t                 upscaledWidth  = 0;
-    uint32_t                 upscaledHeight = 0;
+    uint32_t upscaledWidth  = 0;
+    uint32_t upscaledHeight = 0;
 
     RgRenderUpscaleTechnique upscaleTechnique = RG_RENDER_UPSCALE_TECHNIQUE_LINEAR;
     RgRenderSharpenTechnique sharpenTechnique = RG_RENDER_SHARPEN_TECHNIQUE_NONE;

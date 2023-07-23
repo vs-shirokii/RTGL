@@ -32,23 +32,27 @@ namespace detail
     };
 
     template< typename T >
-    auto GetStructureType( const T* pInfo ) -> RgStructureType
+    auto GetStructureType( const T* pInfo ) noexcept -> RgStructureType
     {
         if( pInfo )
         {
-            return static_cast< AnyInfoPrototype* >( pInfo )->sType;
+            return static_cast< const AnyInfoPrototype* >( pInfo )->sType;
         }
         return RG_STRUCTURE_TYPE_NONE;
     }
 
     template< typename T >
-    auto GetPNext( const T* pInfo ) -> void*
+    auto GetPNext( T* pInfo ) noexcept
     {
+        using AnyInfo_T =
+            std::conditional_t< std::is_const_v< T >, const AnyInfoPrototype, AnyInfoPrototype >;
+        using ReturnType = std::conditional_t< std::is_const_v< T >, const void*, void* >;
+
         if( pInfo )
         {
-            return static_cast< AnyInfoPrototype* >( pInfo )->pNext;
+            return static_cast< ReturnType >( static_cast< AnyInfo_T* >( pInfo )->pNext );
         }
-        return nullptr;
+        return static_cast< ReturnType >( nullptr );
     }
 
     template< typename Target >
@@ -172,7 +176,7 @@ namespace pnext
 {
     template< typename T, typename I >
         requires( detail::TypeToStructureType< T > != RG_STRUCTURE_TYPE_NONE )
-    const T* cast( const I* pInfo )
+    const T* cast( const I* pInfo ) noexcept
     {
         if( pInfo )
         {
@@ -187,7 +191,7 @@ namespace pnext
     template< typename T, typename SourceType >
         requires( detail::TypeToStructureType< T > != RG_STRUCTURE_TYPE_NONE &&
                   detail::AreLinkable< T, SourceType > )
-    auto find( SourceType* listStart )
+    auto find( SourceType* listStart ) noexcept
     {
         using ReturnType = std::conditional_t< std::is_const_v< SourceType >, const T*, T* >;
         using PNextType  = std::conditional_t< std::is_const_v< SourceType >, const void*, void* >;
@@ -408,9 +412,6 @@ namespace detail
 
     template< typename T >
     concept HasDefaultParams = requires( DefaultParams< T > t ) { t.value; };
-
-    template< typename T >
-    constexpr static auto DefaultParamsFor = typename DefaultParams< T >::value;
 }
 
 
@@ -418,14 +419,14 @@ namespace pnext
 {
     template< detail::HasDefaultParams T, typename SourceType >
         requires( detail::AreLinkable< T, SourceType > )
-    const T& get( const SourceType& listStart )
+    const T& get( const SourceType& listStart ) noexcept
     {
         if( auto p = pnext::find< T >( &listStart ) )
         {
             return *p;
         }
         // default if not found
-        return detail::DefaultParamsFor< T >;
+        return detail::DefaultParams< T >::value;
     }
 }
 

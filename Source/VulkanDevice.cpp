@@ -49,6 +49,38 @@ VkCommandBuffer RTGL1::VulkanDevice::BeginFrame( const RgStartFrameInfo& info )
     swapchain->RequestVsync( info.vsync );
     swapchain->AcquireImage( imageAvailableSemaphores[ frameIndex ] );
 
+
+    // init resolution / view / projection vars
+    {
+        const auto resolutionParams = pnext::get< RgStartFrameRenderResolutionParams >( info );
+
+        renderResolution.Setup(
+            resolutionParams, swapchain->GetWidth(), swapchain->GetHeight(), nvDlss );
+
+        const float aspect = static_cast< float >( renderResolution.Width() ) /
+                             static_cast< float >( renderResolution.Height() );
+
+        {
+            startFrameInfo = StartFrameInfo{
+                .fovYRadians          = info.fovYRadians,
+                .cameraNear           = info.cameraNear,
+                .cameraFar            = info.cameraFar,
+                .resetUpscalerHistory = !!resolutionParams.resetUpscalerHistory,
+            };
+
+            static_assert( sizeof( startFrameInfo.projection ) == 16 * sizeof( float ) );
+            static_assert( sizeof( startFrameInfo.view ) == 16 * sizeof( float ) );
+            static_assert( sizeof( info.view ) == 16 * sizeof( float ) );
+            memcpy( startFrameInfo.view, info.view, 16 * sizeof( float ) );
+            Matrix::MakeProjectionMatrix( startFrameInfo.projection,
+                                          aspect,
+                                          info.fovYRadians,
+                                          info.cameraNear,
+                                          info.cameraFar );
+        }
+    }
+
+
     VkSemaphore semaphoreToWaitOnSubmit = imageAvailableSemaphores[ frameIndex ];
 
 
@@ -847,33 +879,6 @@ void RTGL1::VulkanDevice::StartFrame( const RgStartFrameInfo* pOriginalInfo )
     }
 
     auto startFrame_Core = [ this ]( const RgStartFrameInfo& info ) {
-        const auto resolutionParams = pnext::get< RgStartFrameRenderResolutionParams >( info );
-
-        renderResolution.Setup(
-            resolutionParams, swapchain->GetWidth(), swapchain->GetHeight(), nvDlss );
-
-        const float aspect = static_cast< float >( renderResolution.Width() ) /
-                             static_cast< float >( renderResolution.Height() );
-
-        {
-            startFrameInfo = StartFrameInfo{
-                .fovYRadians          = info.fovYRadians,
-                .cameraNear           = info.cameraNear,
-                .cameraFar            = info.cameraFar,
-                .resetUpscalerHistory = !!resolutionParams.resetUpscalerHistory,
-            };
-
-            static_assert( sizeof( startFrameInfo.projection ) == 16 * sizeof( float ) );
-            static_assert( sizeof( startFrameInfo.view ) == 16 * sizeof( float ) );
-            static_assert( sizeof( info.view ) == 16 * sizeof( float ) );
-            memcpy( startFrameInfo.view, info.view, 16 * sizeof( float ) );
-            Matrix::MakeProjectionMatrix( startFrameInfo.projection,
-                                          aspect,
-                                          info.fovYRadians,
-                                          info.cameraNear,
-                                          info.cameraFar );
-        }
-
         VkCommandBuffer newFrameCmd = BeginFrame( info );
         currentFrameState.OnBeginFrame( newFrameCmd );
     };
@@ -883,6 +888,9 @@ void RTGL1::VulkanDevice::StartFrame( const RgStartFrameInfo* pOriginalInfo )
         auto modified_Resolution = pnext::get< RgStartFrameRenderResolutionParams >( original );
 
         Dev_Override( modified, modified_Resolution );
+
+        modified_Resolution.pNext = modified.pNext;
+        modified.pNext            = &modified_Resolution;
 
         startFrame_Core( modified );
     };
@@ -904,12 +912,10 @@ void RTGL1::VulkanDevice::DrawFrame( const RgDrawFrameInfo* pOriginalInfo )
     {
         throw RgException( RG_RESULT_FRAME_WASNT_STARTED );
     }
-
     if( pOriginalInfo == nullptr )
     {
         throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
     }
-
     if( pOriginalInfo->sType != RG_STRUCTURE_TYPE_DRAW_FRAME_INFO )
     {
         throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
@@ -1021,12 +1027,10 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
     {
         throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
     }
-
     if( pPrimitive->sType != RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO )
     {
         throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
     }
-
     if( pPrimitive->vertexCount == 0 || pPrimitive->pVertices == nullptr )
     {
         return;
@@ -1105,7 +1109,7 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
             UploadResult r = scene->UploadPrimitive(
                 currentFrameState.GetFrameIndex(), mesh, prim, *textureManager, false );
 
-            logDebugStat( Devmode::DebugPrimMode::Rasterized, &mesh, prim, r );
+            logDebugStat( Devmode::DebugPrimMode::RayTraced, &mesh, prim, r );
 
 
             if( auto e = sceneImportExport->TryGetExporter() )
@@ -1274,6 +1278,10 @@ void RTGL1::VulkanDevice::UploadDecal( const RgDecalInfo* pInfo )
     {
         throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
     }
+    if( pInfo->sType != RG_STRUCTURE_TYPE_DECAL_INFO )
+    {
+        throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
+    }
     Dev_TryBreak( pInfo->pTextureName, false );
 
     decalManager->Upload( currentFrameState.GetFrameIndex(), *pInfo, textureManager );
@@ -1297,6 +1305,10 @@ void RTGL1::VulkanDevice::UploadLensFlare( const RgLensFlareInfo* pInfo )
     if( pInfo == nullptr )
     {
         throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
+    }
+    if( pInfo->sType != RG_STRUCTURE_TYPE_LENS_FLARE_INFO )
+    {
+        throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
     }
 
     float emisMult = 0.0f;
@@ -1409,7 +1421,7 @@ void RTGL1::VulkanDevice::UploadLight( const RgLightInfo* pInfo )
                 light.extension );
 
     UploadResult r =
-        scene->UploadLight( currentFrameState.GetFrameIndex(), pInfo, lightManager.get(), false );
+        scene->UploadLight( currentFrameState.GetFrameIndex(), light, lightManager.get(), false );
 
     if( auto e = sceneImportExport->TryGetExporter() )
     {
@@ -1426,6 +1438,10 @@ void RTGL1::VulkanDevice::ProvideOriginalTexture( const RgOriginalTextureInfo* p
     {
         throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
     }
+    if( pInfo->sType != RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_INFO )
+    {
+        throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
+    }
     Dev_TryBreak( pInfo->pTextureName, true );
 
     textureManager->TryCreateMaterial( currentFrameState.GetCmdBufferForMaterials( cmdManager ),
@@ -1439,6 +1455,10 @@ void RTGL1::VulkanDevice::ProvideOriginalCubemapTexture( const RgOriginalCubemap
     if( pInfo == nullptr )
     {
         throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
+    }
+    if( pInfo->sType != RG_STRUCTURE_TYPE_ORIGINAL_CUBEMAP_INFO )
+    {
+        throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
     }
     Dev_TryBreak( pInfo->pTextureName, true );
 

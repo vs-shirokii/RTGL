@@ -444,8 +444,11 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
 
     // some resources can be initialized out of frame
     {
-        const uint32_t        white      = 0xFFFFFFFF;
-        RgOriginalCubemapInfo skyboxInfo = {
+        const uint32_t white = 0xFFFFFFFF;
+
+        auto skyboxInfo = RgOriginalCubemapInfo{
+            .sType            = RG_STRUCTURE_TYPE_ORIGINAL_CUBEMAP_INFO,
+            .pNext            = nullptr,
             .pTextureName     = "_external_/cubemap/0",
             .pPixelsPositiveX = &white,
             .pPixelsNegativeX = &white,
@@ -461,7 +464,8 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
 
         auto uploadMaterial =
             [ instance ]( const char* pTextureName, const void* pPixels, uint32_t w, uint32_t h ) {
-                RgOriginalTextureInfo info = {
+                auto info = RgOriginalTextureInfo{
+                    .sType        = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_INFO,
                     .pTextureName = pTextureName,
                     .pPixels      = pPixels,
                     .size         = { w, h },
@@ -483,11 +487,31 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
         ProcessInput();
 
         {
-            RgStartFrameInfo info = {
-                .pMapName = "untitled",
+            auto resolution = RgStartFrameRenderResolutionParams{
+                .sType            = RG_STRUCTURE_TYPE_START_FRAME_RENDER_RESOLUTION_PARAMS,
+                .pNext            = nullptr,
+                .upscaleTechnique = RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2,
+                .resolutionMode   = RG_RENDER_RESOLUTION_MODE_BALANCED,
             };
 
-            r = rgStartFrame( instance, &info );
+            auto startInfo = RgStartFrameInfo{
+                .sType       = RG_STRUCTURE_TYPE_START_FRAME_INFO,
+                .pNext       = &resolution,
+                .pMapName    = "untitled",
+                .vsync       = true,
+                .fovYRadians = glm::radians( 75.0f ),
+                .cameraNear  = 0.1f,
+                .cameraFar   = 10000.0f,
+            };
+
+            {
+                glm::mat4 view = glm::lookAt(
+                    ctl_CameraPosition, ctl_CameraPosition + ctl_CameraDirection, { 0, 1, 0 } );
+                // GLM is column major, copy matrix data directly
+                memcpy( startInfo.view, &view[ 0 ][ 0 ], 16 * sizeof( float ) );
+            }
+
+            r = rgStartFrame( instance, &startInfo );
             RG_CHECK( r );
         }
 
@@ -496,9 +520,11 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
         {
             auto& [ transform, primitives ] = src;
 
-            std::string objectName = "obj_" + meshName;
+            auto objectName = std::string{ "obj_" } + meshName;
 
-            RgMeshInfo mesh = {
+            auto mesh = RgMeshInfo{
+                .sType          = RG_STRUCTURE_TYPE_MESH_INFO,
+                .pNext          = nullptr,
                 .uniqueObjectID = MurmurHash32( objectName ),
                 .pMeshName      = objectName.c_str(), // meshName.c_str(),
                 .transform      = transform,
@@ -513,9 +539,11 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
             for( const auto& srcPrim : primitives )
             {
                 RgMeshPrimitiveInfo prim = {
+                    .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
+                    .pNext                = nullptr,
+                    .flags                = 0,
                     .pPrimitiveNameInMesh = srcPrim.texture.c_str(),
                     .primitiveIndexInMesh = srcPrim.indexInMesh,
-                    .flags                = 0,
                     .pVertices            = srcPrim.vertices.data(),
                     .vertexCount          = uint32_t( srcPrim.vertices.size() ),
                     .pIndices             = srcPrim.indices.data(),
@@ -523,7 +551,6 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
                     .pTextureName         = srcPrim.texture.c_str(),
                     .textureFrame         = 0,
                     .color                = 0xFFFFFFFF,
-                    .pEditorInfo          = nullptr,
                 };
 
                 r = rgUploadMeshPrimitive( instance, &mesh, &prim );
@@ -533,7 +560,9 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
 
 
         {
-            RgMeshInfo mesh = {
+            auto mesh = RgMeshInfo{
+                .sType          = RG_STRUCTURE_TYPE_MESH_INFO,
+                .pNext          = nullptr,
                 .uniqueObjectID = 10,
                 .pMeshName      = "test",
                 .transform      = { {
@@ -549,15 +578,16 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
                 .animationTime  = 0.0f,
             };
 
-            RgMeshPrimitiveInfo prim = {
-                .primitiveIndexInMesh = 0,
+            auto prim = RgMeshPrimitiveInfo{
+                .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
+                .pNext                = nullptr,
                 .flags                = 0,
+                .primitiveIndexInMesh = 0,
                 .pVertices            = GetCubeVertices(),
                 .vertexCount          = std::size( s_CubePositions ),
                 .pTextureName         = nullptr,
                 .textureFrame         = 0,
                 .color                = rgUtilPackColorByte4D( 128, 255, 128, 128 ),
-                .pEditorInfo          = nullptr,
             };
 
             r = rgUploadMeshPrimitive( instance, &mesh, &prim );
@@ -567,7 +597,9 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
 
         // upload world-space rasterized geometry for non-expensive transparency
         {
-            RgMeshInfo mesh = {
+            auto mesh = RgMeshInfo{
+                .sType          = RG_STRUCTURE_TYPE_MESH_INFO,
+                .pNext          = nullptr,
                 .uniqueObjectID = 12,
                 .pMeshName      = "test_raster",
                 .transform      = { {
@@ -580,16 +612,17 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
                 .animationTime  = 0.0f,
             };
 
-            RgMeshPrimitiveInfo prim = {
-                .primitiveIndexInMesh = 0,
+            auto prim = RgMeshPrimitiveInfo{
+                .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
+                .pNext                = nullptr,
                 .flags                = 0,
+                .primitiveIndexInMesh = 0,
                 .pVertices            = GetQuadVertices(),
                 .vertexCount          = std::size( s_QuadPositions ),
                 .pTextureName         = nullptr,
                 .textureFrame         = 0,
                 // alpha is not 1.0
-                .color       = rgUtilPackColorByte4D( 255, 128, 128, 128 ),
-                .pEditorInfo = nullptr,
+                .color = rgUtilPackColorByte4D( 255, 128, 128, 128 ),
             };
 
             r = rgUploadMeshPrimitive( instance, &mesh, &prim );
@@ -614,15 +647,23 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
 
         // upload the sun
         {
-            RgDirectionalLightUploadInfo dirLight = {
-                .uniqueID               = 0,
-                .isExportable           = true,
+            auto dirLight = RgLightDirectionalEXT{
+                .sType                  = RG_STRUCTURE_TYPE_LIGHT_DIRECTIONAL_EXT,
+                .pNext                  = nullptr,
                 .color                  = rgUtilPackColorByte4D( 255, 255, 255, 255 ),
                 .intensity              = ctl_SunIntensity,
                 .direction              = { -1, -8, -1 },
                 .angularDiameterDegrees = 0.5f,
             };
-            r = rgUploadDirectionalLight( instance, &dirLight );
+
+            auto l = RgLightInfo{
+                .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
+                .pNext        = &dirLight,
+                .uniqueID     = 0,
+                .isExportable = true,
+            };
+
+            r = rgUploadLight( instance, &l );
             RG_CHECK( r );
         }
 
@@ -649,19 +690,19 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
 
         // submit the frame
         {
-            RgPostEffectChromaticAberration chromaticAberration = {
+            auto chromaticAberration = RgPostEffectChromaticAberration{
                 .isActive  = true,
                 .intensity = 0.3f,
             };
 
-            RgDrawFramePostEffectsParams postEffects = {
-                .sType                = RG_STRUCTURE_TYPE_POSTEFFECTS,
+            auto postEffects = RgDrawFramePostEffectsParams{
+                .sType                = RG_STRUCTURE_TYPE_DRAW_FRAME_POST_EFFECTS_PARAMS,
                 .pNext                = nullptr,
                 .pChromaticAberration = &chromaticAberration,
             };
 
-            RgDrawFrameSkyParams sky = {
-                .sType              = RG_STRUCTURE_TYPE_SKY,
+            auto sky = RgDrawFrameSkyParams{
+                .sType              = RG_STRUCTURE_TYPE_DRAW_FRAME_SKY_PARAMS,
                 .pNext              = &postEffects,
                 .skyType            = ctl_SkyboxEnable ? RG_SKY_TYPE_CUBEMAP : RG_SKY_TYPE_COLOR,
                 .skyColorDefault    = { 0.71f, 0.88f, 1.0f },
@@ -671,27 +712,13 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
                 .pSkyCubemapTextureName = "_external_/cubemap/0",
             };
 
-            RgDrawFrameRenderResolutionParams resolution = {
-                .sType            = RG_STRUCTURE_TYPE_RENDER_RESOLUTION,
+            auto frameInfo = RgDrawFrameInfo{
+                .sType            = RG_STRUCTURE_TYPE_DRAW_FRAME_INFO,
                 .pNext            = &sky,
-                .upscaleTechnique = RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2,
-                .resolutionMode   = RG_RENDER_RESOLUTION_MODE_BALANCED,
-            };
-
-            glm::mat4 view = glm::lookAt(
-                ctl_CameraPosition, ctl_CameraPosition + ctl_CameraDirection, { 0, 1, 0 } );
-
-            RgDrawFrameInfo frameInfo = {
-                .fovYRadians      = glm::radians( 75.0f ),
-                .cameraNear       = 0.1f,
-                .cameraFar        = 10000.0f,
                 .rayLength        = 10000.0f,
                 .rayCullMaskWorld = RG_DRAW_FRAME_RAY_CULL_WORLD_0_BIT,
                 .currentTime      = GetCurrentTimeInSeconds(),
-                .pParams          = &resolution,
             };
-            // GLM is column major, copy matrix data directly
-            memcpy( frameInfo.view, &view[ 0 ][ 0 ], 16 * sizeof( float ) );
 
             r = rgDrawFrame( instance, &frameInfo );
             RG_CHECK( r );
@@ -727,6 +754,8 @@ int main( int argc, char* argv[] )
 #endif
 
     RgInstanceCreateInfo info = {
+        .sType = RG_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+
         .pAppName = "RTGL1 Test",
         .pAppGUID = "459d6734-62a6-4d47-927a-bedcdb0445c5",
 

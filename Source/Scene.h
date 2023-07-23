@@ -98,7 +98,7 @@ public:
 
 private:
     bool StaticMeshExists( const RgMeshInfo& mesh ) const;
-    bool StaticLightExists( const GenericLightPtr& light ) const;
+    bool StaticLightExists( const LightCopy& light ) const;
 
     bool InsertPrimitiveInfo( uint64_t                   uniqueID,
                               bool                       isStatic,
