@@ -82,9 +82,14 @@ private:
 
 }
 
+bool RTGL1::VulkanDevice::Dev_IsDevmodeInitialized() const
+{
+    return debugWindows && devmode;
+}
+
 void RTGL1::VulkanDevice::Dev_Draw() const
 {
-    if( !debugWindows || !devmode )
+    if( !Dev_IsDevmodeInitialized() )
     {
         return;
     }
@@ -906,9 +911,10 @@ void RTGL1::VulkanDevice::Dev_Draw() const
     }
 }
 
-void RTGL1::VulkanDevice::Dev_Override( DrawFrameInfoCopy& copy ) const
+void RTGL1::VulkanDevice::Dev_Override( RgStartFrameInfo&                   info,
+                                        RgStartFrameRenderResolutionParams& resolution ) const
 {
-    if( !debugWindows || !devmode )
+    if( !Dev_IsDevmodeInitialized() )
     {
         return;
     }
@@ -917,16 +923,14 @@ void RTGL1::VulkanDevice::Dev_Override( DrawFrameInfoCopy& copy ) const
 
     if( modifiers.enable )
     {
-        auto& dst       = copy.info;
-        auto& dst_resol = *AccessParamsForWrite< RgDrawFrameRenderResolutionParams >( copy.info );
-        auto& dst_illum = *AccessParamsForWrite< RgDrawFrameIlluminationParams >( copy.info );
-        auto& dst_tnmp  = *AccessParamsForWrite< RgDrawFrameTonemappingParams >( copy.info );
-        auto& dst_ltmp  = *AccessParamsForWrite< RgDrawFrameLightmapParams >( copy.info );
+        RgStartFrameInfo&                   dst       = info;
+        RgStartFrameRenderResolutionParams& dst_resol = resolution;
 
         // apply modifiers
-        dst.vsync       = modifiers.vsync;
-        dst.fovYRadians = Utils::DegToRad( modifiers.fovDeg );
-
+        {
+            dst.vsync       = modifiers.vsync;
+            dst.fovYRadians = Utils::DegToRad( modifiers.fovDeg );
+        }
         {
             dst_resol.upscaleTechnique = modifiers.upscaleTechnique;
             dst_resol.sharpenTechnique = modifiers.sharpenTechnique;
@@ -944,38 +948,17 @@ void RTGL1::VulkanDevice::Dev_Override( DrawFrameInfoCopy& copy ) const
             dst_resol.pPixelizedRenderSize =
                 modifiers.pixelizedEnable ? &modifiers.pixelizedForPtr : nullptr;
         }
-        {
-            dst_illum.maxBounceShadows                 = modifiers.maxBounceShadows;
-            dst_illum.enableSecondBounceForIndirect    = modifiers.enableSecondBounceForIndirect;
-            dst_illum.directDiffuseSensitivityToChange = modifiers.directDiffuseSensitivityToChange;
-            dst_illum.indirectDiffuseSensitivityToChange =
-                modifiers.indirectDiffuseSensitivityToChange;
-            dst_illum.specularSensitivityToChange = modifiers.specularSensitivityToChange;
-        }
-        {
-            dst_tnmp.disableEyeAdaptation = modifiers.disableEyeAdaptation;
-            dst_tnmp.ev100Min             = modifiers.ev100Min;
-            dst_tnmp.ev100Max             = modifiers.ev100Max;
-            dst_tnmp.saturation           = { RG_ACCESS_VEC3( modifiers.saturation ) };
-            dst_tnmp.crosstalk            = { RG_ACCESS_VEC3( modifiers.crosstalk ) };
-        }
-        {
-            dst_ltmp.lightmapScreenCoverage = modifiers.lightmapScreenCoverage;
-        }
     }
     else
     {
-        const auto& src       = copy.info;
-        const auto& src_resol = AccessParams< RgDrawFrameRenderResolutionParams >( copy.info );
-        const auto& src_illum = AccessParams< RgDrawFrameIlluminationParams >( copy.info );
-        const auto& src_tnmp  = AccessParams< RgDrawFrameTonemappingParams >( copy.info );
-        const auto& src_ltmp  = AccessParams< RgDrawFrameLightmapParams >( copy.info );
+        const RgStartFrameInfo&                   src       = info;
+        const RgStartFrameRenderResolutionParams& src_resol = resolution;
 
         // reset modifiers
-        modifiers.vsync      = src.vsync;
-        modifiers.fovDeg     = Utils::RadToDeg( src.fovYRadians );
-        devmode->antiFirefly = true;
-
+        {
+            modifiers.vsync  = src.vsync;
+            modifiers.fovDeg = Utils::RadToDeg( src.fovYRadians );
+        }
         {
             modifiers.upscaleTechnique = src_resol.upscaleTechnique;
             modifiers.sharpenTechnique = src_resol.sharpenTechnique;
@@ -1001,6 +984,56 @@ void RTGL1::VulkanDevice::Dev_Override( DrawFrameInfoCopy& copy ) const
                 src_resol.pPixelizedRenderSize
                     ? ClampPix< int >( src_resol.pPixelizedRenderSize->height )
                     : 0;
+        }
+    }
+}
+
+void RTGL1::VulkanDevice::Dev_Override( RgDrawFrameIlluminationParams& illumination,
+                                        RgDrawFrameTonemappingParams&  tonemappingp,
+                                        RgDrawFrameLightmapParams&     lightmap ) const
+{
+    if( !Dev_IsDevmodeInitialized() )
+    {
+        return;
+    }
+
+    auto& modifiers = devmode->drawInfoOvrd;
+
+    if( modifiers.enable )
+    {
+        RgDrawFrameIlluminationParams& dst_illum = illumination;
+        RgDrawFrameTonemappingParams&  dst_tnmp  = tonemappingp;
+        RgDrawFrameLightmapParams&     dst_ltmp  = lightmap;
+
+        // apply modifiers
+        {
+            dst_illum.maxBounceShadows                 = modifiers.maxBounceShadows;
+            dst_illum.enableSecondBounceForIndirect    = modifiers.enableSecondBounceForIndirect;
+            dst_illum.directDiffuseSensitivityToChange = modifiers.directDiffuseSensitivityToChange;
+            dst_illum.indirectDiffuseSensitivityToChange =
+                modifiers.indirectDiffuseSensitivityToChange;
+            dst_illum.specularSensitivityToChange = modifiers.specularSensitivityToChange;
+        }
+        {
+            dst_tnmp.disableEyeAdaptation = modifiers.disableEyeAdaptation;
+            dst_tnmp.ev100Min             = modifiers.ev100Min;
+            dst_tnmp.ev100Max             = modifiers.ev100Max;
+            dst_tnmp.saturation           = { RG_ACCESS_VEC3( modifiers.saturation ) };
+            dst_tnmp.crosstalk            = { RG_ACCESS_VEC3( modifiers.crosstalk ) };
+        }
+        {
+            dst_ltmp.lightmapScreenCoverage = modifiers.lightmapScreenCoverage;
+        }
+    }
+    else
+    {
+        const RgDrawFrameIlluminationParams& src_illum = illumination;
+        const RgDrawFrameTonemappingParams&  src_tnmp  = tonemappingp;
+        const RgDrawFrameLightmapParams&     src_ltmp  = lightmap;
+
+        // reset modifiers
+        {
+            devmode->antiFirefly = true;
         }
         {
             modifiers.maxBounceShadows                 = int( src_illum.maxBounceShadows );

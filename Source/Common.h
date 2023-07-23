@@ -24,6 +24,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <variant>
 
 #include <vulkan/vulkan.h>
@@ -91,15 +92,14 @@ void BeginCmdLabel( VkCommandBuffer cmd, const char* pName, const float pColor[ 
 void EndCmdLabel( VkCommandBuffer cmd );
 
 
+using AnyLightEXT =
+    std::variant< RgLightDirectionalEXT, RgLightSphericalEXT, RgLightSpotEXT, RgLightPolygonalEXT >;
 
-using GenericLight = std::variant< RgDirectionalLightUploadInfo,
-                                   RgSphericalLightUploadInfo,
-                                   RgSpotLightUploadInfo,
-                                   RgPolygonalLightUploadInfo >;
-
-using GenericLightPtr = std::variant< const RgDirectionalLightUploadInfo*,
-                                      const RgSphericalLightUploadInfo*,
-                                      const RgSpotLightUploadInfo*,
-                                      const RgPolygonalLightUploadInfo* >;
+struct LightCopy
+{
+    RgLightInfo                           base{};
+    AnyLightEXT                           extension{};
+    std::optional< RgLightAdditionalEXT > additional{};
+};
 
 }

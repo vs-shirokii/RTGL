@@ -25,17 +25,210 @@ namespace RTGL1
 
 namespace detail
 {
+    struct AnyInfoPrototype
+    {
+        RgStructureType sType;
+        void*           pNext;
+    };
+
+    template< typename T >
+    auto GetStructureType( const T* pInfo ) -> RgStructureType
+    {
+        if( pInfo )
+        {
+            return static_cast< AnyInfoPrototype* >( pInfo )->sType;
+        }
+        return RG_STRUCTURE_TYPE_NONE;
+    }
+
+    template< typename T >
+    auto GetPNext( const T* pInfo ) -> void*
+    {
+        if( pInfo )
+        {
+            return static_cast< AnyInfoPrototype* >( pInfo )->pNext;
+        }
+        return nullptr;
+    }
+
+    template< typename Target >
+    constexpr auto TypeToStructureType = RgStructureType{ RG_STRUCTURE_TYPE_NONE };
+
+    // clang-format off
+    template<> constexpr auto TypeToStructureType< RgStartFrameRenderResolutionParams   > = RG_STRUCTURE_TYPE_START_FRAME_RENDER_RESOLUTION_PARAMS ;
+    template<> constexpr auto TypeToStructureType< RgDrawFrameIlluminationParams        > = RG_STRUCTURE_TYPE_DRAW_FRAME_ILLUMINATION_PARAMS       ;
+    template<> constexpr auto TypeToStructureType< RgDrawFrameVolumetricParams          > = RG_STRUCTURE_TYPE_DRAW_FRAME_VOLUMETRIC_PARAMS         ;
+    template<> constexpr auto TypeToStructureType< RgDrawFrameTonemappingParams         > = RG_STRUCTURE_TYPE_DRAW_FRAME_TONEMAPPING_PARAMS        ;
+    template<> constexpr auto TypeToStructureType< RgDrawFrameBloomParams               > = RG_STRUCTURE_TYPE_DRAW_FRAME_BLOOM_PARAMS              ;
+    template<> constexpr auto TypeToStructureType< RgDrawFrameReflectRefractParams      > = RG_STRUCTURE_TYPE_DRAW_FRAME_REFLECT_REFRACT_PARAMS    ;
+    template<> constexpr auto TypeToStructureType< RgDrawFrameSkyParams                 > = RG_STRUCTURE_TYPE_DRAW_FRAME_SKY_PARAMS                ;
+    template<> constexpr auto TypeToStructureType< RgDrawFrameTexturesParams            > = RG_STRUCTURE_TYPE_DRAW_FRAME_TEXTURES_PARAMS           ;
+    template<> constexpr auto TypeToStructureType< RgDrawFrameLightmapParams            > = RG_STRUCTURE_TYPE_DRAW_FRAME_LIGHTMAP_PARAMS           ;
+    template<> constexpr auto TypeToStructureType< RgDrawFramePostEffectsParams         > = RG_STRUCTURE_TYPE_DRAW_FRAME_POST_EFFECTS_PARAMS       ;
+    template<> constexpr auto TypeToStructureType< RgInstanceCreateInfo                 > = RG_STRUCTURE_TYPE_INSTANCE_CREATE_INFO                 ;
+    template<> constexpr auto TypeToStructureType< RgMeshInfo                           > = RG_STRUCTURE_TYPE_MESH_INFO                            ;
+    template<> constexpr auto TypeToStructureType< RgMeshPrimitiveInfo                  > = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO                  ;
+    template<> constexpr auto TypeToStructureType< RgMeshPrimitivePortalEXT             > = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_PORTAL_EXT            ;
+    template<> constexpr auto TypeToStructureType< RgMeshPrimitiveTextureLayersEXT      > = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_TEXTURE_LAYERS_EXT    ;
+    template<> constexpr auto TypeToStructureType< RgMeshPrimitivePBREXT                > = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_PBR_EXT               ;
+    template<> constexpr auto TypeToStructureType< RgMeshPrimitiveAttachedLightEXT      > = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_ATTACHED_LIGHT_EXT    ;
+    template<> constexpr auto TypeToStructureType< RgMeshPrimitiveForceRasterizedEXT    > = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_FORCE_RASTERIZED_EXT  ;
+    template<> constexpr auto TypeToStructureType< RgLensFlareInfo                      > = RG_STRUCTURE_TYPE_LENS_FLARE_INFO                      ;
+    template<> constexpr auto TypeToStructureType< RgDecalInfo                          > = RG_STRUCTURE_TYPE_DECAL_INFO                           ;
+    template<> constexpr auto TypeToStructureType< RgLightInfo                          > = RG_STRUCTURE_TYPE_LIGHT_INFO                           ;
+    template<> constexpr auto TypeToStructureType< RgLightAdditionalEXT                 > = RG_STRUCTURE_TYPE_LIGHT_ADDITIONAL_EXT                 ;
+    template<> constexpr auto TypeToStructureType< RgLightDirectionalEXT                > = RG_STRUCTURE_TYPE_LIGHT_DIRECTIONAL_EXT                ;
+    template<> constexpr auto TypeToStructureType< RgLightSphericalEXT                  > = RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT                  ;
+    template<> constexpr auto TypeToStructureType< RgLightPolygonalEXT                  > = RG_STRUCTURE_TYPE_LIGHT_POLYGONAL_EXT                  ;
+    template<> constexpr auto TypeToStructureType< RgLightSpotEXT                       > = RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT                       ;
+    template<> constexpr auto TypeToStructureType< RgOriginalTextureInfo                > = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_INFO                ;
+    template<> constexpr auto TypeToStructureType< RgOriginalCubemapInfo                > = RG_STRUCTURE_TYPE_ORIGINAL_CUBEMAP_INFO                ;
+    template<> constexpr auto TypeToStructureType< RgStartFrameInfo                     > = RG_STRUCTURE_TYPE_START_FRAME_INFO                     ;
+    template<> constexpr auto TypeToStructureType< RgDrawFrameInfo                      > = RG_STRUCTURE_TYPE_DRAW_FRAME_INFO                      ;
+    // clang-format on
+
+    template< typename T >
+    constexpr bool CheckMembers()
+    {
+        return offsetof( AnyInfoPrototype, sType ) == offsetof( T, sType ) &&
+               sizeof( T::sType ) == sizeof( AnyInfoPrototype::sType ) &&
+               offsetof( AnyInfoPrototype, pNext ) == offsetof( T, pNext ) &&
+               sizeof( T::pNext ) == sizeof( AnyInfoPrototype::pNext );
+    }
+
+    static_assert( CheckMembers< RgStartFrameRenderResolutionParams >() );
+    static_assert( CheckMembers< RgDrawFrameIlluminationParams >() );
+    static_assert( CheckMembers< RgDrawFrameVolumetricParams >() );
+    static_assert( CheckMembers< RgDrawFrameTonemappingParams >() );
+    static_assert( CheckMembers< RgDrawFrameBloomParams >() );
+    static_assert( CheckMembers< RgDrawFrameReflectRefractParams >() );
+    static_assert( CheckMembers< RgDrawFrameSkyParams >() );
+    static_assert( CheckMembers< RgDrawFrameTexturesParams >() );
+    static_assert( CheckMembers< RgDrawFrameLightmapParams >() );
+    static_assert( CheckMembers< RgDrawFramePostEffectsParams >() );
+    static_assert( CheckMembers< RgInstanceCreateInfo >() );
+    static_assert( CheckMembers< RgMeshInfo >() );
+    static_assert( CheckMembers< RgMeshPrimitiveInfo >() );
+    static_assert( CheckMembers< RgMeshPrimitivePortalEXT >() );
+    static_assert( CheckMembers< RgMeshPrimitiveTextureLayersEXT >() );
+    static_assert( CheckMembers< RgMeshPrimitivePBREXT >() );
+    static_assert( CheckMembers< RgMeshPrimitiveAttachedLightEXT >() );
+    static_assert( CheckMembers< RgMeshPrimitiveForceRasterizedEXT >() );
+    static_assert( CheckMembers< RgLensFlareInfo >() );
+    static_assert( CheckMembers< RgDecalInfo >() );
+    static_assert( CheckMembers< RgLightInfo >() );
+    static_assert( CheckMembers< RgLightAdditionalEXT >() );
+    static_assert( CheckMembers< RgLightDirectionalEXT >() );
+    static_assert( CheckMembers< RgLightSphericalEXT >() );
+    static_assert( CheckMembers< RgLightPolygonalEXT >() );
+    static_assert( CheckMembers< RgLightSpotEXT >() );
+    static_assert( CheckMembers< RgOriginalTextureInfo >() );
+    static_assert( CheckMembers< RgOriginalCubemapInfo >() );
+    static_assert( CheckMembers< RgStartFrameInfo >() );
+    static_assert( CheckMembers< RgDrawFrameInfo >() );
+
+
+    template< typename T >
+    struct LinkRootHelper
+    {
+        using Root = T;
+    };
+
+    // clang-format off
+    template<> struct LinkRootHelper< RgStartFrameRenderResolutionParams >{ using Root = RgStartFrameInfo; };
+    template<> struct LinkRootHelper< RgMeshPrimitivePortalEXT           >{ using Root = RgMeshPrimitiveInfo; };
+    template<> struct LinkRootHelper< RgMeshPrimitiveTextureLayersEXT    >{ using Root = RgMeshPrimitiveInfo; };
+    template<> struct LinkRootHelper< RgMeshPrimitivePBREXT              >{ using Root = RgMeshPrimitiveInfo; };
+    template<> struct LinkRootHelper< RgMeshPrimitiveAttachedLightEXT    >{ using Root = RgMeshPrimitiveInfo; };
+    template<> struct LinkRootHelper< RgMeshPrimitiveForceRasterizedEXT  >{ using Root = RgMeshPrimitiveInfo; };
+    template<> struct LinkRootHelper< RgLightAdditionalEXT               >{ using Root = RgLightInfo; };
+    template<> struct LinkRootHelper< RgLightDirectionalEXT              >{ using Root = RgLightInfo; };
+    template<> struct LinkRootHelper< RgLightSphericalEXT                >{ using Root = RgLightInfo; };
+    template<> struct LinkRootHelper< RgLightPolygonalEXT                >{ using Root = RgLightInfo; };
+    template<> struct LinkRootHelper< RgLightSpotEXT                     >{ using Root = RgLightInfo; };
+    template<> struct LinkRootHelper< RgDrawFrameIlluminationParams      >{ using Root = RgDrawFrameInfo; };
+    template<> struct LinkRootHelper< RgDrawFrameVolumetricParams        >{ using Root = RgDrawFrameInfo; };
+    template<> struct LinkRootHelper< RgDrawFrameTonemappingParams       >{ using Root = RgDrawFrameInfo; };
+    template<> struct LinkRootHelper< RgDrawFrameBloomParams             >{ using Root = RgDrawFrameInfo; };
+    template<> struct LinkRootHelper< RgDrawFrameReflectRefractParams    >{ using Root = RgDrawFrameInfo; };
+    template<> struct LinkRootHelper< RgDrawFrameSkyParams               >{ using Root = RgDrawFrameInfo; };
+    template<> struct LinkRootHelper< RgDrawFrameTexturesParams          >{ using Root = RgDrawFrameInfo; };
+    template<> struct LinkRootHelper< RgDrawFrameLightmapParams          >{ using Root = RgDrawFrameInfo; };
+    template<> struct LinkRootHelper< RgDrawFramePostEffectsParams       >{ using Root = RgDrawFrameInfo; };
+    // clang-format on
+
+    template< typename T >
+    using LinkRoot = typename LinkRootHelper< T >::Root;
+
+    template< typename T >
+    using ClearType = std::remove_pointer_t< std::remove_reference_t< std::remove_cv_t< T > > >;
+
+    template< typename T, typename Base >
+    constexpr bool AreLinkable = std::is_same_v< LinkRoot< ClearType< T > >, ClearType< Base > >;
+}
+
+
+namespace pnext
+{
+    template< typename T, typename I >
+        requires( detail::TypeToStructureType< T > != RG_STRUCTURE_TYPE_NONE )
+    const T* cast( const I* pInfo )
+    {
+        if( pInfo )
+        {
+            if( detail::GetStructureType( pInfo ) == detail::TypeToStructureType< T > )
+            {
+                return static_cast< const T* >( pInfo );
+            }
+        }
+        return nullptr;
+    }
+
+    template< typename T, typename SourceType >
+        requires( detail::TypeToStructureType< T > != RG_STRUCTURE_TYPE_NONE &&
+                  detail::AreLinkable< T, SourceType > )
+    auto find( SourceType* listStart )
+    {
+        using ReturnType = std::conditional_t< std::is_const_v< SourceType >, const T*, T* >;
+        using PNextType  = std::conditional_t< std::is_const_v< SourceType >, const void*, void* >;
+
+        auto next = static_cast< PNextType >( listStart );
+
+        while( next )
+        {
+            RgStructureType sType = detail::GetStructureType( next );
+
+            if( sType == detail::TypeToStructureType< T > )
+            {
+                return static_cast< ReturnType >( next );
+            }
+
+            if( sType == RG_STRUCTURE_TYPE_NONE )
+            {
+                debug::Error( "Found sType=RG_STRUCTURE_TYPE_NONE on {:#x}", uint64_t( next ) );
+            }
+
+            next = detail::GetPNext( next );
+        }
+
+        return static_cast< ReturnType >( nullptr );
+    }
+}
+
+namespace detail
+{
     template< typename T >
     struct DefaultParams
     {
     };
 
     template<>
-    struct DefaultParams< RgDrawFrameRenderResolutionParams >
+    struct DefaultParams< RgStartFrameRenderResolutionParams >
     {
-        constexpr static RgStructureType sType = RG_STRUCTURE_TYPE_RENDER_RESOLUTION;
+        constexpr static auto sType =
+            detail::TypeToStructureType< RgStartFrameRenderResolutionParams >;
 
-        constexpr static RgDrawFrameRenderResolutionParams value = {
+        constexpr static RgStartFrameRenderResolutionParams value = {
             .sType                = sType,
             .pNext                = nullptr,
             .upscaleTechnique     = RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2,
@@ -50,7 +243,7 @@ namespace detail
     template<>
     struct DefaultParams< RgDrawFrameIlluminationParams >
     {
-        constexpr static RgStructureType sType = RG_STRUCTURE_TYPE_ILLUMINATION;
+        constexpr static auto sType = detail::TypeToStructureType< RgDrawFrameIlluminationParams >;
 
         constexpr static RgDrawFrameIlluminationParams value = {
             .sType                                       = sType,
@@ -71,7 +264,7 @@ namespace detail
     template<>
     struct DefaultParams< RgDrawFrameVolumetricParams >
     {
-        constexpr static RgStructureType sType = RG_STRUCTURE_TYPE_VOLUMETRIC;
+        constexpr static auto sType = detail::TypeToStructureType< RgDrawFrameVolumetricParams >;
 
         constexpr static RgDrawFrameVolumetricParams value = {
             .sType                   = sType,
@@ -92,7 +285,7 @@ namespace detail
     template<>
     struct DefaultParams< RgDrawFrameTonemappingParams >
     {
-        constexpr static RgStructureType sType = RG_STRUCTURE_TYPE_TONEMAPPING;
+        constexpr static auto sType = detail::TypeToStructureType< RgDrawFrameTonemappingParams >;
 
         constexpr static RgDrawFrameTonemappingParams value = {
             .sType                = sType,
@@ -109,7 +302,7 @@ namespace detail
     template<>
     struct DefaultParams< RgDrawFrameBloomParams >
     {
-        constexpr static RgStructureType sType = RG_STRUCTURE_TYPE_BLOOM;
+        constexpr static auto sType = detail::TypeToStructureType< RgDrawFrameBloomParams >;
 
         constexpr static RgDrawFrameBloomParams value = {
             .sType                   = sType,
@@ -124,31 +317,32 @@ namespace detail
     template<>
     struct DefaultParams< RgDrawFrameReflectRefractParams >
     {
-        constexpr static RgStructureType sType = RG_STRUCTURE_TYPE_REFLECTREFRACT;
+        constexpr static auto sType =
+            detail::TypeToStructureType< RgDrawFrameReflectRefractParams >;
 
         constexpr static RgDrawFrameReflectRefractParams value = {
-            .sType                                      = sType,
-            .pNext                                      = nullptr,
-            .maxReflectRefractDepth                     = 2,
-            .typeOfMediaAroundCamera                    = RgMediaType::RG_MEDIA_TYPE_VACUUM,
-            .indexOfRefractionGlass                     = 1.52f,
-            .indexOfRefractionWater                     = 1.33f,
-            .thinMediaWidth                             = 0.1f,
-            .waterWaveSpeed                             = 1.0f,
-            .waterWaveNormalStrength                    = 1.0f,
-            .waterColor                                 = { 0.3f, 0.73f, 0.63f },
-            .acidColor                                  = { 0.0f, 0.66f, 0.55f },
-            .acidDensity                                = 10.0f,
-            .waterWaveTextureDerivativesMultiplier      = 1.0f,
-            .waterTextureAreaScale                      = 1.0f,
-            .portalNormalTwirl                          = false,
+            .sType                                 = sType,
+            .pNext                                 = nullptr,
+            .maxReflectRefractDepth                = 2,
+            .typeOfMediaAroundCamera               = RgMediaType::RG_MEDIA_TYPE_VACUUM,
+            .indexOfRefractionGlass                = 1.52f,
+            .indexOfRefractionWater                = 1.33f,
+            .thinMediaWidth                        = 0.1f,
+            .waterWaveSpeed                        = 1.0f,
+            .waterWaveNormalStrength               = 1.0f,
+            .waterColor                            = { 0.3f, 0.73f, 0.63f },
+            .acidColor                             = { 0.0f, 0.66f, 0.55f },
+            .acidDensity                           = 10.0f,
+            .waterWaveTextureDerivativesMultiplier = 1.0f,
+            .waterTextureAreaScale                 = 1.0f,
+            .portalNormalTwirl                     = false,
         };
     };
 
     template<>
     struct DefaultParams< RgDrawFrameSkyParams >
     {
-        constexpr static RgStructureType sType = RG_STRUCTURE_TYPE_SKY;
+        constexpr static auto sType = detail::TypeToStructureType< RgDrawFrameSkyParams >;
 
         constexpr static RgDrawFrameSkyParams value = {
             .sType                       = sType,
@@ -166,7 +360,7 @@ namespace detail
     template<>
     struct DefaultParams< RgDrawFrameTexturesParams >
     {
-        constexpr static RgStructureType sType = RG_STRUCTURE_TYPE_TEXTURES;
+        constexpr static auto sType = detail::TypeToStructureType< RgDrawFrameTexturesParams >;
 
         constexpr static RgDrawFrameTexturesParams value = {
             .sType                  = sType,
@@ -182,7 +376,7 @@ namespace detail
     template<>
     struct DefaultParams< RgDrawFrameLightmapParams >
     {
-        constexpr static RgStructureType sType = RG_STRUCTURE_TYPE_LIGHTMAP;
+        constexpr static auto sType = detail::TypeToStructureType< RgDrawFrameLightmapParams >;
 
         constexpr static RgDrawFrameLightmapParams value = {
             .sType                  = sType,
@@ -194,7 +388,7 @@ namespace detail
     template<>
     struct DefaultParams< RgDrawFramePostEffectsParams >
     {
-        constexpr static RgStructureType sType = RG_STRUCTURE_TYPE_POSTEFFECTS;
+        constexpr static auto sType = detail::TypeToStructureType< RgDrawFramePostEffectsParams >;
 
         constexpr static RgDrawFramePostEffectsParams value = {
             .sType                 = sType,
@@ -212,189 +406,27 @@ namespace detail
         };
     };
 
-    // Helpers
+    template< typename T >
+    concept HasDefaultParams = requires( DefaultParams< T > t ) { t.value; };
 
-    inline RgStructureType ReadSType( const void* params )
+    template< typename T >
+    constexpr static auto DefaultParamsFor = typename DefaultParams< T >::value;
+}
+
+
+namespace pnext
+{
+    template< detail::HasDefaultParams T, typename SourceType >
+        requires( detail::AreLinkable< T, SourceType > )
+    const T& get( const SourceType& listStart )
     {
-        constexpr size_t sTypeOffset = 0;
-
-        // clang-format off
-        static_assert( offsetof( RgDrawFrameRenderResolutionParams, sType ) == sTypeOffset );
-        static_assert( offsetof( RgDrawFrameIlluminationParams,     sType ) == sTypeOffset );
-        static_assert( offsetof( RgDrawFrameVolumetricParams,       sType ) == sTypeOffset );
-        static_assert( offsetof( RgDrawFrameTonemappingParams,      sType ) == sTypeOffset );
-        static_assert( offsetof( RgDrawFrameBloomParams,            sType ) == sTypeOffset );
-        static_assert( offsetof( RgDrawFrameReflectRefractParams,   sType ) == sTypeOffset );
-        static_assert( offsetof( RgDrawFrameSkyParams,              sType ) == sTypeOffset );
-        static_assert( offsetof( RgDrawFrameTexturesParams,         sType ) == sTypeOffset );
-        static_assert( offsetof( RgDrawFrameLightmapParams,         sType ) == sTypeOffset );
-        static_assert( offsetof( RgDrawFramePostEffectsParams,      sType ) == sTypeOffset );
-        
-        static_assert( sizeof( RgDrawFrameRenderResolutionParams  ::sType ) == sizeof( RgStructureType ) );
-        static_assert( sizeof( RgDrawFrameIlluminationParams      ::sType ) == sizeof( RgStructureType ) );
-        static_assert( sizeof( RgDrawFrameVolumetricParams        ::sType ) == sizeof( RgStructureType ) );
-        static_assert( sizeof( RgDrawFrameTonemappingParams       ::sType ) == sizeof( RgStructureType ) );
-        static_assert( sizeof( RgDrawFrameBloomParams             ::sType ) == sizeof( RgStructureType ) );
-        static_assert( sizeof( RgDrawFrameReflectRefractParams    ::sType ) == sizeof( RgStructureType ) );
-        static_assert( sizeof( RgDrawFrameSkyParams               ::sType ) == sizeof( RgStructureType ) );
-        static_assert( sizeof( RgDrawFrameTexturesParams          ::sType ) == sizeof( RgStructureType ) );
-        static_assert( sizeof( RgDrawFrameLightmapParams          ::sType ) == sizeof( RgStructureType ) );
-        static_assert( sizeof( RgDrawFramePostEffectsParams       ::sType ) == sizeof( RgStructureType ) );
-        // clang-format on
-
-        auto ptr = static_cast< const uint8_t* >( params ) + sTypeOffset;
-        return *reinterpret_cast< std::add_pointer_t< const RgStructureType > >( ptr );
-    }
-
-    inline void* ReadPNext( void* params )
-    {
-        constexpr size_t pNextOffset = 8;
-
-        // clang-format off
-        static_assert( offsetof( RgDrawFrameRenderResolutionParams, pNext ) == pNextOffset );
-        static_assert( offsetof( RgDrawFrameIlluminationParams,     pNext ) == pNextOffset );
-        static_assert( offsetof( RgDrawFrameVolumetricParams,       pNext ) == pNextOffset );
-        static_assert( offsetof( RgDrawFrameTonemappingParams,      pNext ) == pNextOffset );
-        static_assert( offsetof( RgDrawFrameBloomParams,            pNext ) == pNextOffset );
-        static_assert( offsetof( RgDrawFrameReflectRefractParams,   pNext ) == pNextOffset );
-        static_assert( offsetof( RgDrawFrameSkyParams,              pNext ) == pNextOffset );
-        static_assert( offsetof( RgDrawFrameTexturesParams,         pNext ) == pNextOffset );
-        static_assert( offsetof( RgDrawFrameLightmapParams,         pNext ) == pNextOffset );
-        static_assert( offsetof( RgDrawFramePostEffectsParams,      pNext ) == pNextOffset );
-        
-        static_assert( sizeof( RgDrawFrameRenderResolutionParams  ::pNext ) == sizeof( void* ) );
-        static_assert( sizeof( RgDrawFrameIlluminationParams      ::pNext ) == sizeof( void* ) );
-        static_assert( sizeof( RgDrawFrameVolumetricParams        ::pNext ) == sizeof( void* ) );
-        static_assert( sizeof( RgDrawFrameTonemappingParams       ::pNext ) == sizeof( void* ) );
-        static_assert( sizeof( RgDrawFrameBloomParams             ::pNext ) == sizeof( void* ) );
-        static_assert( sizeof( RgDrawFrameReflectRefractParams    ::pNext ) == sizeof( void* ) );
-        static_assert( sizeof( RgDrawFrameSkyParams               ::pNext ) == sizeof( void* ) );
-        static_assert( sizeof( RgDrawFrameTexturesParams          ::pNext ) == sizeof( void* ) );
-        static_assert( sizeof( RgDrawFrameLightmapParams          ::pNext ) == sizeof( void* ) );
-        static_assert( sizeof( RgDrawFramePostEffectsParams       ::pNext ) == sizeof( void* ) );
-        // clang-format on
-
-        auto ptr = static_cast< uint8_t* >( params ) + pNextOffset;
-        return *reinterpret_cast< std::add_pointer_t< void* > >( ptr );
-    }
-
-    template< typename T, bool AsConst >
-    std::conditional_t< AsConst, const T*, T* > TryAccessParams( void* liststart )
-    {
-        void* next = liststart;
-
-        while( next )
+        if( auto p = pnext::find< T >( &listStart ) )
         {
-            RgStructureType sType = ReadSType( next );
-
-            switch( sType )
-            {
-                case RG_STRUCTURE_TYPE_RENDER_RESOLUTION:
-                case RG_STRUCTURE_TYPE_ILLUMINATION:
-                case RG_STRUCTURE_TYPE_VOLUMETRIC:
-                case RG_STRUCTURE_TYPE_TONEMAPPING:
-                case RG_STRUCTURE_TYPE_BLOOM:
-                case RG_STRUCTURE_TYPE_REFLECTREFRACT:
-                case RG_STRUCTURE_TYPE_SKY:
-                case RG_STRUCTURE_TYPE_TEXTURES:
-                case RG_STRUCTURE_TYPE_LIGHTMAP:
-                case RG_STRUCTURE_TYPE_POSTEFFECTS:
-                    // found matching sType
-                    if( sType == DefaultParams< T >::sType )
-                    {
-                        return static_cast< T* >( next );
-                    }
-                    break;
-
-                case RG_STRUCTURE_TYPE_NONE:
-                default:
-                    debug::Error( "Found invalid sType: {} on {:#x}",
-                                  std::underlying_type_t< RgStructureType >{ sType },
-                                  uint64_t( next ) );
-            }
-
-            next = ReadPNext( next );
+            return *p;
         }
-
-        return static_cast< T* >( nullptr );
+        // default if not found
+        return detail::DefaultParamsFor< T >;
     }
 }
-
-
-template< typename T >
-const T& AccessParams( const RgDrawFrameInfo& info )
-{
-    if( auto p = detail::TryAccessParams< T, true >( info.pParams ) )
-    {
-        return *p;
-    }
-
-    // default if not found
-    return detail::DefaultParams< T >::value;
-}
-
-template< typename T >
-T* AccessParamsForWrite( RgDrawFrameInfo& info )
-{
-    if( auto p = detail::TryAccessParams< T, false >( info.pParams ) )
-    {
-        return p;
-    }
-
-    return nullptr;
-}
-
-
-struct DrawFrameInfoCopy
-{
-    RgDrawFrameInfo info{};
-
-    explicit DrawFrameInfoCopy( const RgDrawFrameInfo& original ) : info( original )
-    {
-        // clang-format off
-        storage_RenderResolution = AccessParams< RgDrawFrameRenderResolutionParams >( original );
-        storage_Illumination     = AccessParams< RgDrawFrameIlluminationParams     >( original );
-        storage_Volumetric       = AccessParams< RgDrawFrameVolumetricParams       >( original );
-        storage_Tonemapping      = AccessParams< RgDrawFrameTonemappingParams      >( original );
-        storage_Bloom            = AccessParams< RgDrawFrameBloomParams            >( original );
-        storage_ReflectRefract   = AccessParams< RgDrawFrameReflectRefractParams   >( original );
-        storage_Sky              = AccessParams< RgDrawFrameSkyParams              >( original );
-        storage_Textures         = AccessParams< RgDrawFrameTexturesParams         >( original );
-        storage_Lightmap         = AccessParams< RgDrawFrameLightmapParams         >( original );
-        storage_PostEffects      = AccessParams< RgDrawFramePostEffectsParams      >( original );
-
-        storage_RenderResolution.pNext = nullptr;
-        storage_Illumination    .pNext = &storage_RenderResolution;
-        storage_Volumetric      .pNext = &storage_Illumination;
-        storage_Tonemapping     .pNext = &storage_Volumetric;
-        storage_Bloom           .pNext = &storage_Tonemapping;
-        storage_ReflectRefract  .pNext = &storage_Bloom;
-        storage_Sky             .pNext = &storage_ReflectRefract;
-        storage_Textures        .pNext = &storage_Sky;
-        storage_Lightmap        .pNext = &storage_Textures;
-        storage_PostEffects     .pNext = &storage_Lightmap;
-        info                    .pParams = &storage_PostEffects;
-        // clang-format on
-    }
-
-    ~DrawFrameInfoCopy() = default;
-
-    DrawFrameInfoCopy( const DrawFrameInfoCopy& )            = delete;
-    DrawFrameInfoCopy( DrawFrameInfoCopy&& )                 = delete;
-    DrawFrameInfoCopy& operator=( const DrawFrameInfoCopy& ) = delete;
-    DrawFrameInfoCopy& operator=( DrawFrameInfoCopy&& )      = delete;
-
-private:
-    RgDrawFrameRenderResolutionParams storage_RenderResolution{};
-    RgDrawFrameIlluminationParams     storage_Illumination{};
-    RgDrawFrameVolumetricParams       storage_Volumetric{};
-    RgDrawFrameTonemappingParams      storage_Tonemapping{};
-    RgDrawFrameBloomParams            storage_Bloom{};
-    RgDrawFrameReflectRefractParams   storage_ReflectRefract{};
-    RgDrawFrameSkyParams              storage_Sky{};
-    RgDrawFrameTexturesParams         storage_Textures{};
-    RgDrawFrameLightmapParams         storage_Lightmap{};
-    RgDrawFramePostEffectsParams      storage_PostEffects{};
-};
 
 }

@@ -21,6 +21,7 @@
 #include "GltfExporter.h"
 
 #include "Const.h"
+#include "DrawFrameInfo.h"
 #include "SpanCounted.h"
 #include "TextureExporter.h"
 #include "Utils.h"
@@ -140,9 +141,25 @@ namespace RTGL1
 {
 struct DeepCopyOfPrimitive
 {
-    explicit DeepCopyOfPrimitive( const RgMeshPrimitiveInfo& c )
-        : info( c ), editor( c.pEditorInfo ? *c.pEditorInfo : RgEditorInfo{} )
+    explicit DeepCopyOfPrimitive( const RgMeshPrimitiveInfo& c ) : info( c )
     {
+        if( auto e = pnext::find< RgMeshPrimitivePortalEXT >( &c ) )
+        {
+            extPortal = *e;
+        }
+        if( auto e = pnext::find< RgMeshPrimitiveTextureLayersEXT >( &c ) )
+        {
+            extTextureLayers = *e;
+        }
+        if( auto e = pnext::find< RgMeshPrimitivePBREXT >( &c ) )
+        {
+            extPbr = *e;
+        }
+        if( auto e = pnext::find< RgMeshPrimitiveAttachedLightEXT >( &c ) )
+        {
+            extAttachedLight = *e;
+        }
+
         std::span fromVertices( c.pVertices, c.vertexCount );
         std::span fromIndices( c.pIndices, c.indexCount );
         // for copying
@@ -165,7 +182,10 @@ struct DeepCopyOfPrimitive
 
     DeepCopyOfPrimitive( DeepCopyOfPrimitive&& other ) noexcept
         : info( other.info )
-        , editor( other.editor )
+        , extPortal( other.extPortal )
+        , extTextureLayers( other.extTextureLayers )
+        , extPbr( other.extPbr )
+        , extAttachedLight( other.extAttachedLight )
         , pPrimitiveNameInMesh( std::move( other.pPrimitiveNameInMesh ) )
         , pTextureName( std::move( other.pTextureName ) )
         , pVertices( std::move( other.pVertices ) )
@@ -188,8 +208,11 @@ struct DeepCopyOfPrimitive
         this->pIndices             = std::move( other.pIndices );
 
         // copy and fix
-        this->info   = other.info;
-        this->editor = other.editor;
+        this->info             = other.info;
+        this->extPortal        = other.extPortal;
+        this->extTextureLayers = other.extTextureLayers;
+        this->extPbr           = other.extPbr;
+        this->extAttachedLight = other.extAttachedLight;
         FixupPointers( *this );
 
         // invalidate other
@@ -215,14 +238,8 @@ struct DeepCopyOfPrimitive
     RgFloat4D Color() const { return Utils::UnpackColor4DPacked32( info.color ); }
     float     Emissive() const { return Utils::Saturate( info.emissive ); }
 
-    float Roughness() const
-    {
-        return editor.pbrInfoExists ? Utils::Saturate( editor.pbrInfo.roughnessDefault ) : 1.0f;
-    }
-    float Metallic() const
-    {
-        return editor.pbrInfoExists ? Utils::Saturate( editor.pbrInfo.metallicDefault ) : 0.0f;
-    }
+    float Roughness() const { return extPbr ? Utils::Saturate( extPbr->roughnessDefault ) : 1.0f; }
+    float Metallic() const { return extPbr ? Utils::Saturate( extPbr->metallicDefault ) : 0.0f; }
 
     cgltf_alpha_mode AlphaMode() const
     {
@@ -249,12 +266,28 @@ private:
         assert( inout.info.vertexCount == inout.pVertices.size() );
         assert( inout.info.indexCount == inout.pIndices.size() );
 
-        inout.info.pEditorInfo = &inout.editor;
+        auto tryLink = []< typename T >( RgMeshPrimitiveInfo& base, std::optional< T >& target ) {
+            static_assert( detail::AreLinkable< T, RgMeshPrimitiveInfo > );
+            if( target )
+            {
+                target.value().pNext = base.pNext;
+                base.pNext           = &target.value();
+            }
+        };
+
+        inout.info.pNext = nullptr;
+        tryLink( inout.info, inout.extPortal );
+        tryLink( inout.info, inout.extTextureLayers );
+        tryLink( inout.info, inout.extPbr );
+        tryLink( inout.info, inout.extAttachedLight );
     }
 
 private:
-    RgMeshPrimitiveInfo info;
-    RgEditorInfo        editor;
+    RgMeshPrimitiveInfo                              info;
+    std::optional< RgMeshPrimitivePortalEXT >        extPortal;
+    std::optional< RgMeshPrimitiveTextureLayersEXT > extTextureLayers;
+    std::optional< RgMeshPrimitivePBREXT >           extPbr;
+    std::optional< RgMeshPrimitiveAttachedLightEXT > extAttachedLight;
 
     // to maintain lifetimes
     std::string                      pPrimitiveNameInMesh;
@@ -863,7 +896,7 @@ RgFloat3D GetCenter( const RgFloat3D ( &positions )[ 3 ] )
     return center * ( 1.0f / 3.0f );
 }
 
-RgFloat3D GetCenter( const RgPolygonalLightUploadInfo& poly )
+RgFloat3D GetCenter( const RgLightPolygonalEXT& poly )
 {
     return GetCenter( poly.positions );
 }
@@ -888,7 +921,7 @@ RgFloat3D GetNormal( const RgFloat3D ( &positions )[ 3 ] )
     return { 0, 0, 0 };
 }
 
-RgFloat3D GetNormal( const RgPolygonalLightUploadInfo& poly )
+RgFloat3D GetNormal( const RgLightPolygonalEXT& poly )
 {
     return GetNormal( poly.positions );
 }
@@ -904,7 +937,7 @@ private:
         return lumens / ( 4 * float( RTGL1::Utils::M_PI ) );
     }
 
-    static cgltf_light MakeLight( const RgDirectionalLightUploadInfo& sun )
+    static cgltf_light MakeLight( const RgLightDirectionalEXT& sun )
     {
         auto fcolor = RTGL1::Utils::UnpackColor4DPacked32< RgFloat3D >( sun.color );
 
@@ -916,7 +949,7 @@ private:
         };
     }
 
-    static cgltf_light MakeLight( const RgSphericalLightUploadInfo& sph )
+    static cgltf_light MakeLight( const RgLightSphericalEXT& sph )
     {
         auto fcolor = RTGL1::Utils::UnpackColor4DPacked32< RgFloat3D >( sph.color );
 
@@ -928,7 +961,7 @@ private:
         };
     }
 
-    static cgltf_light MakeLight( const RgSpotLightUploadInfo& spot )
+    static cgltf_light MakeLight( const RgLightSpotEXT& spot )
     {
         auto fcolor = RTGL1::Utils::UnpackColor4DPacked32< RgFloat3D >( spot.color );
 
@@ -957,7 +990,7 @@ private:
         };
     }
 
-    static cgltf_light MakeLight( const RgPolygonalLightUploadInfo& poly )
+    static cgltf_light MakeLight( const RgLightPolygonalEXT& poly )
     {
 #if POLYLIGHT_AS_SPHERE
         auto fcolor = RTGL1::Utils::UnpackColor4DPacked32< RgFloat3D >( poly.color );
@@ -979,22 +1012,22 @@ private:
     }
 
 
-    static RgTransform MakeTransform( const RgDirectionalLightUploadInfo& sun )
+    static RgTransform MakeTransform( const RgLightDirectionalEXT& sun )
     {
         return RTGL1::Utils::MakeTransform( { 0, 0, 0 }, -sun.direction );
     }
 
-    static RgTransform MakeTransform( const RgSphericalLightUploadInfo& sph )
+    static RgTransform MakeTransform( const RgLightSphericalEXT& sph )
     {
         return RTGL1::Utils::MakeTransform( sph.position, { 0, 0, 1 } );
     }
 
-    static RgTransform MakeTransform( const RgSpotLightUploadInfo& spot )
+    static RgTransform MakeTransform( const RgLightSpotEXT& spot )
     {
         return RTGL1::Utils::MakeTransform( spot.position, -spot.direction );
     }
 
-    static RgTransform MakeTransform( const RgPolygonalLightUploadInfo& poly )
+    static RgTransform MakeTransform( const RgLightPolygonalEXT& poly )
     {
 #if POLYLIGHT_AS_SPHERE
         RgFloat3D center = GetCenter( poly ) + GetNormal( poly ) * 0.1f;
@@ -1006,19 +1039,19 @@ private:
     }
 
 public:
-    explicit GltfLights( const std::vector< RTGL1::GenericLight >& sceneLights,
-                         std::span< cgltf_node >                   dstLightNodes )
+    explicit GltfLights( const std::vector< RTGL1::LightCopy >& sceneLights,
+                         std::span< cgltf_node >                dstLightNodes )
     {
         assert( dstLightNodes.size() == sceneLights.size() );
 
 #if POLYLIGHT_AS_SPHERE
         {
-            auto foundPoly = std::ranges::find_if( sceneLights, []( const RTGL1::GenericLight& l ) {
+            auto foundPoly = std::ranges::find_if( sceneLights, []( const RTGL1::LightCopy& l ) {
                 return std::visit(
                     []< typename T >( const T& ) {
-                        return std::is_same_v< T, RgPolygonalLightUploadInfo >;
+                        return std::is_same_v< T, RgLightPolygonalEXT >;
                     },
-                    l );
+                    l.extension );
             } );
 
             if( foundPoly != sceneLights.end() )
@@ -1039,19 +1072,18 @@ public:
                 []( auto&& specific ) { //
                     return MakeLight( specific );
                 },
-                sceneLights[ i ] );
+                sceneLights[ i ].extension );
 
-            extrasStorage[ i ] = std::visit(
-                []( auto&& specific ) { //
-                    return RTGL1::json_parser::MakeJsonString( specific.extra );
-                },
-                sceneLights[ i ] );
+            extrasStorage[ i ] =
+                sceneLights[ i ].additional
+                    ? RTGL1::json_parser::MakeJsonString( sceneLights[ i ].additional.value() )
+                    : std::string{};
 
             RgTransform lightTransform = std::visit(
                 []( auto&& specific ) { //
                     return MakeTransform( specific );
                 },
-                sceneLights[ i ] );
+                sceneLights[ i ].extension );
 
             dstLightNodes[ i ] = cgltf_node{
                 .name            = nullptr,
@@ -1087,12 +1119,12 @@ private:
 };
 
 
-void MakeLightsForPrimitive( const RgMeshInfo&                     mesh,
-                             const RgMeshPrimitiveInfo&            prim,
-                             const RgEditorAttachedLightInfo&      lightInfo,
-                             float                                 oneGameUnitInMeters,
-                             std::vector< RTGL1::PositionNormal >& initial,
-                             std::vector< RgSpotLightUploadInfo >& result )
+void MakeLightsForPrimitive( const RgMeshInfo&                      mesh,
+                             const RgMeshPrimitiveInfo&             prim,
+                             const RgMeshPrimitiveAttachedLightEXT& lightInfo,
+                             float                                  oneGameUnitInMeters,
+                             std::vector< RTGL1::PositionNormal >&  initial,
+                             std::vector< RTGL1::AnyLightEXT >&     result )
 {
     assert( initial.empty() );
     assert( result.empty() );
@@ -1217,30 +1249,29 @@ void MakeLightsForPrimitive( const RgMeshInfo&                     mesh,
     {
         float offset = 0.1f / oneGameUnitInMeters;
 
-        result.emplace_back( RgSpotLightUploadInfo{
-            .uniqueID     = 0, /* ignored */
-            .isExportable = true,
-            .extra        = {},
-            .color        = lightInfo.color,
-            .intensity    = lightInfo.intensity,
-            .position     = position + normal * offset,
-            .direction    = normal,
-            .radius       = 0.1f, /* ignored */
-            .angleOuter   = RTGL1::Utils::DegToRad( 89 ),
-            .angleInner   = RTGL1::Utils::DegToRad( 75 ),
+        result.emplace_back( RgLightSpotEXT{
+            .sType      = RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT,
+            .pNext      = nullptr,
+            .color      = lightInfo.color,
+            .intensity  = lightInfo.intensity,
+            .position   = position + normal * offset,
+            .direction  = normal,
+            .radius     = 0.1f, /* ignored */
+            .angleOuter = RTGL1::Utils::DegToRad( 89 ),
+            .angleInner = RTGL1::Utils::DegToRad( 75 ),
         } );
     }
 #endif
 }
 
 
-auto MakeLightsForPrimitive( const RgMeshInfo&                     mesh,
-                             const RgMeshPrimitiveInfo&            prim,
-                             const RgEditorAttachedLightInfo&      lightInfo,
-                             float                                 oneGameUnitInMeters )
+auto MakeLightsForPrimitive( const RgMeshInfo&                      mesh,
+                             const RgMeshPrimitiveInfo&             prim,
+                             const RgMeshPrimitiveAttachedLightEXT& lightInfo,
+                             float                                  oneGameUnitInMeters )
 {
     std::vector< RTGL1::PositionNormal > initial;
-    std::vector< RgSpotLightUploadInfo > resolved;
+    std::vector< RTGL1::AnyLightEXT >    resolved;
     MakeLightsForPrimitive( mesh, prim, lightInfo, oneGameUnitInMeters, initial, resolved );
 
     return resolved;
@@ -1363,43 +1394,39 @@ void RTGL1::GltfExporter::AddPrimitive( const RgMeshInfo&          mesh,
 void RTGL1::GltfExporter::AddPrimitiveLights( const RgMeshInfo&          mesh,
                                               const RgMeshPrimitiveInfo& primitive )
 {
-    if( primitive.pEditorInfo && primitive.pEditorInfo->attachedLightExists )
+    if( auto* attachedLight = pnext::find< RgMeshPrimitiveAttachedLightEXT >( &primitive ) )
     {
-        auto primLights = MakeLightsForPrimitive(
-            mesh, primitive, primitive.pEditorInfo->attachedLight, oneGameUnitInMeters );
-
-        sceneLights.insert( sceneLights.end(), primLights.begin(), primLights.end() );
+        for( const AnyLightEXT& ext :
+             MakeLightsForPrimitive( mesh, primitive, *attachedLight, oneGameUnitInMeters ) )
+        {
+            sceneLights.push_back( LightCopy{
+                .base       = { .sType = RG_STRUCTURE_TYPE_LIGHT_INFO, .isExportable = true },
+                .extension  = ext,
+                .additional = {},
+            } );
+        }
     }
 }
 
-void RTGL1::GltfExporter::MakeLightsForPrimitiveDynamic(
-    const RgMeshInfo&                     mesh,
-    const RgMeshPrimitiveInfo&            primitive,
-    float                                 oneGameUnitInMeters,
-    std::vector< PositionNormal >&        tempStorage,
-    std::vector< RgSpotLightUploadInfo >& resultStorage )
+void RTGL1::GltfExporter::MakeLightsForPrimitiveDynamic( const RgMeshInfo&          mesh,
+                                                         const RgMeshPrimitiveInfo& primitive,
+                                                         float oneGameUnitInMeters,
+                                                         std::vector< PositionNormal >& tempStorage,
+                                                         std::vector< AnyLightEXT >& resultStorage )
 {
     assert( tempStorage.empty() );
     assert( resultStorage.empty() );
 
-    if( primitive.pEditorInfo && primitive.pEditorInfo->attachedLightExists )
+    if( auto* attachedLight = pnext::find< RgMeshPrimitiveAttachedLightEXT >( &primitive ) )
     {
-        MakeLightsForPrimitive( mesh,
-                                primitive,
-                                primitive.pEditorInfo->attachedLight,
-                                oneGameUnitInMeters,
-                                tempStorage,
-                                resultStorage );
+        MakeLightsForPrimitive(
+            mesh, primitive, *attachedLight, oneGameUnitInMeters, tempStorage, resultStorage );
     }
 }
 
-void RTGL1::GltfExporter::AddLight( const GenericLightPtr& light )
+void RTGL1::GltfExporter::AddLight( const LightCopy& light )
 {
-    constexpr auto unbox = []( const GenericLightPtr& ptr ) {
-        return std::visit( []( auto&& specific ) -> GenericLight { return *specific; }, ptr );
-    };
-
-    sceneLights.push_back( unbox( light ) );
+    sceneLights.push_back( light );
 }
 
 void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,

@@ -84,17 +84,10 @@ public:
     VulkanDevice& operator=( VulkanDevice&& other ) noexcept = delete;
 
     void UploadMeshPrimitive( const RgMeshInfo* pMesh, const RgMeshPrimitiveInfo* pPrimitive );
-    void UploadNonWorldPrimitive( const RgMeshPrimitiveInfo* pPrimitive,
-                                  const float*               pViewProjection,
-                                  const RgViewport*          pViewport );
-    void UploadDecal( const RgDecalUploadInfo* pInfo );
-    void UploadLensFlare( const RgLensFlareUploadInfo* pInfo );
+    void UploadDecal( const RgDecalInfo* pInfo );
+    void UploadLensFlare( const RgLensFlareInfo* pInfo );
 
-    void UploadDirectionalLight( const RgDirectionalLightUploadInfo* pInfo );
-    void UploadSphericalLight( const RgSphericalLightUploadInfo* pInfo );
-    void UploadSpotlight( const RgSpotLightUploadInfo* pInfo );
-    void UploadPolygonalLight( const RgPolygonalLightUploadInfo* pInfo );
-    void UploadLight( const GenericLightPtr& light );
+    void UploadLight( const RgLightInfo* pInfo );
 
     void ProvideOriginalTexture( const RgOriginalTextureInfo* pInfo );
     void ProvideOriginalCubemapTexture( const RgOriginalCubemapInfo* pInfo );
@@ -147,8 +140,13 @@ private:
     void            EndFrame( VkCommandBuffer cmd );
 
 private:
+    bool Dev_IsDevmodeInitialized() const;
     void Dev_Draw() const;
-    void Dev_Override( DrawFrameInfoCopy& copy ) const;
+    void Dev_Override( RgStartFrameInfo&                   info,
+                       RgStartFrameRenderResolutionParams& resolution ) const;
+    void Dev_Override( RgDrawFrameIlluminationParams& illumination,
+                       RgDrawFrameTonemappingParams&  tonemappingp,
+                       RgDrawFrameLightmapParams&     lightmap ) const;
     void Dev_TryBreak( const char* pTextureName, bool isImageUpload );
 
 private:
@@ -229,9 +227,20 @@ private:
     ScratchImmediate                  scratchImmediate;
     std::unique_ptr< FolderObserver > observer;
 
+    struct StartFrameInfo
+    {
+        float                       view[ 16 ];
+        float                       projection[ 16 ];
+        float                       fovYRadians;
+        float                       cameraNear;
+        float                       cameraFar;
+        bool                        resetUpscalerHistory;
+        std::optional< RgExtent2D > pixelizedRenderSize;
+    } startFrameInfo{};
+
     // TODO: remove; used to not allocate on each call
-    std::vector< PositionNormal >        tempStorageInit;
-    std::vector< RgSpotLightUploadInfo > tempStorageLights;
+    std::vector< PositionNormal > tempStorageInit;
+    std::vector< AnyLightEXT >    tempStorageLights;
 
     std::unique_ptr< Devmode > devmode;
 
@@ -242,8 +251,6 @@ private:
 
     double previousFrameTime;
     double currentFrameTime;
-
-    bool vsync;
 };
 
 }

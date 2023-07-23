@@ -200,39 +200,19 @@ RgResult rgUploadMeshPrimitive( RgInstance instance, const RgMeshInfo* pMesh, co
     return Call( instance, &RTGL1::VulkanDevice::UploadMeshPrimitive, pMesh, pPrimitive );
 }
 
-RgResult rgUploadNonWorldPrimitive( RgInstance instance, const RgMeshPrimitiveInfo* pPrimitive, const float* pViewProjection, const RgViewport* pViewport )
-{
-    return Call( instance, &RTGL1::VulkanDevice::UploadNonWorldPrimitive, pPrimitive, pViewProjection, pViewport );
-}
-
-RgResult rgUploadDecal( RgInstance instance, const RgDecalUploadInfo* pInfo )
+RgResult rgUploadDecal( RgInstance instance, const RgDecalInfo* pInfo )
 {
     return Call( instance, &RTGL1::VulkanDevice::UploadDecal, pInfo );
 }
 
-RgResult rgUploadLensFlare( RgInstance instance, const RgLensFlareUploadInfo* pInfo )
+RgResult rgUploadLensFlare( RgInstance instance, const RgLensFlareInfo* pInfo )
 {
     return Call( instance, &RTGL1::VulkanDevice::UploadLensFlare, pInfo );
 }
 
-RgResult rgUploadDirectionalLight( RgInstance instance, const RgDirectionalLightUploadInfo* pInfo )
+RgResult rgUploadLight( RgInstance instance, const RgLightInfo* pInfo )
 {
-    return Call( instance, &RTGL1::VulkanDevice::UploadDirectionalLight, pInfo );
-}
-
-RgResult rgUploadSphericalLight( RgInstance instance, const RgSphericalLightUploadInfo* pInfo )
-{
-    return Call( instance, &RTGL1::VulkanDevice::UploadSphericalLight, pInfo );
-}
-
-RgResult rgUploadSpotLight( RgInstance instance, const RgSpotLightUploadInfo* pInfo )
-{
-    return Call( instance, &RTGL1::VulkanDevice::UploadSpotlight, pInfo );
-}
-
-RgResult rgUploadPolygonalLight( RgInstance instance, const RgPolygonalLightUploadInfo* pInfo )
-{
-    return Call( instance, &RTGL1::VulkanDevice::UploadPolygonalLight, pInfo );
+    return Call( instance, &RTGL1::VulkanDevice::UploadLight, pInfo );
 }
 
 RgResult rgProvideOriginalTexture( RgInstance instance, const RgOriginalTextureInfo* pInfo )

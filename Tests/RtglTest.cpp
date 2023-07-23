@@ -599,7 +599,7 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
 
         // set bounding box of the decal to modify G-buffer
         /*{
-            RgDecalUploadInfo decalInfo = {
+            RgDecalInfo decalInfo = {
                 .transform = { {
                     { 1, 0, 0, 0 },
                     { 0, 1, 0, 0 },

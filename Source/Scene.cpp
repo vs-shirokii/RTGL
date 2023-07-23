@@ -144,13 +144,12 @@ RTGL1::UploadResult RTGL1::Scene::UploadPrimitive( uint32_t                   fr
                : ( mesh.isExportable ? UploadResult::ExportableDynamic : UploadResult::Dynamic );
 }
 
-RTGL1::UploadResult RTGL1::Scene::UploadLight( uint32_t               frameIndex,
-                                               const GenericLightPtr& light,
-                                               LightManager*          lightManager,
-                                               bool                   isStatic )
+RTGL1::UploadResult RTGL1::Scene::UploadLight( uint32_t         frameIndex,
+                                               const LightCopy& light,
+                                               LightManager*    lightManager,
+                                               bool             isStatic )
 {
-    bool isExportable =
-        std::visit( []( auto&& specific ) { return specific->isExportable; }, light );
+    bool isExportable = light.base.isExportable;
 
     if( !isStatic )
     {
@@ -174,10 +173,10 @@ RTGL1::UploadResult RTGL1::Scene::UploadLight( uint32_t               frameIndex
             if( !isStatic )
             {
                 assert( lightManager );
-                lightManager->Add( frameIndex, *specific );
+                lightManager->Add( frameIndex, light.base.uniqueID, specific );
             }
         },
-        light );
+        light.extension );
 
     return isStatic ? ( isExportable ? UploadResult::ExportableStatic : UploadResult::Static )
                     : ( isExportable ? UploadResult::ExportableDynamic : UploadResult::Dynamic );
@@ -188,29 +187,28 @@ void RTGL1::Scene::SubmitStaticLights( uint32_t          frameIndex,
                                        bool              isUnderwater,
                                        RgColor4DPacked32 underwaterColor ) const
 {
-    for( const GenericLight& l : staticLights )
+    for( const LightCopy& l : staticLights )
     {
         std::visit(
             [ & ]< typename T >( const T& specific ) {
-
                 // SHIPPING HACK - BEGIN: tint sun if underwater
-                if constexpr( std::is_same_v< RgDirectionalLightUploadInfo, T > )
+                if constexpr( std::is_same_v< RgLightDirectionalEXT, T > )
                 {
                     if( isUnderwater )
                     {
-                        RgDirectionalLightUploadInfo tinted = specific;
+                        RgLightDirectionalEXT tinted = specific;
 
                         tinted.color = underwaterColor;
 
-                        lightManager.Add( frameIndex, tinted );
+                        lightManager.Add( frameIndex, l.base.uniqueID, tinted );
                         return;
                     }
                 }
                 // SHIPPING HACK - END
 
-                lightManager.Add( frameIndex, specific );
+                lightManager.Add( frameIndex, l.base.uniqueID, specific );
             },
-            l );
+            l.extension );
     }
 }
 
@@ -257,35 +255,26 @@ bool RTGL1::Scene::InsertPrimitiveInfo( uint64_t                   uniqueID,
     return false;
 }
 
-bool RTGL1::Scene::InsertLightInfo( bool isStatic, const GenericLightPtr& light )
+bool RTGL1::Scene::InsertLightInfo( bool isStatic, const LightCopy& light )
 {
-    constexpr auto getIdFromRef = []( const GenericLight& l ) -> uint64_t {
-        return std::visit( []( auto&& specific ) { return specific.uniqueID; }, l );
-    };
-    constexpr auto getId = []( const GenericLightPtr& l ) -> uint64_t {
-        return std::visit( []( auto&& specific ) { return specific->uniqueID; }, l );
-    };
-
     if( isStatic )
     {
         // just check that there's no id collision
         auto foundSameId =
-            std::ranges::find_if( staticLights, [ &light ]( const GenericLight& other ) {
-                return getIdFromRef( other ) == getId( light );
+            std::ranges::find_if( staticLights, [ &light ]( const LightCopy& other ) {
+                return other.base.uniqueID == light.base.uniqueID;
             } );
 
         if( foundSameId != staticLights.end() )
         {
             debug::Warning(
                 "Trying add a static light with a uniqueID {} that other light already has",
-                getId( light ) );
+                light.base.uniqueID );
             return false;
         }
 
         // add to the list
-        std::visit(
-            [ this ]( auto&& specific ) { return this->staticLights.push_back( *specific ); },
-            light );
+        staticLights.push_back( light );
         return true;
     }
     else

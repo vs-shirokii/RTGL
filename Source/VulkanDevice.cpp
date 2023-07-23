@@ -46,7 +46,7 @@ VkCommandBuffer RTGL1::VulkanDevice::BeginFrame( const RgStartFrameInfo& info )
             device, frameFences[ frameIndex ], outOfFrameFences[ frameIndex ] );
     }
 
-    swapchain->RequestVsync( vsync );
+    swapchain->RequestVsync( info.vsync );
     swapchain->AcquireImage( imageAvailableSemaphores[ frameIndex ] );
 
     VkSemaphore semaphoreToWaitOnSubmit = imageAvailableSemaphores[ frameIndex ];
@@ -151,10 +151,8 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
         memcpy( gu->viewPrev, gu->view, 16 * sizeof( float ) );
         memcpy( gu->projectionPrev, gu->projection, 16 * sizeof( float ) );
 
-        memcpy( gu->view, drawInfo.view, 16 * sizeof( float ) );
-
-        Matrix::MakeProjectionMatrix(
-            gu->projection, aspect, drawInfo.fovYRadians, drawInfo.cameraNear, drawInfo.cameraFar );
+        memcpy( gu->view, startFrameInfo.view, 16 * sizeof( float ) );
+        memcpy( gu->projection, startFrameInfo.projection, 16 * sizeof( float ) );
 
         Matrix::Inverse( gu->invView, gu->view );
         Matrix::Inverse( gu->invProjection, gu->projection );
@@ -200,7 +198,7 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
     }
 
     {
-        const auto& params = AccessParams< RgDrawFrameTonemappingParams >( drawInfo );
+        const auto& params = pnext::get< RgDrawFrameTonemappingParams >( drawInfo );
 
         float luminanceMin = std::exp2( params.ev100Min ) * 12.5f / 100.0f;
         float luminanceMax = std::exp2( params.ev100Max ) * 12.5f / 100.0f;
@@ -219,7 +217,7 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
     }
 
     {
-        const auto& params = AccessParams< RgDrawFrameSkyParams >( drawInfo );
+        const auto& params = pnext::get< RgDrawFrameSkyParams >( drawInfo );
 
         static_assert( sizeof( gu->skyCubemapRotationTransform ) == sizeof( IdentityMat4x4 ) &&
                            sizeof( IdentityMat4x4 ) == 16 * sizeof( float ),
@@ -263,15 +261,18 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
         {
             float* viewProjDst = &gu->viewProjCubemap[ 16 * i ];
 
-            Matrix::GetCubemapViewProjMat(
-                viewProjDst, i, skyViewerPosition.data, drawInfo.cameraNear, drawInfo.cameraFar );
+            Matrix::GetCubemapViewProjMat( viewProjDst,
+                                           i,
+                                           skyViewerPosition.data,
+                                           startFrameInfo.cameraNear,
+                                           startFrameInfo.cameraFar );
         }
     }
 
     gu->debugShowFlags = devmode ? devmode->debugShowFlags : 0;
 
     {
-        const auto& params = AccessParams< RgDrawFrameTexturesParams >( drawInfo );
+        const auto& params = pnext::get< RgDrawFrameTexturesParams >( drawInfo );
 
         gu->normalMapStrength      = params.normalMapStrength;
         gu->emissionMapBoost       = std::max( params.emissionMapBoost, 0.0f );
@@ -280,7 +281,7 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
     }
 
     {
-        const auto& params = AccessParams< RgDrawFrameIlluminationParams >( drawInfo );
+        const auto& params = pnext::get< RgDrawFrameIlluminationParams >( drawInfo );
 
         gu->maxBounceShadowsLights     = params.maxBounceShadows;
         gu->polyLightSpotlightFactor   = std::max( 0.0f, params.polygonalLightSpotlightFactor );
@@ -295,7 +296,7 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
     }
 
     {
-        const auto& params = AccessParams< RgDrawFrameBloomParams >( drawInfo );
+        const auto& params = pnext::get< RgDrawFrameBloomParams >( drawInfo );
 
         gu->bloomThreshold          = std::max( params.inputThreshold, 0.0f );
         gu->bloomIntensity          = std::max( params.bloomIntensity, 0.0f );
@@ -304,7 +305,7 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
     }
 
     {
-        const auto& params = AccessParams< RgDrawFrameReflectRefractParams >( drawInfo );
+        const auto& params = pnext::get< RgDrawFrameReflectRefractParams >( drawInfo );
 
         switch( params.typeOfMediaAroundCamera )
         {
@@ -339,7 +340,7 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
 
     gu->rayCullBackFaces  = rayCullBackFacingTriangles ? 1 : 0;
     gu->rayLength         = clamp( drawInfo.rayLength, 0.1f, float( MAX_RAY_LENGTH ) );
-    gu->primaryRayMinDist = clamp( drawInfo.cameraNear, 0.001f, gu->rayLength );
+    gu->primaryRayMinDist = clamp( startFrameInfo.cameraNear, 0.001f, gu->rayLength );
 
     {
         gu->rayCullMaskWorld = 0;
@@ -396,13 +397,13 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
     gu->waterNormalTextureIndex = textureManager->GetWaterNormalTextureIndex();
     gu->dirtMaskTextureIndex    = textureManager->GetDirtMaskTextureIndex();
 
-    gu->cameraRayConeSpreadAngle = atanf( ( 2.0f * tanf( drawInfo.fovYRadians * 0.5f ) ) /
+    gu->cameraRayConeSpreadAngle = atanf( ( 2.0f * tanf( startFrameInfo.fovYRadians * 0.5f ) ) /
                                           float( renderResolution.Height() ) );
 
     RG_SET_VEC3_A( gu->worldUpVector, sceneImportExport->GetWorldUp().data );
 
     {
-        const auto& params = AccessParams< RgDrawFrameLightmapParams >( drawInfo );
+        const auto& params = pnext::get< RgDrawFrameLightmapParams >( drawInfo );
 
         gu->lightmapScreenCoverage = params.lightmapScreenCoverage < 0.01f
                                          ? 0
@@ -410,10 +411,10 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
     }
 
     {
-        const auto& params = AccessParams< RgDrawFrameVolumetricParams >( drawInfo );
+        const auto& params = pnext::get< RgDrawFrameVolumetricParams >( drawInfo );
 
-        gu->volumeCameraNear = std::max( drawInfo.cameraNear, 0.001f );
-        gu->volumeCameraFar  = std::min( drawInfo.cameraFar, params.volumetricFar );
+        gu->volumeCameraNear = std::max( startFrameInfo.cameraNear, 0.001f );
+        gu->volumeCameraFar  = std::min( startFrameInfo.cameraFar, params.volumetricFar );
 
         {
             if( params.enable )
@@ -434,7 +435,7 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
             gu->illumVolumeEnable = params.useIlluminationVolume;
 
             if( auto uniqueId = scene->TryGetVolumetricLight(
-                    AccessParams< RgDrawFrameIlluminationParams >( drawInfo ) ) )
+                    pnext::get< RgDrawFrameIlluminationParams >( drawInfo ) ) )
             {
                 gu->volumeLightSourceIndex = lightManager->GetLightIndexForShaders(
                     currentFrameState.GetFrameIndex(), &uniqueId.value() );
@@ -469,7 +470,7 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
             float volumeproj[ 16 ];
             Matrix::MakeProjectionMatrix( volumeproj,
                                           aspect,
-                                          drawInfo.fovYRadians,
+                                          startFrameInfo.fovYRadians,
                                           gu->volumeCameraNear,
                                           gu->volumeCameraFar );
 
@@ -498,10 +499,10 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
     const RgFloat2D jitter = { uniform->GetData()->jitterX, uniform->GetData()->jitterY };
 
     textureManager->SubmitDescriptors(
-        frameIndex, AccessParams< RgDrawFrameTexturesParams >( drawInfo ), mipLodBiasUpdated );
+        frameIndex, pnext::get< RgDrawFrameTexturesParams >( drawInfo ), mipLodBiasUpdated );
     cubemapManager->SubmitDescriptors( frameIndex );
 
-    lightManager->SetLightstyles( AccessParams< RgDrawFrameIlluminationParams >( drawInfo ) );
+    lightManager->SetLightstyles( pnext::get< RgDrawFrameIlluminationParams >( drawInfo ) );
     lightManager->SubmitForFrame( cmd, frameIndex );
 
     // submit geometry and upload uniform after getting data from a scene
@@ -529,7 +530,7 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
                 frameIndex,
                 *textureManager,
                 uniform->GetData()->view,
-                AccessParams< RgDrawFrameSkyParams >( drawInfo ).skyViewerPosition,
+                pnext::get< RgDrawFrameSkyParams >( drawInfo ).skyViewerPosition,
                 uniform->GetData()->projection,
                 jitter,
                 renderResolution );
@@ -544,9 +545,9 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
         portalList->SubmitForFrame( cmd, frameIndex );
 
         float volumetricMaxHistoryLen =
-            AccessParams< RgDrawFrameRenderResolutionParams >( drawInfo ).resetUpscalerHistory
+            startFrameInfo.resetUpscalerHistory
                 ? 0
-                : AccessParams< RgDrawFrameVolumetricParams >( drawInfo ).maxHistoryLength;
+                : pnext::get< RgDrawFrameVolumetricParams >( drawInfo ).maxHistoryLength;
 
         const auto params = pathTracer->Bind( cmd,
                                               frameIndex,
@@ -609,10 +610,10 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
                                 frameIndex,
                                 *uniform,
                                 *tonemapping,
-                                AccessParams< RgDrawFrameTonemappingParams >( drawInfo ) );
+                                pnext::get< RgDrawFrameTonemappingParams >( drawInfo ) );
 
 
-    bool enableBloom = AccessParams< RgDrawFrameBloomParams >( drawInfo ).bloomIntensity > 0.0f;
+    bool enableBloom = pnext::get< RgDrawFrameBloomParams >( drawInfo ).bloomIntensity > 0.0f;
     if( enableBloom )
     {
         bloom->Prepare( cmd, frameIndex, *uniform, *tonemapping );
@@ -621,8 +622,7 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
 
     FramebufferImageIndex accum = FramebufferImageIndex::FB_IMAGE_INDEX_FINAL;
     {
-        const auto& params = AccessParams< RgDrawFrameRenderResolutionParams >( drawInfo );
-        double      timeDelta = std::max< double >( currentFrameTime - previousFrameTime, 0.0001 );
+        double timeDelta = std::max< double >( currentFrameTime - previousFrameTime, 0.0001 );
 
         // upscale finalized image
         if( renderResolution.IsNvDlssEnabled() )
@@ -633,7 +633,7 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
                                    renderResolution,
                                    jitter,
                                    timeDelta,
-                                   params.resetUpscalerHistory );
+                                   startFrameInfo.resetUpscalerHistory );
         }
         else if( renderResolution.IsAmdFsr2Enabled() )
         {
@@ -643,14 +643,19 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
                                     renderResolution,
                                     jitter,
                                     timeDelta,
-                                    drawInfo.cameraNear,
-                                    drawInfo.cameraFar,
-                                    drawInfo.fovYRadians,
-                                    params.resetUpscalerHistory );
+                                    startFrameInfo.cameraNear,
+                                    startFrameInfo.cameraFar,
+                                    startFrameInfo.fovYRadians,
+                                    startFrameInfo.resetUpscalerHistory );
         }
 
-        accum = framebuffers->BlitForEffects(
-            cmd, frameIndex, accum, renderResolution.GetBlitFilter(), params.pPixelizedRenderSize );
+        accum = framebuffers->BlitForEffects( cmd,
+                                              frameIndex,
+                                              accum,
+                                              renderResolution.GetBlitFilter(),
+                                              startFrameInfo.pixelizedRenderSize
+                                                  ? &startFrameInfo.pixelizedRenderSize.value()
+                                                  : nullptr );
     }
 
 
@@ -684,7 +689,7 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
                                   accum );
         }
 
-        const auto& postef = AccessParams< RgDrawFramePostEffectsParams >( drawInfo );
+        const auto& postef = pnext::get< RgDrawFramePostEffectsParams >( drawInfo );
 
         if( effectTeleport->Setup( args, postef.pTeleport ) )
         {
@@ -723,7 +728,8 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
     // draw geometry such as HUD into an upscaled framebuf
     if( !drawInfo.disableRasterization )
     {
-        framebuffers->BarrierOne( cmd, frameIndex, accum, RTGL1::Framebuffers::BarrierType::Storage );
+        framebuffers->BarrierOne(
+            cmd, frameIndex, accum, RTGL1::Framebuffers::BarrierType::Storage );
 
         rasterizer->DrawToSwapchain( cmd,
                                      frameIndex,
@@ -737,7 +743,7 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
 
     // post-effect that work on swapchain geometry too
     {
-        const auto& postef = AccessParams< RgDrawFramePostEffectsParams >( drawInfo );
+        const auto& postef = pnext::get< RgDrawFramePostEffectsParams >( drawInfo );
 
         if( effectWipe->Setup( args, postef.pWipe, swapchain, frameId ) )
         {
@@ -823,20 +829,73 @@ void RTGL1::VulkanDevice::EndFrame( VkCommandBuffer cmd )
 
 
 
-void RTGL1::VulkanDevice::StartFrame( const RgStartFrameInfo* pInfo )
+void RTGL1::VulkanDevice::StartFrame( const RgStartFrameInfo* pOriginalInfo )
 {
     if( currentFrameState.WasFrameStarted() )
     {
         throw RgException( RG_RESULT_FRAME_WASNT_ENDED );
     }
 
-    if( pInfo == nullptr )
+    if( pOriginalInfo == nullptr )
     {
         throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
     }
 
-    VkCommandBuffer newFrameCmd = BeginFrame( *pInfo );
-    currentFrameState.OnBeginFrame( newFrameCmd );
+    if( pOriginalInfo->sType != RG_STRUCTURE_TYPE_START_FRAME_INFO )
+    {
+        throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
+    }
+
+    auto startFrame_Core = [ this ]( const RgStartFrameInfo& info ) {
+        const auto resolutionParams = pnext::get< RgStartFrameRenderResolutionParams >( info );
+
+        renderResolution.Setup(
+            resolutionParams, swapchain->GetWidth(), swapchain->GetHeight(), nvDlss );
+
+        const float aspect = static_cast< float >( renderResolution.Width() ) /
+                             static_cast< float >( renderResolution.Height() );
+
+        {
+            startFrameInfo = StartFrameInfo{
+                .fovYRadians          = info.fovYRadians,
+                .cameraNear           = info.cameraNear,
+                .cameraFar            = info.cameraFar,
+                .resetUpscalerHistory = !!resolutionParams.resetUpscalerHistory,
+            };
+
+            static_assert( sizeof( startFrameInfo.projection ) == 16 * sizeof( float ) );
+            static_assert( sizeof( startFrameInfo.view ) == 16 * sizeof( float ) );
+            static_assert( sizeof( info.view ) == 16 * sizeof( float ) );
+            memcpy( startFrameInfo.view, info.view, 16 * sizeof( float ) );
+            Matrix::MakeProjectionMatrix( startFrameInfo.projection,
+                                          aspect,
+                                          info.fovYRadians,
+                                          info.cameraNear,
+                                          info.cameraFar );
+        }
+
+        VkCommandBuffer newFrameCmd = BeginFrame( info );
+        currentFrameState.OnBeginFrame( newFrameCmd );
+    };
+
+    auto startFrame_WithDevmode = [ this, startFrame_Core ]( const RgStartFrameInfo& original ) {
+        auto modified            = RgStartFrameInfo{ original };
+        auto modified_Resolution = pnext::get< RgStartFrameRenderResolutionParams >( original );
+
+        Dev_Override( modified, modified_Resolution );
+
+        startFrame_Core( modified );
+    };
+
+
+    if( Dev_IsDevmodeInitialized() )
+    {
+        startFrame_WithDevmode( *pOriginalInfo );
+    }
+    else
+    {
+        startFrame_Core( *pOriginalInfo );
+    }
 }
 
 void RTGL1::VulkanDevice::DrawFrame( const RgDrawFrameInfo* pOriginalInfo )
@@ -851,45 +910,76 @@ void RTGL1::VulkanDevice::DrawFrame( const RgDrawFrameInfo* pOriginalInfo )
         throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
     }
 
-    DrawFrameInfoCopy modifiedCopy( *pOriginalInfo );
+    if( pOriginalInfo->sType != RG_STRUCTURE_TYPE_DRAW_FRAME_INFO )
     {
+        throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
+    }
+
+    auto drawFrame_Core = [ this ]( const RgDrawFrameInfo& info ) {
+        VkCommandBuffer cmd = currentFrameState.GetCmdBuffer();
+
+        previousFrameTime = currentFrameTime;
+        currentFrameTime  = info.currentTime;
+
+        if( observer )
+        {
+            observer->RecheckFiles();
+        }
+
+        if( renderResolution.Width() > 0 && renderResolution.Height() > 0 )
+        {
+            FillUniform( uniform->GetData(), info );
+            Dev_Draw();
+            Render( cmd, info );
+        }
+
+        EndFrame( cmd );
+        currentFrameState.OnEndFrame();
+    };
+
+    auto drawFrame_WithScene = [ this, &drawFrame_Core ]( const RgDrawFrameInfo& original ) {
+        auto modified            = RgDrawFrameInfo{ original };
+        auto modified_Volumetric = pnext::get< RgDrawFrameVolumetricParams >( original );
+        auto modified_Sky        = pnext::get< RgDrawFrameSkyParams >( original );
+
         sceneMetaManager->Modify(
-            sceneImportExport->GetImportMapName(),
-            *AccessParamsForWrite< RgDrawFrameVolumetricParams >( modifiedCopy.info ),
-            *AccessParamsForWrite< RgDrawFrameSkyParams >( modifiedCopy.info ) );
+            sceneImportExport->GetImportMapName(), modified_Volumetric, modified_Sky );
 
-        Dev_Override( modifiedCopy );
-    }
-    const RgDrawFrameInfo& info = modifiedCopy.info;
+        // clang-format off
+        modified_Volumetric     .pNext = modified.pNext;
+        modified_Sky            .pNext = &modified_Volumetric;
+        modified                .pNext = &modified_Sky;
+        // clang-format on
 
+        drawFrame_Core( modified );
+    };
 
-    VkCommandBuffer cmd = currentFrameState.GetCmdBuffer();
+    auto drawFrame_WithDevmode = [ this, &drawFrame_WithScene ]( const RgDrawFrameInfo& original ) {
+        auto modified              = RgDrawFrameInfo{ original };
+        auto modified_Illumination = pnext::get< RgDrawFrameIlluminationParams >( original );
+        auto modified_Tonemapping  = pnext::get< RgDrawFrameTonemappingParams >( original );
+        auto modified_Lightmap     = pnext::get< RgDrawFrameLightmapParams >( original );
 
-    previousFrameTime = currentFrameTime;
-    currentFrameTime  = info.currentTime;
+        // clang-format off
+        modified_Illumination   .pNext = modified.pNext;
+        modified_Tonemapping    .pNext = &modified_Illumination;
+        modified_Lightmap       .pNext = &modified_Tonemapping;
+        modified                .pNext = &modified_Lightmap;
+        // clang-format on
 
-    renderResolution.Setup( AccessParams< RgDrawFrameRenderResolutionParams >( info ),
-                            swapchain->GetWidth(),
-                            swapchain->GetHeight(),
-                            nvDlss );
+        Dev_Override( modified_Illumination, modified_Tonemapping, modified_Lightmap );
 
-    if( observer )
+        drawFrame_WithScene( modified );
+    };
+
+    if( Dev_IsDevmodeInitialized() )
     {
-        observer->RecheckFiles();
+        drawFrame_WithDevmode( *pOriginalInfo );
     }
-
-    if( renderResolution.Width() > 0 && renderResolution.Height() > 0 )
+    else
     {
-        FillUniform( uniform->GetData(), info );
-        Dev_Draw();
-        Render( cmd, info );
+        drawFrame_WithScene( *pOriginalInfo );
     }
-
-    EndFrame( cmd );
-    currentFrameState.OnEndFrame();
-
-    // process in next frame
-    vsync = info.vsync;
 }
 
 namespace RTGL1
@@ -927,9 +1017,14 @@ namespace
 void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
                                                const RgMeshPrimitiveInfo* pPrimitive )
 {
-    if( pMesh == nullptr || pPrimitive == nullptr )
+    if( pPrimitive == nullptr )
     {
         throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
+    }
+
+    if( pPrimitive->sType != RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO )
+    {
+        throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
     }
 
     if( pPrimitive->vertexCount == 0 || pPrimitive->pVertices == nullptr )
@@ -939,153 +1034,241 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
     Dev_TryBreak( pPrimitive->pTextureName, false );
 
 
-    // copy to modify
-    RgMeshPrimitiveInfo prim       = *pPrimitive;
-    RgEditorInfo        primEditor = prim.pEditorInfo ? *prim.pEditorInfo : RgEditorInfo{};
-    prim.pEditorInfo               = &primEditor;
-    if( !textureMetaManager->Modify( prim, primEditor, false ) )
-    {
-        return;
-    }
-
-
-    if( primEditor.attachedLightExists )
-    {
-        primEditor.attachedLight.intensity = Utils::IntensityFromNonMetric(
-            primEditor.attachedLight.intensity, sceneImportExport->GetWorldScale() );
-    }
-
-
-    if( IsRasterized( *pMesh, prim ) )
-    {
-        rasterizer->Upload( currentFrameState.GetFrameIndex(),
-                            prim.flags & RG_MESH_PRIMITIVE_SKY ? GeometryRasterType::SKY
-                                                               : GeometryRasterType::WORLD,
-                            pMesh->transform,
-                            prim,
-                            nullptr,
-                            nullptr );
-
-        if( devmode && devmode->primitivesTableMode == Devmode::DebugPrimMode::Rasterized )
+    static auto logDebugStat = [ this ]( Devmode::DebugPrimMode     mode,
+                                         const RgMeshInfo*          mesh,
+                                         const RgMeshPrimitiveInfo& prim,
+                                         UploadResult rtResult = UploadResult::Fail ) {
+        if( !devmode || devmode->primitivesTableMode != mode )
         {
-            devmode->primitivesTable.push_back( Devmode::DebugPrim{
-                .result         = UploadResult::Dynamic,
-                .callIndex      = uint32_t( devmode->primitivesTable.size() ),
-                .objectId       = pMesh->uniqueObjectID,
-                .meshName       = Utils::SafeCstr( pMesh->pMeshName ),
-                .primitiveIndex = prim.primitiveIndexInMesh,
-                .primitiveName  = Utils::SafeCstr( prim.pPrimitiveNameInMesh ),
-                .textureName    = Utils::SafeCstr( prim.pTextureName ),
-            } );
-        }
-    }
-    else
-    {
-        UploadResult r = scene->UploadPrimitive(
-            currentFrameState.GetFrameIndex(), *pMesh, prim, *textureManager, false );
-
-        if( devmode && devmode->primitivesTableMode == Devmode::DebugPrimMode::RayTraced )
-        {
-            devmode->primitivesTable.push_back( Devmode::DebugPrim{
-                .result         = r,
-                .callIndex      = uint32_t( devmode->primitivesTable.size() ),
-                .objectId       = pMesh->uniqueObjectID,
-                .meshName       = Utils::SafeCstr( pMesh->pMeshName ),
-                .primitiveIndex = prim.primitiveIndexInMesh,
-                .primitiveName  = Utils::SafeCstr( prim.pPrimitiveNameInMesh ),
-                .textureName    = Utils::SafeCstr( prim.pTextureName ),
-            } );
+            return;
         }
 
-        if( auto e = sceneImportExport->TryGetExporter() )
+        switch( mode )
         {
-            if( r == UploadResult::ExportableDynamic || r == UploadResult::ExportableStatic )
+            case Devmode::DebugPrimMode::RayTraced:
+                devmode->primitivesTable.push_back( Devmode::DebugPrim{
+                    .result         = rtResult,
+                    .callIndex      = uint32_t( devmode->primitivesTable.size() ),
+                    .objectId       = mesh->uniqueObjectID,
+                    .meshName       = Utils::SafeCstr( mesh->pMeshName ),
+                    .primitiveIndex = prim.primitiveIndexInMesh,
+                    .primitiveName  = Utils::SafeCstr( prim.pPrimitiveNameInMesh ),
+                    .textureName    = Utils::SafeCstr( prim.pTextureName ),
+                } );
+                break;
+            case Devmode::DebugPrimMode::Rasterized:
+                devmode->primitivesTable.push_back( Devmode::DebugPrim{
+                    .result         = UploadResult::Dynamic,
+                    .callIndex      = uint32_t( devmode->primitivesTable.size() ),
+                    .objectId       = mesh->uniqueObjectID,
+                    .meshName       = Utils::SafeCstr( mesh->pMeshName ),
+                    .primitiveIndex = prim.primitiveIndexInMesh,
+                    .primitiveName  = Utils::SafeCstr( prim.pPrimitiveNameInMesh ),
+                    .textureName    = Utils::SafeCstr( prim.pTextureName ),
+                } );
+                break;
+            case Devmode::DebugPrimMode::NonWorld:
+                devmode->primitivesTable.push_back( Devmode::DebugPrim{
+                    .result         = UploadResult::Dynamic,
+                    .callIndex      = uint32_t( devmode->primitivesTable.size() ),
+                    .objectId       = 0,
+                    .meshName       = {},
+                    .primitiveIndex = prim.primitiveIndexInMesh,
+                    .primitiveName  = Utils::SafeCstr( prim.pPrimitiveNameInMesh ),
+                    .textureName    = Utils::SafeCstr( prim.pTextureName ),
+                } );
+                break;
+            case Devmode::DebugPrimMode::None:
+            case Devmode::DebugPrimMode::Decal:
+            default: break;
+        }
+    };
+
+    auto uploadPrimitive_Core = [ this ]( const RgMeshInfo&          mesh,
+                                          const RgMeshPrimitiveInfo& prim ) {
+        assert( !pnext::find< RgMeshPrimitiveForceRasterizedEXT >( &prim ) );
+
+        if( IsRasterized( mesh, prim ) )
+        {
+            rasterizer->Upload( currentFrameState.GetFrameIndex(),
+                                prim.flags & RG_MESH_PRIMITIVE_SKY ? GeometryRasterType::SKY
+                                                                   : GeometryRasterType::WORLD,
+                                mesh.transform,
+                                prim,
+                                nullptr,
+                                nullptr );
+
+            logDebugStat( Devmode::DebugPrimMode::Rasterized, &mesh, prim );
+        }
+        else
+        {
+            UploadResult r = scene->UploadPrimitive(
+                currentFrameState.GetFrameIndex(), mesh, prim, *textureManager, false );
+
+            logDebugStat( Devmode::DebugPrimMode::Rasterized, &mesh, prim, r );
+
+
+            if( auto e = sceneImportExport->TryGetExporter() )
             {
-                e->AddPrimitive( *pMesh, prim );
-            }
-
-            // SHIPPING_HACK: add lights even for non-exportable geometry
-            e->AddPrimitiveLights( *pMesh, prim );
-        }
-
-
-        if( prim.pEditorInfo && prim.pEditorInfo->attachedLightExists )
-        {
-            if( prim.pEditorInfo->attachedLightEvenOnDynamic )
-            {
-                GltfExporter::MakeLightsForPrimitiveDynamic( *pMesh,
-                                                             prim,
-                                                             sceneImportExport->GetWorldScale(),
-                                                             tempStorageInit,
-                                                             tempStorageLights );
-
-                auto hashCombine = []< typename T >( uint64_t seed, const T& v ) {
-                    seed ^= std::hash< T >{}( v ) + 0x9e3779b9 + ( seed << 6 ) + ( seed >> 2 );
-                    return seed;
-                };
-
-                uint64_t hashBase = 0;
-
-                hashBase = hashCombine( hashBase,
-                                        std::string_view( Utils::SafeCstr( prim.pTextureName ) ) );
-                hashBase = hashCombine( hashBase,
-                                        std::string_view( Utils::SafeCstr( pMesh->pMeshName ) ) );
-                hashBase = hashCombine( hashBase, prim.primitiveIndexInMesh );
-
-                uint64_t counter = 0;
-
-                for( auto& l : tempStorageLights )
+                if( r == UploadResult::ExportableDynamic || r == UploadResult::ExportableStatic )
                 {
-                    // TODO: change ID; hope that there's no collision
-                    uint64_t h32 = hashCombine( hashBase, counter ) % UINT32_MAX;
-
-                    l.uniqueID = h32 << 16ull;
-                    l.isExportable = false;
-
-                    UploadLight( &l );
-
-                    counter++;
+                    e->AddPrimitive( mesh, prim );
                 }
 
-                tempStorageInit.clear();
-                tempStorageLights.clear();
+                // SHIPPING_HACK: add lights even for non-exportable geometry
+                e->AddPrimitiveLights( mesh, prim );
+            }
+
+
+            if( auto attachedLight = pnext::find< RgMeshPrimitiveAttachedLightEXT >( &prim ) )
+            {
+                if( attachedLight->evenOnDynamic )
+                {
+                    GltfExporter::MakeLightsForPrimitiveDynamic( mesh,
+                                                                 prim,
+                                                                 sceneImportExport->GetWorldScale(),
+                                                                 tempStorageInit,
+                                                                 tempStorageLights );
+
+                    auto hashCombine = []< typename T >( uint64_t seed, const T& v ) {
+                        seed ^= std::hash< T >{}( v ) + 0x9e3779b9 + ( seed << 6 ) + ( seed >> 2 );
+                        return seed;
+                    };
+
+                    uint64_t hashBase = 0;
+
+                    hashBase = hashCombine(
+                        hashBase, std::string_view( Utils::SafeCstr( prim.pTextureName ) ) );
+                    hashBase = hashCombine( hashBase,
+                                            std::string_view( Utils::SafeCstr( mesh.pMeshName ) ) );
+                    hashBase = hashCombine( hashBase, prim.primitiveIndexInMesh );
+
+                    uint64_t counter = 0;
+
+                    for( AnyLightEXT& lext : tempStorageLights )
+                    {
+                        std::visit(
+                            [ & ]< typename T >( T& specific ) {
+                                static_assert( detail::AreLinkable< T, RgLightInfo > );
+
+                                // TODO: change ID; hope that there's no collision
+                                uint64_t h32 = hashCombine( hashBase, counter ) % UINT32_MAX;
+
+                                RgLightInfo linfo = {
+                                    .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
+                                    .pNext        = &specific,
+                                    .uniqueID     = h32 << 16ull,
+                                    .isExportable = false,
+                                };
+
+                                UploadLight( &linfo );
+                            },
+                            lext );
+
+                        counter++;
+                    }
+
+                    tempStorageInit.clear();
+                    tempStorageLights.clear();
+                }
             }
         }
-    }
+    };
+
+
+    auto uploadPrimitive_WithMeta = [ this, &uploadPrimitive_Core ](
+                                        const RgMeshInfo& mesh, const RgMeshPrimitiveInfo& prim ) {
+        auto modified = RgMeshPrimitiveInfo{ prim };
+
+        auto modified_attachedLight = std::optional< RgMeshPrimitiveAttachedLightEXT >{};
+        auto modified_pbr           = std::optional< RgMeshPrimitivePBREXT >{};
+
+        if( auto original = pnext::find< RgMeshPrimitiveAttachedLightEXT >( &prim ) )
+        {
+            modified_attachedLight = *original;
+        }
+
+        if( auto original = pnext::find< RgMeshPrimitivePBREXT >( &prim ) )
+        {
+            modified_pbr = *original;
+        }
+
+
+        if( !textureMetaManager->Modify( modified, modified_attachedLight, modified_pbr, false ) )
+        {
+            return;
+        }
+
+        if( modified_attachedLight )
+        {
+            modified_attachedLight->intensity = Utils::IntensityFromNonMetric(
+                modified_attachedLight->intensity, sceneImportExport->GetWorldScale() );
+
+            // insert
+            modified_attachedLight.value().pNext = modified.pNext;
+            modified.pNext                       = modified_attachedLight.value().pNext;
+        }
+
+        if( modified_pbr )
+        {
+            // insert
+            modified_pbr.value().pNext = modified.pNext;
+            modified.pNext             = modified_pbr.value().pNext;
+        }
+
+        uploadPrimitive_Core( mesh, prim );
+    };
+
+    auto uploadPrimitive_FilterSwapchained =
+        [ this, &uploadPrimitive_WithMeta ]( const RgMeshInfo*          mesh,
+                                             const RgMeshPrimitiveInfo& prim ) {
+            if( mesh )
+            {
+                if( mesh->sType != RG_STRUCTURE_TYPE_MESH_INFO )
+                {
+                    throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
+                }
+            }
+
+            if( auto raster = pnext::find< RgMeshPrimitiveForceRasterizedEXT >( &prim ) )
+            {
+                float vp[ 16 ];
+                if( raster->pViewProjection )
+                {
+                    memcpy( vp, raster->pViewProjection, sizeof( vp ) );
+                }
+                else
+                {
+                    const float* v = raster->pView ? raster->pView : startFrameInfo.view;
+                    const float* p =
+                        raster->pProjection ? raster->pProjection : startFrameInfo.projection;
+                    Matrix::Multiply( vp, p, v );
+                }
+
+                rasterizer->Upload( currentFrameState.GetFrameIndex(),
+                                    GeometryRasterType::SWAPCHAIN,
+                                    mesh ? mesh->transform : RG_TRANSFORM_IDENTITY,
+                                    prim,
+                                    vp,
+                                    raster->pViewport );
+
+                logDebugStat( Devmode::DebugPrimMode::NonWorld, nullptr, prim );
+            }
+            else
+            {
+                if( mesh == nullptr )
+                {
+                    throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
+                }
+
+                uploadPrimitive_WithMeta( *mesh, prim );
+            }
+        };
+
+    uploadPrimitive_FilterSwapchained( pMesh, *pPrimitive );
 }
 
-void RTGL1::VulkanDevice::UploadNonWorldPrimitive( const RgMeshPrimitiveInfo* pPrimitive,
-                                                   const float*               pViewProjection,
-                                                   const RgViewport*          pViewport )
-{
-    if( pPrimitive == nullptr )
-    {
-        throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
-    }
-    Dev_TryBreak( pPrimitive->pTextureName, false );
-
-    rasterizer->Upload( currentFrameState.GetFrameIndex(),
-                        GeometryRasterType::SWAPCHAIN,
-                        RG_TRANSFORM_IDENTITY,
-                        *pPrimitive,
-                        pViewProjection,
-                        pViewport );
-
-    if( devmode && devmode->primitivesTableMode == Devmode::DebugPrimMode::NonWorld )
-    {
-        devmode->primitivesTable.push_back( Devmode::DebugPrim{
-            .result         = UploadResult::Dynamic,
-            .callIndex      = uint32_t( devmode->primitivesTable.size() ),
-            .objectId       = 0,
-            .meshName       = {},
-            .primitiveIndex = pPrimitive->primitiveIndexInMesh,
-            .primitiveName  = Utils::SafeCstr( pPrimitive->pPrimitiveNameInMesh ),
-            .textureName    = Utils::SafeCstr( pPrimitive->pTextureName ),
-        } );
-    }
-}
-
-void RTGL1::VulkanDevice::UploadDecal( const RgDecalUploadInfo* pInfo )
+void RTGL1::VulkanDevice::UploadDecal( const RgDecalInfo* pInfo )
 {
     if( pInfo == nullptr )
     {
@@ -1109,7 +1292,7 @@ void RTGL1::VulkanDevice::UploadDecal( const RgDecalUploadInfo* pInfo )
     }
 }
 
-void RTGL1::VulkanDevice::UploadLensFlare( const RgLensFlareUploadInfo* pInfo )
+void RTGL1::VulkanDevice::UploadLensFlare( const RgLensFlareInfo* pInfo )
 {
     if( pInfo == nullptr )
     {
@@ -1145,10 +1328,88 @@ void RTGL1::VulkanDevice::UploadLensFlare( const RgLensFlareUploadInfo* pInfo )
     }
 }
 
-void RTGL1::VulkanDevice::UploadLight( const GenericLightPtr& light )
+void RTGL1::VulkanDevice::UploadLight( const RgLightInfo* pInfo )
 {
+    if( pInfo == nullptr )
+    {
+        throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
+    }
+
+    if( pInfo->sType != RG_STRUCTURE_TYPE_LIGHT_INFO )
+    {
+        throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
+    }
+
+    auto findExt =
+        []( const RgLightInfo& info ) -> std::optional< std::variant< RgLightDirectionalEXT,
+                                                                      RgLightSphericalEXT,
+                                                                      RgLightSpotEXT,
+                                                                      RgLightPolygonalEXT > > {
+        if( auto l = pnext::find< RgLightDirectionalEXT >( &info ) )
+        {
+            return *l;
+        }
+        if( auto l = pnext::find< RgLightSphericalEXT >( &info ) )
+        {
+            return *l;
+        }
+        if( auto l = pnext::find< RgLightSpotEXT >( &info ) )
+        {
+            return *l;
+        }
+        if( auto l = pnext::find< RgLightPolygonalEXT >( &info ) )
+        {
+            return *l;
+        }
+        return {};
+    };
+
+    auto findAdditional = []( const RgLightInfo& info ) -> std::optional< RgLightAdditionalEXT > {
+        if( auto l = pnext::find< RgLightAdditionalEXT >( &info ) )
+        {
+            return *l;
+        }
+        return {};
+    };
+
+    auto ext = findExt( *pInfo );
+    if( !ext )
+    {
+        debug::Warning( "Couldn't find RgLightDirectionalEXT, RgLightSphericalEXT, RgLightSpotEXT "
+                        "or RgLightPolygonalEXT on RgLightInfo (uniqueID={})",
+                        pInfo->uniqueID );
+        return;
+    }
+
+    auto light = LightCopy{
+        .base       = *pInfo,
+        .extension  = *ext,
+        .additional = findAdditional( *pInfo ),
+    };
+
+    // reset pNext, as using in-place members
+    {
+        light.base.pNext = nullptr;
+        std::visit( []( auto& e ) { e.pNext = nullptr; }, light.extension );
+        if( light.additional )
+        {
+            light.additional->pNext = nullptr;
+        }
+    }
+
+    // TODO: remove? this is used to convert light values to a metric space
+    // Note: can't specify explicit type on lambda
+    std::visit( ext::overloaded{
+                    []( RgLightDirectionalEXT& ignored ) {},
+                    [ & ]( auto& l ) {
+                        l.intensity = Utils::IntensityFromNonMetric(
+                            l.intensity, sceneImportExport->GetWorldScale() );
+                    },
+                },
+                light.extension );
+
     UploadResult r =
-        scene->UploadLight( currentFrameState.GetFrameIndex(), light, lightManager.get(), false );
+        scene->UploadLight( currentFrameState.GetFrameIndex(), pInfo, lightManager.get(), false );
 
     if( auto e = sceneImportExport->TryGetExporter() )
     {
@@ -1157,58 +1418,6 @@ void RTGL1::VulkanDevice::UploadLight( const GenericLightPtr& light )
             e->AddLight( light );
         }
     }
-}
-
-void RTGL1::VulkanDevice::UploadDirectionalLight( const RgDirectionalLightUploadInfo* pInfo )
-{
-    if( pInfo == nullptr )
-    {
-        throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
-    }
-
-    UploadLight( pInfo );
-}
-
-void RTGL1::VulkanDevice::UploadSphericalLight( const RgSphericalLightUploadInfo* pInfo )
-{
-    if( pInfo == nullptr )
-    {
-        throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
-    }
-
-    // TODO: remove! add to extras or assume only metric space
-    const_cast< RgSphericalLightUploadInfo* >( pInfo )->intensity =
-        Utils::IntensityFromNonMetric( pInfo->intensity, sceneImportExport->GetWorldScale() );
-
-    UploadLight( pInfo );
-}
-
-void RTGL1::VulkanDevice::UploadSpotlight( const RgSpotLightUploadInfo* pInfo )
-{
-    if( pInfo == nullptr )
-    {
-        throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
-    }
-
-    // TODO: remove! add to extras or assume only metric space
-    const_cast< RgSpotLightUploadInfo* >( pInfo )->intensity =
-        Utils::IntensityFromNonMetric( pInfo->intensity, sceneImportExport->GetWorldScale() );
-
-    UploadLight( pInfo );
-}
-
-void RTGL1::VulkanDevice::UploadPolygonalLight( const RgPolygonalLightUploadInfo* pInfo )
-{
-    if( pInfo == nullptr )
-    {
-        throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
-    }
-
-    // TODO: remove! add to extras or assume only metric space
-    const_cast< RgPolygonalLightUploadInfo* >( pInfo )->intensity =
-        Utils::IntensityFromNonMetric( pInfo->intensity, sceneImportExport->GetWorldScale() );
-
-    UploadLight( pInfo );
 }
 
 void RTGL1::VulkanDevice::ProvideOriginalTexture( const RgOriginalTextureInfo* pInfo )

@@ -74,10 +74,10 @@ public:
                                   const TextureManager&      textureManager,
                                   bool                       isStatic );
 
-    UploadResult UploadLight( uint32_t               frameIndex,
-                              const GenericLightPtr& light,
-                              LightManager*          lightManager,
-                              bool                   isStatic );
+    UploadResult UploadLight( uint32_t         frameIndex,
+                              const LightCopy& light,
+                              LightManager*    lightManager,
+                              bool             isStatic );
 
     void SubmitStaticLights( uint32_t          frameIndex,
                              LightManager&     lightManager,
@@ -105,7 +105,7 @@ private:
                               const RgMeshInfo&          mesh,
                               const RgMeshPrimitiveInfo& primitive );
 
-    bool InsertLightInfo( bool isStatic, const GenericLightPtr& light );
+    bool InsertLightInfo( bool isStatic, const LightCopy& light );
 
 private:
     std::shared_ptr< ASManager >           asManager;
@@ -116,7 +116,7 @@ private:
     rgl::unordered_set< uint64_t >    dynamicUniqueIDs;
     rgl::unordered_set< uint64_t >    staticUniqueIDs;
     rgl::unordered_set< std::string > staticMeshNames;
-    std::vector< GenericLight >       staticLights;
+    std::vector< LightCopy >          staticLights;
 
     StaticGeometryToken  makingStatic{};
     DynamicGeometryToken makingDynamic{};

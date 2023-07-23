@@ -146,7 +146,7 @@ void RTGL1::Rasterizer::Upload( uint32_t                   frameIndex,
 }
 
 void RTGL1::Rasterizer::UploadLensFlare( uint32_t                     frameIndex,
-                                         const RgLensFlareUploadInfo& info,
+                                         const RgLensFlareInfo&       info,
                                          float                        emissiveMult,
                                          const TextureManager&        textureManager )
 {

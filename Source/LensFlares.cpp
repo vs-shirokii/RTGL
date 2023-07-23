@@ -168,7 +168,7 @@ void RTGL1::LensFlares::PrepareForFrame( uint32_t frameIndex )
 }
 
 void RTGL1::LensFlares::Upload( uint32_t                     frameIndex,
-                                const RgLensFlareUploadInfo& uploadInfo,
+                                const RgLensFlareInfo&       uploadInfo,
                                 float                        emissiveMult,
                                 const TextureManager&        textureManager )
 {

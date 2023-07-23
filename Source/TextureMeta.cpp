@@ -127,12 +127,12 @@ void RTGL1::TextureMetaManager::RereadFromFiles( std::filesystem::path sceneFile
     reread( sourceScene, dataScene );
 }
 
-bool RTGL1::TextureMetaManager::Modify( RgMeshPrimitiveInfo& prim,
-                                        RgEditorInfo&        editor,
-                                        bool                 isStatic ) const
+bool RTGL1::TextureMetaManager::Modify(
+    RgMeshPrimitiveInfo&                              prim,
+    std::optional< RgMeshPrimitiveAttachedLightEXT >& refAttachedLight,
+    std::optional< RgMeshPrimitivePBREXT >&           refPbr,
+    bool                                              isStatic ) const
 {
-    assert( prim.pEditorInfo == &editor );
-
     if( auto meta = Access( prim.pTextureName ) )
     {
         if( meta->forceGenerateNormals )
@@ -170,18 +170,21 @@ bool RTGL1::TextureMetaManager::Modify( RgMeshPrimitiveInfo& prim,
             ( Utils::UnpackAlphaFromPacked32( prim.color ) < MESH_TRANSLUCENT_ALPHA_THRESHOLD );
 
         {
-            editor.attachedLight.intensity = meta->attachedLightIntensity;
-            editor.attachedLight.color     = Utils::PackColor( meta->attachedLightColor[ 0 ],
-                                                           meta->attachedLightColor[ 1 ],
-                                                           meta->attachedLightColor[ 2 ],
-                                                           255 );
-            editor.attachedLightExists =
-                editor.attachedLight.intensity > 0.0f &&
-                !Utils::IsColor4DPacked32Zero< false >( editor.attachedLight.color );
+            auto attachedLight = RgMeshPrimitiveAttachedLightEXT{
+                .sType         = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_ATTACHED_LIGHT_EXT,
+                .pNext         = nullptr,
+                .intensity     = meta->attachedLightIntensity,
+                .color         = Utils::PackColor( meta->attachedLightColor[ 0 ],
+                                           meta->attachedLightColor[ 1 ],
+                                           meta->attachedLightColor[ 2 ],
+                                           255 ),
+                .evenOnDynamic = meta->attachedLightEvenOnDynamic,
+            };
 
-            if( meta->attachedLightEvenOnDynamic )
+            if( attachedLight.intensity > 0.0f &&
+                !Utils::IsColor4DPacked32Zero< false >( attachedLight.color ) )
             {
-                editor.attachedLightEvenOnDynamic = true;
+                refAttachedLight = attachedLight;
             }
         }
 
@@ -230,11 +233,12 @@ bool RTGL1::TextureMetaManager::Modify( RgMeshPrimitiveInfo& prim,
 
         prim.emissive = Utils::Saturate( meta->emissiveMult );
 
-        editor.pbrInfoExists = true;
-        {
-            editor.pbrInfo.metallicDefault  = Utils::Saturate( meta->metallicDefault );
-            editor.pbrInfo.roughnessDefault = Utils::Saturate( meta->roughnessDefault );
-        }
+        refPbr = RgMeshPrimitivePBREXT{
+            .sType            = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_PBR_EXT,
+            .pNext            = nullptr,
+            .metallicDefault  = Utils::Saturate( meta->metallicDefault ),
+            .roughnessDefault = Utils::Saturate( meta->roughnessDefault ),
+        };
 
         if( meta->forceIgnore )
         {

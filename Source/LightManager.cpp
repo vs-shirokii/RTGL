@@ -96,8 +96,7 @@ RTGL1::LightManager::~LightManager()
 namespace
 {
 
-RTGL1::ShLightEncoded EncodeAsDirectionalLight( const RgDirectionalLightUploadInfo& info,
-                                                float                               mult )
+RTGL1::ShLightEncoded EncodeAsDirectionalLight( const RgLightDirectionalEXT& info, float mult )
 {
     RgFloat3D direction = info.direction;
     RTGL1::Utils::Normalize( direction.data );
@@ -122,7 +121,7 @@ RTGL1::ShLightEncoded EncodeAsDirectionalLight( const RgDirectionalLightUploadIn
     return lt;
 }
 
-RTGL1::ShLightEncoded EncodeAsSphereLight( const RgSphericalLightUploadInfo& info, float mult )
+RTGL1::ShLightEncoded EncodeAsSphereLight( const RgLightSphericalEXT& info, float mult )
 {
     float radius = std::max( RTGL1::MIN_SPHERE_RADIUS, info.radius );
     // disk is visible from the point
@@ -147,9 +146,9 @@ RTGL1::ShLightEncoded EncodeAsSphereLight( const RgSphericalLightUploadInfo& inf
     return lt;
 }
 
-RTGL1::ShLightEncoded EncodeAsTriangleLight( const RgPolygonalLightUploadInfo& info,
-                                             const RgFloat3D&                  unnormalizedNormal,
-                                             float                             mult )
+RTGL1::ShLightEncoded EncodeAsTriangleLight( const RgLightPolygonalEXT& info,
+                                             const RgFloat3D&           unnormalizedNormal,
+                                             float                      mult )
 {
     RgFloat3D n   = unnormalizedNormal;
     float     len = RTGL1::Utils::Length( n.data );
@@ -189,7 +188,7 @@ RTGL1::ShLightEncoded EncodeAsTriangleLight( const RgPolygonalLightUploadInfo& i
     return lt;
 }
 
-RTGL1::ShLightEncoded EncodeAsSpotLight( const RgSpotLightUploadInfo& info, float mult )
+RTGL1::ShLightEncoded EncodeAsSpotLight( const RgLightSpotEXT& info, float mult )
 {
     RgFloat3D direction = info.direction;
     RTGL1::Utils::Normalize( direction.data );
@@ -384,7 +383,9 @@ float CalculateLightStyle( const T& l, std::span< const float > lightstyles )
 
 }
 
-void RTGL1::LightManager::Add( uint32_t frameIndex, const RgSphericalLightUploadInfo& info )
+void RTGL1::LightManager::Add( uint32_t                   frameIndex,
+                               uint64_t                   uniqueID,
+                               const RgLightSphericalEXT& info )
 {
     if( IsLightColorTooDim( info ) )
     {
@@ -392,11 +393,13 @@ void RTGL1::LightManager::Add( uint32_t frameIndex, const RgSphericalLightUpload
     }
 
     AddInternal( frameIndex,
-                 info.uniqueID,
+                 uniqueID,
                  EncodeAsSphereLight( info, CalculateLightStyle( info, lightstyles ) ) );
 }
 
-void RTGL1::LightManager::Add( uint32_t frameIndex, const RgPolygonalLightUploadInfo& info )
+void RTGL1::LightManager::Add( uint32_t                   frameIndex,
+                               uint64_t                   uniqueID,
+                               const RgLightPolygonalEXT& info )
 {
     if( IsLightColorTooDim( info ) )
     {
@@ -410,24 +413,25 @@ void RTGL1::LightManager::Add( uint32_t frameIndex, const RgPolygonalLightUpload
     }
 
     AddInternal( frameIndex,
-                 info.uniqueID,
+                 uniqueID,
                  EncodeAsTriangleLight(
                      info, unnormalizedNormal, CalculateLightStyle( info, lightstyles ) ) );
 }
 
-void RTGL1::LightManager::Add( uint32_t frameIndex, const RgSpotLightUploadInfo& info )
+void RTGL1::LightManager::Add( uint32_t frameIndex, uint64_t uniqueID, const RgLightSpotEXT& info )
 {
     if( IsLightColorTooDim( info ) || info.radius < 0.0f || info.angleOuter <= 0.0f )
     {
         return;
     }
 
-    AddInternal( frameIndex,
-                 info.uniqueID,
-                 EncodeAsSpotLight( info, CalculateLightStyle( info, lightstyles ) ) );
+    AddInternal(
+        frameIndex, uniqueID, EncodeAsSpotLight( info, CalculateLightStyle( info, lightstyles ) ) );
 }
 
-void RTGL1::LightManager::Add( uint32_t frameIndex, const RgDirectionalLightUploadInfo& info )
+void RTGL1::LightManager::Add( uint32_t                     frameIndex,
+                               uint64_t                     uniqueID,
+                               const RgLightDirectionalEXT& info )
 {
     if( dirLightCount > 0 )
     {
@@ -441,7 +445,7 @@ void RTGL1::LightManager::Add( uint32_t frameIndex, const RgDirectionalLightUplo
     }
 
     AddInternal( frameIndex,
-                 info.uniqueID,
+                 uniqueID,
                  EncodeAsDirectionalLight( info, CalculateLightStyle( info, lightstyles ) ) );
 }
 
@@ -689,7 +693,7 @@ uint32_t RTGL1::LightManager::GetLightIndexForShaders( uint32_t  frameIndex,
 }
 
 std::optional< uint64_t > RTGL1::LightManager::TryGetVolumetricLight(
-    const std::vector< GenericLight >& from, std::span< const float > fromLightstyles )
+    const std::vector< LightCopy >& from, std::span< const float > fromLightstyles )
 {
     auto getId = []( const auto& l ) {
         return l.uniqueID;
@@ -699,14 +703,15 @@ std::optional< uint64_t > RTGL1::LightManager::TryGetVolumetricLight(
         return l.extra.exists && l.extra.isVolumetric;
     };
 
-    auto approxVolumetricIntensity = [ &fromLightstyles ]( const auto& l ) {
-        if( !l.extra.exists || !l.extra.isVolumetric )
-        {
-            return 0.0f;
-        }
+    auto approxVolumetricIntensity =
+        [ &fromLightstyles ]( const auto& l, const std::optional< RgLightAdditionalEXT >& extra ) {
+            if( !extra || !extra->isVolumetric )
+            {
+                return 0.0f;
+            }
 
-        return l.intensity * CalculateLightStyle( l, fromLightstyles );
-    };
+            return l.intensity * CalculateLightStyle( l, fromLightstyles );
+        };
 
     struct Candidate
     {
@@ -718,7 +723,7 @@ std::optional< uint64_t > RTGL1::LightManager::TryGetVolumetricLight(
 
     for( const auto& l : from )
     {
-        float intensity = std::visit( approxVolumetricIntensity, l );
+        float intensity = std::visit( approxVolumetricIntensity, l.extension );
 
         if( intensity > 0.0f )
         {

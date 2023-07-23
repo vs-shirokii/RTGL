@@ -54,10 +54,10 @@ public:
 
     uint32_t GetLightIndexForShaders( uint32_t frameIndex, uint64_t* pLightUniqueId ) const;
 
-    void Add( uint32_t frameIndex, const RgSphericalLightUploadInfo& info );
-    void Add( uint32_t frameIndex, const RgPolygonalLightUploadInfo& info );
-    void Add( uint32_t frameIndex, const RgDirectionalLightUploadInfo& info );
-    void Add( uint32_t frameIndex, const RgSpotLightUploadInfo& info );
+    void Add( uint32_t frameIndex, uint64_t uniqueID, const RgLightSphericalEXT& info );
+    void Add( uint32_t frameIndex, uint64_t uniqueID, const RgLightPolygonalEXT& info );
+    void Add( uint32_t frameIndex, uint64_t uniqueID, const RgLightDirectionalEXT& info );
+    void Add( uint32_t frameIndex, uint64_t uniqueID, const RgLightSpotEXT& info );
 
     void SubmitForFrame( VkCommandBuffer cmd, uint32_t frameIndex );
     void BarrierLightGrid( VkCommandBuffer cmd, uint32_t frameIndex );
@@ -65,14 +65,14 @@ public:
     VkDescriptorSetLayout GetDescSetLayout() const;
     VkDescriptorSet       GetDescSet( uint32_t frameIndex ) const;
 
-    void SetLightstyles( const RgDrawFrameIlluminationParams &params )
+    void SetLightstyles( const RgDrawFrameIlluminationParams& params )
     {
         auto values = std::span( params.pLightstyleValues, params.lightstyleValuesCount );
         lightstyles.assign( values.begin(), values.end() );
     }
 
     static std::optional< uint64_t > TryGetVolumetricLight(
-        const std::vector< GenericLight >& from, std::span< const float > fromLightstyles );
+        const std::vector< LightCopy >& from, std::span< const float > fromLightstyles );
 
 private:
     LightArrayIndex GetIndex( const ShLightEncoded& encodedLight ) const;

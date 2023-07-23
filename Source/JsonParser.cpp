@@ -222,21 +222,22 @@ auto RTGL1::json_parser::detail::ReadLibraryConfig( const std::filesystem::path&
 
 
 // clang-format off
-JSON_TYPE( RgLightExtraInfo )
+JSON_TYPE( RgLightAdditionalEXT )
       "lightstyle",   &T::lightstyle
     , "isVolumetric", &T::isVolumetric
 JSON_TYPE_END;
 // clang-format on
 
 auto RTGL1::json_parser::detail::ReadLightExtraInfo( const std::string_view& data )
-    -> RgLightExtraInfo
+    -> std::optional< RgLightAdditionalEXT >
 {
     try
     {
         if( !data.empty() )
         {
-            auto value = RgLightExtraInfo{
-                .exists       = true,
+            auto value = RgLightAdditionalEXT{
+                .sType        = RG_STRUCTURE_TYPE_LIGHT_ADDITIONAL_EXT,
+                .pNext        = nullptr,
                 .lightstyle   = 0,
                 .isVolumetric = 0,
             };
@@ -254,9 +255,7 @@ auto RTGL1::json_parser::detail::ReadLightExtraInfo( const std::string_view& dat
         debug::Warning( "Json read fail on RgLightExtraInfo:\n{}", e.what() );
     }
 
-    return RgLightExtraInfo{
-        .exists = false,
-    };
+    return std::nullopt;
 }
 
 
@@ -297,23 +296,20 @@ auto RTGL1::json_parser::detail::ReadPrimitiveExtraInfo( const std::string_view&
     return PrimitiveExtraInfo{};
 }
 
-std::string RTGL1::json_parser::MakeJsonString( const RgLightExtraInfo& info )
+std::string RTGL1::json_parser::MakeJsonString( const RgLightAdditionalEXT& info )
 {
     try
     {
-        if( info.exists )
-        {
-            std::string str;
+        std::string str;
 
-            glz::write< glz::opts{
-                .error_on_unknown_keys = false,
-                .no_except             = false,
-                .prettify              = true,
-                .indentation_width     = 4,
-            } >( info, str );
+        glz::write< glz::opts{
+            .error_on_unknown_keys = false,
+            .no_except             = false,
+            .prettify              = true,
+            .indentation_width     = 4,
+        } >( info, str );
 
-            return str;
-        }
+        return str;
     }
     catch( std::exception& e )
     {

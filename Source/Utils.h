@@ -62,7 +62,7 @@
     }
 
 #define RG_TRANSFORM_IDENTITY   \
-    {                           \
+    RgTransform{                \
         1.0f, 0.0f, 0.0f, 0.0f, \
         0.0f, 1.0f, 0.0f, 0.0f, \
         0.0f, 0.0f, 1.0f, 0.0f, \
@@ -382,6 +382,23 @@ uint32_t Utils::GetWorkGroupCountT( T1 size, T2 groupSize )
 
     return GetWorkGroupCount( static_cast< uint32_t >( size ),
                               static_cast< uint32_t >( groupSize ) );
+}
+
+namespace ext
+{
+    // https://en.cppreference.com/w/cpp/utility/variant/visit
+    // helper type for the visitor #4
+    template< class... Ts >
+    struct overloaded : Ts...
+    {
+        using Ts::operator()...;
+    };
+
+    template< typename T >
+    struct type_identity
+    {
+        using type = T;
+    };
 }
 
 }

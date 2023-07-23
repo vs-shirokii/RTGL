@@ -74,23 +74,22 @@ public:
 
     void AddPrimitive( const RgMeshInfo& mesh, const RgMeshPrimitiveInfo& primitive );
     void AddPrimitiveLights( const RgMeshInfo& mesh, const RgMeshPrimitiveInfo& primitive );
-    void AddLight( const GenericLightPtr& light );
+    void AddLight( const LightCopy& light );
 
     void ExportToFiles( const std::filesystem::path& gltfPath,
                         const TextureManager&        textureManager );
 
     // TODO: allocators, to not pass references
-    static void MakeLightsForPrimitiveDynamic(
-        const RgMeshInfo&                     mesh,
-        const RgMeshPrimitiveInfo&            primitive,
-        float                                 oneGameUnitInMeters,
-        std::vector< PositionNormal >&        tempStorage,
-        std::vector< RgSpotLightUploadInfo >& resultStorage );
+    static void MakeLightsForPrimitiveDynamic( const RgMeshInfo&              mesh,
+                                               const RgMeshPrimitiveInfo&     primitive,
+                                               float                          oneGameUnitInMeters,
+                                               std::vector< PositionNormal >& tempStorage,
+                                               std::vector< AnyLightEXT >&    resultStorage );
 
 private:
-    MeshesToTheirPrimitives     scene;
-    std::set< std::string >     sceneMaterials;
-    std::vector< GenericLight > sceneLights;
+    MeshesToTheirPrimitives  scene;
+    std::set< std::string >  sceneMaterials;
+    std::vector< LightCopy > sceneLights;
 
     RgTransform worldTransform;
     float       oneGameUnitInMeters;

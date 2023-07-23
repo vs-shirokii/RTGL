@@ -41,7 +41,11 @@ public:
     TextureMetaManager& operator=( const TextureMetaManager& other )     = delete;
     TextureMetaManager& operator=( TextureMetaManager&& other ) noexcept = delete;
 
-    bool Modify( RgMeshPrimitiveInfo& prim, RgEditorInfo& editor, bool isStatic ) const;
+    bool Modify( RgMeshPrimitiveInfo&                              prim,
+                 std::optional< RgMeshPrimitiveAttachedLightEXT >& refAttachedLight,
+                 std::optional< RgMeshPrimitivePBREXT >&           refPbr,
+                 bool                                              isStatic ) const;
+
     std::optional< TextureMeta > Access( const char* pTextureName ) const;
 
     void RereadFromFiles( std::string_view currentSceneName );

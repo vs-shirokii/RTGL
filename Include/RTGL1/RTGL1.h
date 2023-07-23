@@ -90,6 +90,7 @@ typedef enum RgResult
     RG_RESULT_FRAME_WASNT_ENDED,
     RG_RESULT_WRONG_FUNCTION_CALL,
     RG_RESULT_WRONG_FUNCTION_ARGUMENT,
+    RG_RESULT_WRONG_STRUCTURE_TYPE,
     RG_RESULT_ERROR_CANT_FIND_HARDCODED_RESOURCES,
     RG_RESULT_ERROR_CANT_FIND_SHADER,
 } RgResult;
@@ -152,6 +153,41 @@ typedef struct RgXlibSurfaceCreateInfo
 } RgXlibSurfaceCreateInfo;
 #endif // RG_USE_SURFACE_XLIB
 
+typedef enum RgStructureType
+{
+    RG_STRUCTURE_TYPE_NONE,
+    RG_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+    RG_STRUCTURE_TYPE_MESH_INFO,
+    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
+    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_PORTAL_EXT,
+    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_TEXTURE_LAYERS_EXT,
+    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_PBR_EXT,
+    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_ATTACHED_LIGHT_EXT,
+    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_FORCE_RASTERIZED_EXT,
+    RG_STRUCTURE_TYPE_LIGHT_INFO,
+    RG_STRUCTURE_TYPE_LIGHT_DIRECTIONAL_EXT,
+    RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT,
+    RG_STRUCTURE_TYPE_LIGHT_POLYGONAL_EXT,
+    RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT,
+    RG_STRUCTURE_TYPE_LIGHT_ADDITIONAL_EXT,
+    RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_INFO,
+    RG_STRUCTURE_TYPE_ORIGINAL_CUBEMAP_INFO,
+    RG_STRUCTURE_TYPE_START_FRAME_INFO,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_INFO,
+    RG_STRUCTURE_TYPE_START_FRAME_RENDER_RESOLUTION_PARAMS,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_ILLUMINATION_PARAMS,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_VOLUMETRIC_PARAMS,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_TONEMAPPING_PARAMS,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_BLOOM_PARAMS,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_REFLECT_REFRACT_PARAMS,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_SKY_PARAMS,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_TEXTURES_PARAMS,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_LIGHTMAP_PARAMS,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_POST_EFFECTS_PARAMS,
+    RG_STRUCTURE_TYPE_LENS_FLARE_INFO,
+    RG_STRUCTURE_TYPE_DECAL_INFO,
+} RgStructureType;
+
 typedef enum RgTextureSwizzling
 {
     RG_TEXTURE_SWIZZLING_NULL_ROUGHNESS_METALLIC,
@@ -179,6 +215,9 @@ typedef struct RgFloat4D
 
 typedef struct RgInstanceCreateInfo
 {
+    RgStructureType             sType;
+    void*                       pNext;
+
     // Application name.
     const char*                 pAppName;
     // Application GUID. Generate it for your application and specify it here.
@@ -321,13 +360,16 @@ typedef struct RgPrimitiveVertex
     RgColor4DPacked32   color;              uint32_t _padding2;
 } RgPrimitiveVertex;
 
-typedef struct RgEditorPortalInfo
+// Can be linked after RgMeshPrimitiveInfo.
+typedef struct RgMeshPrimitivePortalEXT
 {
-    RgFloat3D           inPosition;
-    RgFloat3D           inDirection;
-    RgFloat3D           outPosition;
-    RgFloat3D           outDirection;
-} RgEditorPortalInfo;
+    RgStructureType         sType;
+    void*                   pNext;
+    RgFloat3D               inPosition;
+    RgFloat3D               inDirection;
+    RgFloat3D               outPosition;
+    RgFloat3D               outDirection;
+} RgMeshPrimitivePortalEXT;
 
 typedef enum RgTextureLayerBlendType
 {
@@ -337,111 +379,119 @@ typedef enum RgTextureLayerBlendType
     RG_TEXTURE_LAYER_BLEND_TYPE_SHADE,
 } RgTextureLayerBlendType;
 
-typedef struct RgEditorTextureLayerInfo
+typedef struct RgTextureLayer
 {
-    const RgFloat2D*                pTexCoord;
-    const char*                     pTextureName;
-    RgTextureLayerBlendType         blend;
-    RgColor4DPacked32               color;
-} RgEditorTextureLayerInfo;
+    const RgFloat2D*        pTexCoord;
+    const char*             pTextureName;
+    RgTextureLayerBlendType blend;
+    RgColor4DPacked32       color;
+} RgTextureLayer;
 
-typedef struct RgEditorPBRInfo
+// Can be linked after RgMeshPrimitiveInfo.
+typedef struct RgMeshPrimitiveTextureLayersEXT
 {
+    RgStructureType         sType;
+    void*                   pNext;
+    RgTextureLayerBlendType baseLayerBlend;
+    RgTextureLayer*         pLayer1;
+    RgTextureLayer*         pLayer2;
+    RgTextureLayer*         pLayer3;
+} RgMeshPrimitiveTextureLayersEXT;
+
+// Can be linked after RgMeshPrimitiveInfo.
+typedef struct RgMeshPrimitivePBREXT
+{
+    RgStructureType         sType;
+    void*                   pNext;
     // Multipliers for Roughness-Metallic texture.
     // If no texture present, multipliers are used directly as plain values.
     // Clamped to [0.0, 1.0]
     // Default: 1.0, if Roughness-Metallic texture exists
     //          0.0, otherwise
-    float                           metallicDefault;
+    float                   metallicDefault;
     // Default: 1.0
-    float                           roughnessDefault;
-} RgEditorPBRInfo;
+    float                   roughnessDefault;
+} RgMeshPrimitivePBREXT;
 
-typedef struct RgEditorAttachedLightInfo
+// Can be linked after RgMeshPrimitiveInfo.
+typedef struct RgMeshPrimitiveAttachedLightEXT
 {
-    float                           intensity;
-    RgColor4DPacked32               color;
-} RgEditorAttachedLightInfo;
+    RgStructureType         sType;
+    void*                   pNext;
+    float                   intensity;
+    RgColor4DPacked32       color;
+    RgBool32                evenOnDynamic;
+} RgMeshPrimitiveAttachedLightEXT;
 
-typedef struct RgEditorInfo
+// Can be linked after RgMeshPrimitiveInfo.
+typedef struct RgMeshPrimitiveForceRasterizedEXT
 {
-    RgBool32                        portalExists;
-    RgEditorPortalInfo              portal;
-    RgTextureLayerBlendType         layerBaseBlend;
-    RgBool32                        layer1Exists;
-    RgEditorTextureLayerInfo        layer1;
-    RgBool32                        layer2Exists;
-    RgEditorTextureLayerInfo        layer2;
-    RgBool32                        layer3Exists;
-    RgEditorTextureLayerInfo        layer3;
-    RgBool32                        pbrInfoExists;
-    RgEditorPBRInfo                 pbrInfo;
-    RgBool32                        attachedLightExists;
-    RgBool32                        attachedLightEvenOnDynamic;
-    RgEditorAttachedLightInfo       attachedLight;
-} RgEditorInfo;
+    RgStructureType         sType;
+    void*                   pNext;
+    const RgViewport*       pViewport;
+    const float*            pView;
+    const float*            pProjection;
+    const float*            pViewProjection;
+} RgMeshPrimitiveForceRasterizedEXT;
 
 // Primitive is an indexed or non-indexed geometry with a material.
 typedef struct RgMeshPrimitiveInfo
 {
-    const char*                     pPrimitiveNameInMesh;
-    uint32_t                        primitiveIndexInMesh;
-    RgMeshPrimitiveFlags            flags;
-
-    const RgPrimitiveVertex*        pVertices;
-    uint32_t                        vertexCount;
-    const uint32_t*                 pIndices;
-    uint32_t                        indexCount;
-
-    const char*                     pTextureName;
-    uint32_t                        textureFrame;
-
+    RgStructureType             sType;
+    void*                       pNext;
+    RgMeshPrimitiveFlags        flags;
+    const char*                 pPrimitiveNameInMesh;
+    uint32_t                    primitiveIndexInMesh;
+    const RgPrimitiveVertex*    pVertices;
+    uint32_t                    vertexCount;
+    const uint32_t*             pIndices;
+    uint32_t                    indexCount;
+    const char*                 pTextureName;
+    uint32_t                    textureFrame;
     // If alpha < 1.0, then RG_MESH_PRIMITIVE_TRANSLUCENT is assumed.
-    RgColor4DPacked32               color;
-    float                           emissive;
-
-    // Additional info for the Editor. Can be null.
-    const RgEditorInfo*             pEditorInfo;
+    RgColor4DPacked32           color;
+    float                       emissive;
 } RgMeshPrimitiveInfo;
 
 // Mesh is a set of primitives.
 typedef struct RgMeshInfo
 {
+    RgStructureType             sType;
+    void*                       pNext;
     // Object is an instance of a mesh.
-    uint32_t                        uniqueObjectID;
+    uint32_t                    uniqueObjectID;
     // Name and primitive index is used to override meshes.
-    const char*                     pMeshName;
-    RgTransform                     transform;
+    const char*                 pMeshName;
+    RgTransform                 transform;
     // Set to true, if an object can be exported.
-    RgBool32                        isExportable;
-    const char*                     animationName;
-    float                           animationTime;
+    RgBool32                    isExportable;
+    const char*                 animationName;
+    float                       animationTime;
 } RgMeshInfo;
 
 RGAPI RgResult RGCONV rgUploadMeshPrimitive( RgInstance                 instance,
                                              const RgMeshInfo*          pMesh,
                                              const RgMeshPrimitiveInfo* pPrimitive );
 
-RGAPI RgResult RGCONV rgUploadNonWorldPrimitive( RgInstance                 instance,
-                                                 const RgMeshPrimitiveInfo* pPrimitive,
-                                                 const float*               pViewProjection,
-                                                 const RgViewport*          pViewport );
 
 
-
-typedef struct RgDecalUploadInfo
+typedef struct RgDecalInfo
 {
+    RgStructureType             sType;
+    void*                       pNext;
     // Transformation from [-0.5, 0.5] cube to a scaled oriented box.
     // Orientation should transform (0,0,1) to decal's normal.
-    RgTransform         transform;
-    const char*         pTextureName;
-} RgDecalUploadInfo;
+    RgTransform                 transform;
+    const char*                 pTextureName;
+} RgDecalInfo;
 
-RGAPI RgResult RGCONV rgUploadDecal( RgInstance instance, const RgDecalUploadInfo* pInfo );
+RGAPI RgResult RGCONV rgUploadDecal( RgInstance instance, const RgDecalInfo* pInfo );
 
 // Render specified vertex geometry, if 'pointToCheck' is not hidden.
-typedef struct RgLensFlareUploadInfo
+typedef struct RgLensFlareInfo
 {
+    RgStructureType             sType;
+    void*                       pNext;
     // Must be in world space.
     uint32_t                    vertexCount;
     const RgPrimitiveVertex*    pVertices;
@@ -451,68 +501,66 @@ typedef struct RgLensFlareUploadInfo
     const char*                 pTextureName;
     // Point in the world space.
     RgFloat3D                   pointToCheck;
-} RgLensFlareUploadInfo;
+} RgLensFlareInfo;
 
-RGAPI RgResult RGCONV rgUploadLensFlare( RgInstance instance, const RgLensFlareUploadInfo* pInfo );
+RGAPI RgResult RGCONV rgUploadLensFlare( RgInstance instance, const RgLensFlareInfo* pInfo );
 
 
 
-typedef struct RgLightExtraInfo
+// Can be linked after RgLightDirectionalEXT / RgLightSphericalEXT / RgLightPolygonalEXT /
+// RgLightSpotEXT.
+typedef struct RgLightAdditionalEXT
 {
-    RgBool32            exists;
+    RgStructureType     sType;
+    void*               pNext;
     int                 lightstyle;
     // Use the light source for scattering.
     // Only one per scene is allowed.
     // If GLTF is used, this can be overwritten by a GLTF's sun.
     RgBool32            isVolumetric;
-} RgLightExtraInfo;
+} RgLightAdditionalEXT;
 
-typedef struct RgDirectionalLightUploadInfo
+// Can be linked after RgLightInfo.
+typedef struct RgLightDirectionalEXT
 {
-    // Used to match the same light source from the previous frame.
-    uint64_t            uniqueID;
-    RgBool32            isExportable;
-    RgLightExtraInfo    extra;
+    RgStructureType     sType;
+    void*               pNext;
     RgColor4DPacked32   color;
     // Luminous flux received by a surface, in lumen / m^2
     // (i.e. illuminance, in lux)
     float               intensity;
     RgFloat3D           direction;
     float               angularDiameterDegrees;
-} RgDirectionalLightUploadInfo;
+} RgLightDirectionalEXT;
 
-typedef struct RgSphericalLightUploadInfo
+// Can be linked after RgLightInfo.
+typedef struct RgLightSphericalEXT
 {
-    // Used to match the same light source from the previous frame.
-    uint64_t            uniqueID;
-    RgBool32            isExportable;
-    RgLightExtraInfo    extra;
+    RgStructureType     sType;
+    void*               pNext;
     RgColor4DPacked32   color;
     // Luminous flux in lumen
     float               intensity;
     RgFloat3D           position;
     float               radius;
-} RgSphericalLightUploadInfo;
+} RgLightSphericalEXT;
 
-typedef struct RgPolygonalLightUploadInfo
+// Can be linked after RgLightInfo.
+typedef struct RgLightPolygonalEXT
 {
-    // Used to match the same light source from the previous frame.
-    uint64_t            uniqueID;
-    RgBool32            isExportable;
-    RgLightExtraInfo    extra;
+    RgStructureType     sType;
+    void*               pNext;
     RgColor4DPacked32   color;
     // Luminous flux in lumen
     float               intensity;
     RgFloat3D           positions[ 3 ];
-} RgPolygonalLightUploadInfo;
+} RgLightPolygonalEXT;
 
-// Only one spotlight is available in a scene.
-typedef struct RgSpotLightUploadInfo
+// Can be linked after RgLightInfo.
+typedef struct RgLightSpotEXT
 {
-    // Used to match the same light source from the previous frame.
-    uint64_t            uniqueID;
-    RgBool32            isExportable;
-    RgLightExtraInfo    extra;
+    RgStructureType     sType;
+    void*               pNext;
     RgColor4DPacked32   color;
     // Luminous flux in lumen
     float               intensity;
@@ -523,12 +571,18 @@ typedef struct RgSpotLightUploadInfo
     float               angleOuter;
     // Outer cone angle. In radians.
     float               angleInner;
-} RgSpotLightUploadInfo;
+} RgLightSpotEXT;
 
-RGAPI RgResult RGCONV rgUploadDirectionalLight( RgInstance instance, const RgDirectionalLightUploadInfo* pInfo );
-RGAPI RgResult RGCONV rgUploadSphericalLight( RgInstance instance, const RgSphericalLightUploadInfo* pInfo );
-RGAPI RgResult RGCONV rgUploadSpotLight( RgInstance instance, const RgSpotLightUploadInfo* pInfo );
-RGAPI RgResult RGCONV rgUploadPolygonalLight( RgInstance instance, const RgPolygonalLightUploadInfo* pInfo );
+typedef struct RgLightInfo
+{
+    RgStructureType sType;
+    void*           pNext;
+    // Used to match the same light source from the previous frame.
+    uint64_t        uniqueID;
+    RgBool32        isExportable;
+} RgLightInfo;
+
+RGAPI RgResult RGCONV rgUploadLight( RgInstance instance, const RgLightInfo* pInfo );
 
 
 
@@ -547,6 +601,8 @@ typedef enum RgSamplerAddressMode
 
 typedef struct RgOriginalTextureInfo
 {
+    RgStructureType         sType;
+    void*                   pNext;
     const char*             pTextureName;
     // R8G8B8A8 pixel data. Must be (size.width * size.height * 4) bytes.
     const void*             pPixels;
@@ -558,6 +614,8 @@ typedef struct RgOriginalTextureInfo
 
 typedef struct RgOriginalCubemapInfo
 {
+    RgStructureType         sType;
+    void*                   pNext;
     const char*             pTextureName;
     // R8G8B8A8 pixel data. Each must be (sideSize * sideSize * 4) bytes.
     const void*             pPixelsPositiveX;
@@ -575,30 +633,67 @@ RGAPI RgResult RGCONV rgMarkOriginalTextureAsDeleted( RgInstance instance, const
 
 
 
+// Can be linked after RgStartFrameInfo.
+typedef enum RgRenderUpscaleTechnique
+{
+    RG_RENDER_UPSCALE_TECHNIQUE_LINEAR,
+    RG_RENDER_UPSCALE_TECHNIQUE_NEAREST,
+    RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2,
+    RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS,
+} RgRenderUpscaleTechnique;
+
+typedef enum RgRenderSharpenTechnique
+{
+    RG_RENDER_SHARPEN_TECHNIQUE_NONE,
+    RG_RENDER_SHARPEN_TECHNIQUE_NAIVE,
+    RG_RENDER_SHARPEN_TECHNIQUE_AMD_CAS,
+} RgRenderSharpenTechnique;
+
+typedef enum RgRenderResolutionMode
+{
+    RG_RENDER_RESOLUTION_MODE_CUSTOM,
+    RG_RENDER_RESOLUTION_MODE_ULTRA_PERFORMANCE,
+    RG_RENDER_RESOLUTION_MODE_PERFORMANCE,
+    RG_RENDER_RESOLUTION_MODE_BALANCED,
+    RG_RENDER_RESOLUTION_MODE_QUALITY,
+    RG_RENDER_RESOLUTION_MODE_ULTRA_QUALITY, // with AMD_FSR, same as QUALITY
+} RgRenderResolutionMode;
+
+typedef struct RgStartFrameRenderResolutionParams
+{
+    RgStructureType          sType;
+    void*                    pNext;
+    RgRenderUpscaleTechnique upscaleTechnique;
+    RgRenderSharpenTechnique sharpenTechnique;
+    RgRenderResolutionMode   resolutionMode;
+    // Used, if resolutionMode is RG_RENDER_RESOLUTION_MODE_CUSTOM
+    RgExtent2D               customRenderSize;
+    // If not null, final image will be downscaled to this size at the very end.
+    // Needed, if pixelized look is needed, but the actual rendering should
+    // be done in higher resolution.
+    const RgExtent2D*        pPixelizedRenderSize;
+    // Drop history, e.g. if there's camera changed its position drastically.
+    RgBool32                 resetUpscalerHistory;
+} RgStartFrameRenderResolutionParams;
+
 typedef struct RgStartFrameInfo
 {
-    const char* pMapName;
-    RgBool32    ignoreExternalGeometry;
+    RgStructureType sType;
+    void*           pNext;
+    const char*     pMapName;
+    RgBool32        ignoreExternalGeometry;
+    RgBool32        vsync;
+    // View matrix is column major.
+    float           view[ 16 ];
+    float           fovYRadians;
+    // Near and far planes for a projection matrix.
+    float           cameraNear;
+    float           cameraFar;
 } RgStartFrameInfo;
 
 RGAPI RgResult RGCONV rgStartFrame( RgInstance instance, const RgStartFrameInfo* pInfo );
 
 
-
-typedef enum RgStructureType
-{
-    RG_STRUCTURE_TYPE_NONE,
-    RG_STRUCTURE_TYPE_RENDER_RESOLUTION,
-    RG_STRUCTURE_TYPE_ILLUMINATION,
-    RG_STRUCTURE_TYPE_VOLUMETRIC,
-    RG_STRUCTURE_TYPE_TONEMAPPING,
-    RG_STRUCTURE_TYPE_BLOOM,
-    RG_STRUCTURE_TYPE_REFLECTREFRACT,
-    RG_STRUCTURE_TYPE_SKY,
-    RG_STRUCTURE_TYPE_TEXTURES,
-    RG_STRUCTURE_TYPE_LIGHTMAP,
-    RG_STRUCTURE_TYPE_POSTEFFECTS,
-} RgStructureType;
 
 typedef enum RgSkyType
 {
@@ -607,6 +702,7 @@ typedef enum RgSkyType
     RG_SKY_TYPE_RASTERIZED_GEOMETRY,
 } RgSkyType;
 
+// Can be linked after RgDrawFrameInfo.
 typedef struct RgDrawFrameTonemappingParams
 {
     RgStructureType sType;
@@ -623,6 +719,7 @@ typedef struct RgDrawFrameTonemappingParams
     RgFloat3D       crosstalk;
 } RgDrawFrameTonemappingParams;
 
+// Can be linked after RgDrawFrameInfo.
 typedef struct RgDrawFrameSkyParams
 {
     RgStructureType sType;
@@ -643,6 +740,7 @@ typedef struct RgDrawFrameSkyParams
     RgMatrix3D      skyCubemapRotationTransform;
 } RgDrawFrameSkyParams;
 
+// Can be linked after RgDrawFrameInfo.
 typedef struct RgDrawFrameTexturesParams
 {
     RgStructureType sType;
@@ -659,6 +757,7 @@ typedef struct RgDrawFrameTexturesParams
     float           minRoughness;
 } RgDrawFrameTexturesParams;
 
+// Can be linked after RgDrawFrameInfo.
 typedef struct RgDrawFrameIlluminationParams
 {
     RgStructureType sType;
@@ -695,6 +794,7 @@ typedef struct RgDrawFrameIlluminationParams
     const float*    pLightstyleValues;
 } RgDrawFrameIlluminationParams;
 
+// Can be linked after RgDrawFrameInfo.
 typedef struct RgDrawFrameVolumetricParams
 {
     RgStructureType sType;
@@ -729,6 +829,7 @@ typedef struct RgDrawFrameVolumetricParams
     RgFloat3D       underwaterColor;
 } RgDrawFrameVolumetricParams;
 
+// Can be linked after RgDrawFrameInfo.
 typedef struct RgDrawFrameBloomParams
 {
     RgStructureType sType;
@@ -815,6 +916,7 @@ typedef struct RgPostEffectTeleport
     float       transitionDurationOut;
 } RgPostEffectTeleport;
 
+// Can be linked after RgDrawFrameInfo.
 typedef struct RgDrawFramePostEffectsParams
 {
     RgStructureType                         sType;
@@ -840,6 +942,7 @@ typedef enum RgMediaType
     RG_MEDIA_TYPE_ACID,
 } RgMediaType;
 
+// Can be linked after RgDrawFrameInfo.
 typedef struct RgDrawFrameReflectRefractParams
 {
     RgStructureType sType;
@@ -870,48 +973,7 @@ typedef struct RgDrawFrameReflectRefractParams
     RgBool32        portalNormalTwirl;
 } RgDrawFrameReflectRefractParams;
 
-typedef enum RgRenderUpscaleTechnique
-{
-    RG_RENDER_UPSCALE_TECHNIQUE_LINEAR,
-    RG_RENDER_UPSCALE_TECHNIQUE_NEAREST,
-    RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2,
-    RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS,
-} RgRenderUpscaleTechnique;
-
-typedef enum RgRenderSharpenTechnique
-{
-    RG_RENDER_SHARPEN_TECHNIQUE_NONE,
-    RG_RENDER_SHARPEN_TECHNIQUE_NAIVE,
-    RG_RENDER_SHARPEN_TECHNIQUE_AMD_CAS,
-} RgRenderSharpenTechnique;
-
-typedef enum RgRenderResolutionMode
-{
-    RG_RENDER_RESOLUTION_MODE_CUSTOM,
-    RG_RENDER_RESOLUTION_MODE_ULTRA_PERFORMANCE,
-    RG_RENDER_RESOLUTION_MODE_PERFORMANCE,
-    RG_RENDER_RESOLUTION_MODE_BALANCED,
-    RG_RENDER_RESOLUTION_MODE_QUALITY,
-    RG_RENDER_RESOLUTION_MODE_ULTRA_QUALITY,    // with AMD_FSR, same as QUALITY
-} RgRenderResolutionMode;
-
-typedef struct RgDrawFrameRenderResolutionParams
-{
-    RgStructureType             sType;
-    void*                       pNext;
-    RgRenderUpscaleTechnique    upscaleTechnique;
-    RgRenderSharpenTechnique    sharpenTechnique; 
-    RgRenderResolutionMode      resolutionMode;
-    // Used, if resolutionMode is RG_RENDER_RESOLUTION_MODE_CUSTOM
-    RgExtent2D                  customRenderSize;
-    // If not null, final image will be downscaled to this size at the very end.
-    // Needed, if pixelized look is needed, but the actual rendering should
-    // be done in higher resolution.
-    const RgExtent2D*           pPixelizedRenderSize;
-    // Drop history, e.g. if there's camera changed its position drastically.
-    RgBool32                    resetUpscalerHistory;
-} RgDrawFrameRenderResolutionParams;
-
+// Can be linked after RgDrawFrameInfo.
 typedef struct RgDrawFrameLightmapParams
 {
     RgStructureType             sType;
@@ -932,14 +994,8 @@ typedef uint32_t RgDrawFrameRayCullFlags;
 
 typedef struct RgDrawFrameInfo
 {
-    // View matrix is column major.
-    float                       view[ 16 ];
-
-    // Additional info for ray cones, it's used to calculate differentials for texture sampling. Also, for FSR2.
-    float                       fovYRadians;
-    // Near and far planes for a projection matrix.
-    float                       cameraNear;
-    float                       cameraFar;
+    RgStructureType             sType;
+    void*                       pNext;
     // Max value: 10000.0
     float                       rayLength;
     // What world parts to render. First-person related geometry is always enabled.
@@ -950,12 +1006,6 @@ typedef struct RgDrawFrameInfo
     RgBool32                    presentPrevFrame;
 
     double                      currentTime;
-
-    RgBool32                    vsync;
-
-    // A linked list of RgDrawFrame*Params structs.
-    // sType of each must be specified corresponding to their type.
-    void*                       pParams;
 } RgDrawFrameInfo;
 
 RGAPI RgResult RGCONV           rgDrawFrame( RgInstance instance, const RgDrawFrameInfo* pInfo );
