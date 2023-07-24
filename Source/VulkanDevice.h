@@ -87,6 +87,8 @@ public:
     void UploadDecal( const RgDecalInfo* pInfo );
     void UploadLensFlare( const RgLensFlareInfo* pInfo );
 
+    void UploadCamera( const RgCameraInfo* pInfo );
+
     void UploadLight( const RgLightInfo* pInfo );
 
     void ProvideOriginalTexture( const RgOriginalTextureInfo* pInfo );
@@ -142,11 +144,11 @@ private:
 private:
     bool Dev_IsDevmodeInitialized() const;
     void Dev_Draw() const;
-    void Dev_Override( RgStartFrameInfo&                   info,
-                       RgStartFrameRenderResolutionParams& resolution ) const;
-    void Dev_Override( RgDrawFrameIlluminationParams& illumination,
-                       RgDrawFrameTonemappingParams&  tonemappingp,
-                       RgDrawFrameLightmapParams&     lightmap ) const;
+    void Dev_Override( RgStartFrameInfo& info ) const;
+    void Dev_Override( RgDrawFrameRenderResolutionParams& resolution,
+                       RgDrawFrameIlluminationParams&     illumination,
+                       RgDrawFrameTonemappingParams&      tonemappingp,
+                       RgDrawFrameLightmapParams&         lightmap ) const;
     void Dev_TryBreak( const char* pTextureName, bool isImageUpload );
 
 private:
@@ -227,16 +229,15 @@ private:
     ScratchImmediate                  scratchImmediate;
     std::unique_ptr< FolderObserver > observer;
 
-    struct StartFrameInfo
+    struct CameraInfo
     {
-        float                       view[ 16 ];
-        float                       projection[ 16 ];
-        float                       fovYRadians;
-        float                       cameraNear;
-        float                       cameraFar;
-        bool                        resetUpscalerHistory;
-        std::optional< RgExtent2D > pixelizedRenderSize;
-    } startFrameInfo{};
+        float view[ 16 ]{};
+        float projection[ 16 ]{};
+        float aspect{ 16.0 / 9.0f };
+        float fovYRadians{ 1.0f };
+        float cameraNear{ 0.1f };
+        float cameraFar{ 1000.0f };
+    } cameraInfo{};
 
     // TODO: remove; used to not allocate on each call
     std::vector< PositionNormal > tempStorageInit;

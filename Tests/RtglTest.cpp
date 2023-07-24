@@ -487,31 +487,35 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
         ProcessInput();
 
         {
-            auto resolution = RgStartFrameRenderResolutionParams{
-                .sType            = RG_STRUCTURE_TYPE_START_FRAME_RENDER_RESOLUTION_PARAMS,
-                .pNext            = nullptr,
-                .upscaleTechnique = RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2,
-                .resolutionMode   = RG_RENDER_RESOLUTION_MODE_BALANCED,
-            };
-
             auto startInfo = RgStartFrameInfo{
                 .sType       = RG_STRUCTURE_TYPE_START_FRAME_INFO,
-                .pNext       = &resolution,
+                .pNext       = NULL,
                 .pMapName    = "untitled",
                 .vsync       = true,
+            };
+
+            r = rgStartFrame( instance, &startInfo );
+            RG_CHECK( r );
+        }
+
+
+        {
+            auto camera = RgCameraInfo{
+                .sType       = RG_STRUCTURE_TYPE_CAMERA_INFO,
+                .pNext       = nullptr,
                 .fovYRadians = glm::radians( 75.0f ),
+                .aspect      = 16.0f / 9.0f,
                 .cameraNear  = 0.1f,
                 .cameraFar   = 10000.0f,
             };
-
             {
                 glm::mat4 view = glm::lookAt(
                     ctl_CameraPosition, ctl_CameraPosition + ctl_CameraDirection, { 0, 1, 0 } );
                 // GLM is column major, copy matrix data directly
-                memcpy( startInfo.view, &view[ 0 ][ 0 ], 16 * sizeof( float ) );
+                memcpy( camera.view, &view[ 0 ][ 0 ], 16 * sizeof( float ) );
             }
 
-            r = rgStartFrame( instance, &startInfo );
+            r = rgUploadCamera( instance, &camera );
             RG_CHECK( r );
         }
 
@@ -712,9 +716,16 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
                 .pSkyCubemapTextureName = "_external_/cubemap/0",
             };
 
+            auto resolution = RgDrawFrameRenderResolutionParams{
+                .sType            = RG_STRUCTURE_TYPE_DRAW_FRAME_RENDER_RESOLUTION_PARAMS,
+                .pNext            = &sky,
+                .upscaleTechnique = RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2,
+                .resolutionMode   = RG_RENDER_RESOLUTION_MODE_BALANCED,
+            };
+
             auto frameInfo = RgDrawFrameInfo{
                 .sType            = RG_STRUCTURE_TYPE_DRAW_FRAME_INFO,
-                .pNext            = &sky,
+                .pNext            = &resolution,
                 .rayLength        = 10000.0f,
                 .rayCullMaskWorld = RG_DRAW_FRAME_RAY_CULL_WORLD_0_BIT,
                 .currentTime      = GetCurrentTimeInSeconds(),

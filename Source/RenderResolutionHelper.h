@@ -41,10 +41,10 @@ public:
     RenderResolutionHelper& operator=( const RenderResolutionHelper& other )     = delete;
     RenderResolutionHelper& operator=( RenderResolutionHelper&& other ) noexcept = delete;
 
-    void Setup( const RgStartFrameRenderResolutionParams& params,
-                uint32_t                                  windowWidth,
-                uint32_t                                  windowHeight,
-                const std::shared_ptr< DLSS >&            dlss )
+    void Setup( const RgDrawFrameRenderResolutionParams& params,
+                uint32_t                                 windowWidth,
+                uint32_t                                 windowHeight,
+                const std::shared_ptr< DLSS >&           dlss )
     {
         renderWidth  = windowWidth;
         renderHeight = windowHeight;

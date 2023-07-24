@@ -174,7 +174,7 @@ typedef enum RgStructureType
     RG_STRUCTURE_TYPE_ORIGINAL_CUBEMAP_INFO,
     RG_STRUCTURE_TYPE_START_FRAME_INFO,
     RG_STRUCTURE_TYPE_DRAW_FRAME_INFO,
-    RG_STRUCTURE_TYPE_START_FRAME_RENDER_RESOLUTION_PARAMS,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_RENDER_RESOLUTION_PARAMS,
     RG_STRUCTURE_TYPE_DRAW_FRAME_ILLUMINATION_PARAMS,
     RG_STRUCTURE_TYPE_DRAW_FRAME_VOLUMETRIC_PARAMS,
     RG_STRUCTURE_TYPE_DRAW_FRAME_TONEMAPPING_PARAMS,
@@ -186,6 +186,7 @@ typedef enum RgStructureType
     RG_STRUCTURE_TYPE_DRAW_FRAME_POST_EFFECTS_PARAMS,
     RG_STRUCTURE_TYPE_LENS_FLARE_INFO,
     RG_STRUCTURE_TYPE_DECAL_INFO,
+    RG_STRUCTURE_TYPE_CAMERA_INFO,
 } RgStructureType;
 
 typedef enum RgTextureSwizzling
@@ -507,6 +508,26 @@ RGAPI RgResult RGCONV rgUploadLensFlare( RgInstance instance, const RgLensFlareI
 
 
 
+typedef uint32_t RgCameraFlags;
+
+typedef struct RgCameraInfo
+{
+    RgStructureType sType;
+    void*           pNext;
+    RgCameraFlags   flags;
+    // View matrix is column major.
+    float           view[ 16 ];
+    float           fovYRadians;
+    float           aspect;
+    // Near and far planes for a projection matrix.
+    float           cameraNear;
+    float           cameraFar;
+} RgCameraInfo;
+
+RGAPI RgResult RGCONV rgUploadCamera( RgInstance instance, const RgCameraInfo* pInfo );
+
+
+
 // Can be linked after RgLightDirectionalEXT / RgLightSphericalEXT / RgLightPolygonalEXT /
 // RgLightSpotEXT.
 typedef struct RgLightAdditionalEXT
@@ -633,7 +654,20 @@ RGAPI RgResult RGCONV rgMarkOriginalTextureAsDeleted( RgInstance instance, const
 
 
 
-// Can be linked after RgStartFrameInfo.
+typedef struct RgStartFrameInfo
+{
+    RgStructureType sType;
+    void*           pNext;
+    const char*     pMapName;
+    RgBool32        ignoreExternalGeometry;
+    RgBool32        vsync;
+} RgStartFrameInfo;
+
+RGAPI RgResult RGCONV rgStartFrame( RgInstance instance, const RgStartFrameInfo* pInfo );
+
+
+
+// Can be linked after RgDrawFrameInfo.
 typedef enum RgRenderUpscaleTechnique
 {
     RG_RENDER_UPSCALE_TECHNIQUE_LINEAR,
@@ -659,7 +693,7 @@ typedef enum RgRenderResolutionMode
     RG_RENDER_RESOLUTION_MODE_ULTRA_QUALITY, // with AMD_FSR, same as QUALITY
 } RgRenderResolutionMode;
 
-typedef struct RgStartFrameRenderResolutionParams
+typedef struct RgDrawFrameRenderResolutionParams
 {
     RgStructureType          sType;
     void*                    pNext;
@@ -674,26 +708,7 @@ typedef struct RgStartFrameRenderResolutionParams
     const RgExtent2D*        pPixelizedRenderSize;
     // Drop history, e.g. if there's camera changed its position drastically.
     RgBool32                 resetUpscalerHistory;
-} RgStartFrameRenderResolutionParams;
-
-typedef struct RgStartFrameInfo
-{
-    RgStructureType sType;
-    void*           pNext;
-    const char*     pMapName;
-    RgBool32        ignoreExternalGeometry;
-    RgBool32        vsync;
-    // View matrix is column major.
-    float           view[ 16 ];
-    float           fovYRadians;
-    // Near and far planes for a projection matrix.
-    float           cameraNear;
-    float           cameraFar;
-} RgStartFrameInfo;
-
-RGAPI RgResult RGCONV rgStartFrame( RgInstance instance, const RgStartFrameInfo* pInfo );
-
-
+} RgDrawFrameRenderResolutionParams;
 
 typedef enum RgSkyType
 {

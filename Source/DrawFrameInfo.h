@@ -59,7 +59,7 @@ namespace detail
     constexpr auto TypeToStructureType = RgStructureType{ RG_STRUCTURE_TYPE_NONE };
 
     // clang-format off
-    template<> constexpr auto TypeToStructureType< RgStartFrameRenderResolutionParams   > = RG_STRUCTURE_TYPE_START_FRAME_RENDER_RESOLUTION_PARAMS ;
+    template<> constexpr auto TypeToStructureType< RgDrawFrameRenderResolutionParams    > = RG_STRUCTURE_TYPE_DRAW_FRAME_RENDER_RESOLUTION_PARAMS  ;
     template<> constexpr auto TypeToStructureType< RgDrawFrameIlluminationParams        > = RG_STRUCTURE_TYPE_DRAW_FRAME_ILLUMINATION_PARAMS       ;
     template<> constexpr auto TypeToStructureType< RgDrawFrameVolumetricParams          > = RG_STRUCTURE_TYPE_DRAW_FRAME_VOLUMETRIC_PARAMS         ;
     template<> constexpr auto TypeToStructureType< RgDrawFrameTonemappingParams         > = RG_STRUCTURE_TYPE_DRAW_FRAME_TONEMAPPING_PARAMS        ;
@@ -89,6 +89,7 @@ namespace detail
     template<> constexpr auto TypeToStructureType< RgOriginalCubemapInfo                > = RG_STRUCTURE_TYPE_ORIGINAL_CUBEMAP_INFO                ;
     template<> constexpr auto TypeToStructureType< RgStartFrameInfo                     > = RG_STRUCTURE_TYPE_START_FRAME_INFO                     ;
     template<> constexpr auto TypeToStructureType< RgDrawFrameInfo                      > = RG_STRUCTURE_TYPE_DRAW_FRAME_INFO                      ;
+    template<> constexpr auto TypeToStructureType< RgCameraInfo                         > = RG_STRUCTURE_TYPE_CAMERA_INFO                          ;
     // clang-format on
 
     template< typename T >
@@ -100,7 +101,7 @@ namespace detail
                sizeof( T::pNext ) == sizeof( AnyInfoPrototype::pNext );
     }
 
-    static_assert( CheckMembers< RgStartFrameRenderResolutionParams >() );
+    static_assert( CheckMembers< RgDrawFrameRenderResolutionParams >() );
     static_assert( CheckMembers< RgDrawFrameIlluminationParams >() );
     static_assert( CheckMembers< RgDrawFrameVolumetricParams >() );
     static_assert( CheckMembers< RgDrawFrameTonemappingParams >() );
@@ -130,6 +131,7 @@ namespace detail
     static_assert( CheckMembers< RgOriginalCubemapInfo >() );
     static_assert( CheckMembers< RgStartFrameInfo >() );
     static_assert( CheckMembers< RgDrawFrameInfo >() );
+    static_assert( CheckMembers< RgCameraInfo >() );
 
 
     template< typename T >
@@ -139,7 +141,6 @@ namespace detail
     };
 
     // clang-format off
-    template<> struct LinkRootHelper< RgStartFrameRenderResolutionParams >{ using Root = RgStartFrameInfo; };
     template<> struct LinkRootHelper< RgMeshPrimitivePortalEXT           >{ using Root = RgMeshPrimitiveInfo; };
     template<> struct LinkRootHelper< RgMeshPrimitiveTextureLayersEXT    >{ using Root = RgMeshPrimitiveInfo; };
     template<> struct LinkRootHelper< RgMeshPrimitivePBREXT              >{ using Root = RgMeshPrimitiveInfo; };
@@ -150,6 +151,7 @@ namespace detail
     template<> struct LinkRootHelper< RgLightSphericalEXT                >{ using Root = RgLightInfo; };
     template<> struct LinkRootHelper< RgLightPolygonalEXT                >{ using Root = RgLightInfo; };
     template<> struct LinkRootHelper< RgLightSpotEXT                     >{ using Root = RgLightInfo; };
+    template<> struct LinkRootHelper< RgDrawFrameRenderResolutionParams  >{ using Root = RgDrawFrameInfo; };
     template<> struct LinkRootHelper< RgDrawFrameIlluminationParams      >{ using Root = RgDrawFrameInfo; };
     template<> struct LinkRootHelper< RgDrawFrameVolumetricParams        >{ using Root = RgDrawFrameInfo; };
     template<> struct LinkRootHelper< RgDrawFrameTonemappingParams       >{ using Root = RgDrawFrameInfo; };
@@ -227,12 +229,12 @@ namespace detail
     };
 
     template<>
-    struct DefaultParams< RgStartFrameRenderResolutionParams >
+    struct DefaultParams< RgDrawFrameRenderResolutionParams >
     {
         constexpr static auto sType =
-            detail::TypeToStructureType< RgStartFrameRenderResolutionParams >;
+            detail::TypeToStructureType< RgDrawFrameRenderResolutionParams >;
 
-        constexpr static RgStartFrameRenderResolutionParams value = {
+        constexpr static RgDrawFrameRenderResolutionParams value = {
             .sType                = sType,
             .pNext                = nullptr,
             .upscaleTechnique     = RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2,

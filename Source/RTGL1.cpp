@@ -210,6 +210,11 @@ RgResult rgUploadLensFlare( RgInstance instance, const RgLensFlareInfo* pInfo )
     return Call( instance, &RTGL1::VulkanDevice::UploadLensFlare, pInfo );
 }
 
+RgResult rgUploadCamera( RgInstance instance, const RgCameraInfo* pInfo )
+{
+    return Call( instance, &RTGL1::VulkanDevice::UploadCamera, pInfo );
+}
+
 RgResult rgUploadLight( RgInstance instance, const RgLightInfo* pInfo )
 {
     return Call( instance, &RTGL1::VulkanDevice::UploadLight, pInfo );

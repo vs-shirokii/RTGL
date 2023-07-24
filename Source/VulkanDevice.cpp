@@ -50,37 +50,6 @@ VkCommandBuffer RTGL1::VulkanDevice::BeginFrame( const RgStartFrameInfo& info )
     swapchain->AcquireImage( imageAvailableSemaphores[ frameIndex ] );
 
 
-    // init resolution / view / projection vars
-    {
-        const auto resolutionParams = pnext::get< RgStartFrameRenderResolutionParams >( info );
-
-        renderResolution.Setup(
-            resolutionParams, swapchain->GetWidth(), swapchain->GetHeight(), nvDlss );
-
-        const float aspect = static_cast< float >( renderResolution.Width() ) /
-                             static_cast< float >( renderResolution.Height() );
-
-        {
-            startFrameInfo = StartFrameInfo{
-                .fovYRadians          = info.fovYRadians,
-                .cameraNear           = info.cameraNear,
-                .cameraFar            = info.cameraFar,
-                .resetUpscalerHistory = !!resolutionParams.resetUpscalerHistory,
-            };
-
-            static_assert( sizeof( startFrameInfo.projection ) == 16 * sizeof( float ) );
-            static_assert( sizeof( startFrameInfo.view ) == 16 * sizeof( float ) );
-            static_assert( sizeof( info.view ) == 16 * sizeof( float ) );
-            memcpy( startFrameInfo.view, info.view, 16 * sizeof( float ) );
-            Matrix::MakeProjectionMatrix( startFrameInfo.projection,
-                                          aspect,
-                                          info.fovYRadians,
-                                          info.cameraNear,
-                                          info.cameraFar );
-        }
-    }
-
-
     VkSemaphore semaphoreToWaitOnSubmit = imageAvailableSemaphores[ frameIndex ];
 
 
@@ -183,8 +152,8 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
         memcpy( gu->viewPrev, gu->view, 16 * sizeof( float ) );
         memcpy( gu->projectionPrev, gu->projection, 16 * sizeof( float ) );
 
-        memcpy( gu->view, startFrameInfo.view, 16 * sizeof( float ) );
-        memcpy( gu->projection, startFrameInfo.projection, 16 * sizeof( float ) );
+        memcpy( gu->view, cameraInfo.view, 16 * sizeof( float ) );
+        memcpy( gu->projection, cameraInfo.projection, 16 * sizeof( float ) );
 
         Matrix::Inverse( gu->invView, gu->view );
         Matrix::Inverse( gu->invProjection, gu->projection );
@@ -296,8 +265,8 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
             Matrix::GetCubemapViewProjMat( viewProjDst,
                                            i,
                                            skyViewerPosition.data,
-                                           startFrameInfo.cameraNear,
-                                           startFrameInfo.cameraFar );
+                                           cameraInfo.cameraNear,
+                                           cameraInfo.cameraFar );
         }
     }
 
@@ -372,7 +341,7 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
 
     gu->rayCullBackFaces  = rayCullBackFacingTriangles ? 1 : 0;
     gu->rayLength         = clamp( drawInfo.rayLength, 0.1f, float( MAX_RAY_LENGTH ) );
-    gu->primaryRayMinDist = clamp( startFrameInfo.cameraNear, 0.001f, gu->rayLength );
+    gu->primaryRayMinDist = clamp( cameraInfo.cameraNear, 0.001f, gu->rayLength );
 
     {
         gu->rayCullMaskWorld = 0;
@@ -429,7 +398,7 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
     gu->waterNormalTextureIndex = textureManager->GetWaterNormalTextureIndex();
     gu->dirtMaskTextureIndex    = textureManager->GetDirtMaskTextureIndex();
 
-    gu->cameraRayConeSpreadAngle = atanf( ( 2.0f * tanf( startFrameInfo.fovYRadians * 0.5f ) ) /
+    gu->cameraRayConeSpreadAngle = atanf( ( 2.0f * tanf( cameraInfo.fovYRadians * 0.5f ) ) /
                                           float( renderResolution.Height() ) );
 
     RG_SET_VEC3_A( gu->worldUpVector, sceneImportExport->GetWorldUp().data );
@@ -445,8 +414,8 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
     {
         const auto& params = pnext::get< RgDrawFrameVolumetricParams >( drawInfo );
 
-        gu->volumeCameraNear = std::max( startFrameInfo.cameraNear, 0.001f );
-        gu->volumeCameraFar  = std::min( startFrameInfo.cameraFar, params.volumetricFar );
+        gu->volumeCameraNear = std::max( cameraInfo.cameraNear, 0.001f );
+        gu->volumeCameraFar  = std::min( cameraInfo.cameraFar, params.volumetricFar );
 
         {
             if( params.enable )
@@ -502,7 +471,7 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
             float volumeproj[ 16 ];
             Matrix::MakeProjectionMatrix( volumeproj,
                                           aspect,
-                                          startFrameInfo.fovYRadians,
+                                          cameraInfo.fovYRadians,
                                           gu->volumeCameraNear,
                                           gu->volumeCameraFar );
 
@@ -577,7 +546,7 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
         portalList->SubmitForFrame( cmd, frameIndex );
 
         float volumetricMaxHistoryLen =
-            startFrameInfo.resetUpscalerHistory
+            pnext::get< RgDrawFrameRenderResolutionParams >( drawInfo ).resetUpscalerHistory
                 ? 0
                 : pnext::get< RgDrawFrameVolumetricParams >( drawInfo ).maxHistoryLength;
 
@@ -654,6 +623,8 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
 
     FramebufferImageIndex accum = FramebufferImageIndex::FB_IMAGE_INDEX_FINAL;
     {
+        const auto& resolution = pnext::get< RgDrawFrameRenderResolutionParams >( drawInfo );
+
         double timeDelta = std::max< double >( currentFrameTime - previousFrameTime, 0.0001 );
 
         // upscale finalized image
@@ -665,7 +636,7 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
                                    renderResolution,
                                    jitter,
                                    timeDelta,
-                                   startFrameInfo.resetUpscalerHistory );
+                                   resolution.resetUpscalerHistory );
         }
         else if( renderResolution.IsAmdFsr2Enabled() )
         {
@@ -675,19 +646,17 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
                                     renderResolution,
                                     jitter,
                                     timeDelta,
-                                    startFrameInfo.cameraNear,
-                                    startFrameInfo.cameraFar,
-                                    startFrameInfo.fovYRadians,
-                                    startFrameInfo.resetUpscalerHistory );
+                                    cameraInfo.cameraNear,
+                                    cameraInfo.cameraFar,
+                                    cameraInfo.fovYRadians,
+                                    resolution.resetUpscalerHistory );
         }
 
         accum = framebuffers->BlitForEffects( cmd,
                                               frameIndex,
                                               accum,
                                               renderResolution.GetBlitFilter(),
-                                              startFrameInfo.pixelizedRenderSize
-                                                  ? &startFrameInfo.pixelizedRenderSize.value()
-                                                  : nullptr );
+                                              resolution.pPixelizedRenderSize );
     }
 
 
@@ -884,17 +853,10 @@ void RTGL1::VulkanDevice::StartFrame( const RgStartFrameInfo* pOriginalInfo )
     };
 
     auto startFrame_WithDevmode = [ this, startFrame_Core ]( const RgStartFrameInfo& original ) {
-        auto modified            = RgStartFrameInfo{ original };
-        auto modified_Resolution = pnext::get< RgStartFrameRenderResolutionParams >( original );
-
-        Dev_Override( modified, modified_Resolution );
-
-        modified_Resolution.pNext = modified.pNext;
-        modified.pNext            = &modified_Resolution;
-
+        auto modified = RgStartFrameInfo{ original };
+        Dev_Override( modified );
         startFrame_Core( modified );
     };
-
 
     if( Dev_IsDevmodeInitialized() )
     {
@@ -932,6 +894,11 @@ void RTGL1::VulkanDevice::DrawFrame( const RgDrawFrameInfo* pOriginalInfo )
             observer->RecheckFiles();
         }
 
+        renderResolution.Setup( pnext::get< RgDrawFrameRenderResolutionParams >( info ),
+                                swapchain->GetWidth(),
+                                swapchain->GetHeight(),
+                                nvDlss );
+
         if( renderResolution.Width() > 0 && renderResolution.Height() > 0 )
         {
             FillUniform( uniform->GetData(), info );
@@ -962,18 +929,21 @@ void RTGL1::VulkanDevice::DrawFrame( const RgDrawFrameInfo* pOriginalInfo )
 
     auto drawFrame_WithDevmode = [ this, &drawFrame_WithScene ]( const RgDrawFrameInfo& original ) {
         auto modified              = RgDrawFrameInfo{ original };
+        auto modified_Resolution   = pnext::get< RgDrawFrameRenderResolutionParams >( original );
         auto modified_Illumination = pnext::get< RgDrawFrameIlluminationParams >( original );
         auto modified_Tonemapping  = pnext::get< RgDrawFrameTonemappingParams >( original );
         auto modified_Lightmap     = pnext::get< RgDrawFrameLightmapParams >( original );
 
         // clang-format off
-        modified_Illumination   .pNext = modified.pNext;
+        modified_Resolution     .pNext = modified.pNext;
+        modified_Illumination   .pNext = &modified_Resolution;
         modified_Tonemapping    .pNext = &modified_Illumination;
         modified_Lightmap       .pNext = &modified_Tonemapping;
         modified                .pNext = &modified_Lightmap;
         // clang-format on
 
-        Dev_Override( modified_Illumination, modified_Tonemapping, modified_Lightmap );
+        Dev_Override(
+            modified_Resolution, modified_Illumination, modified_Tonemapping, modified_Lightmap );
 
         drawFrame_WithScene( modified );
     };
@@ -1223,51 +1193,50 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
         uploadPrimitive_Core( mesh, prim );
     };
 
-    auto uploadPrimitive_FilterSwapchained =
-        [ this, &uploadPrimitive_WithMeta ]( const RgMeshInfo*          mesh,
-                                             const RgMeshPrimitiveInfo& prim ) {
-            if( mesh )
+    auto uploadPrimitive_FilterSwapchained = [ this, &uploadPrimitive_WithMeta ](
+                                                 const RgMeshInfo*          mesh,
+                                                 const RgMeshPrimitiveInfo& prim ) {
+        if( mesh )
+        {
+            if( mesh->sType != RG_STRUCTURE_TYPE_MESH_INFO )
             {
-                if( mesh->sType != RG_STRUCTURE_TYPE_MESH_INFO )
-                {
-                    throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
-                }
+                throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
             }
+        }
 
-            if( auto raster = pnext::find< RgMeshPrimitiveForceRasterizedEXT >( &prim ) )
+        if( auto raster = pnext::find< RgMeshPrimitiveForceRasterizedEXT >( &prim ) )
+        {
+            float vp[ 16 ];
+            if( raster->pViewProjection )
             {
-                float vp[ 16 ];
-                if( raster->pViewProjection )
-                {
-                    memcpy( vp, raster->pViewProjection, sizeof( vp ) );
-                }
-                else
-                {
-                    const float* v = raster->pView ? raster->pView : startFrameInfo.view;
-                    const float* p =
-                        raster->pProjection ? raster->pProjection : startFrameInfo.projection;
-                    Matrix::Multiply( vp, p, v );
-                }
-
-                rasterizer->Upload( currentFrameState.GetFrameIndex(),
-                                    GeometryRasterType::SWAPCHAIN,
-                                    mesh ? mesh->transform : RG_TRANSFORM_IDENTITY,
-                                    prim,
-                                    vp,
-                                    raster->pViewport );
-
-                logDebugStat( Devmode::DebugPrimMode::NonWorld, nullptr, prim );
+                memcpy( vp, raster->pViewProjection, sizeof( vp ) );
             }
             else
             {
-                if( mesh == nullptr )
-                {
-                    throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
-                }
-
-                uploadPrimitive_WithMeta( *mesh, prim );
+                const float* v = raster->pView ? raster->pView : cameraInfo.view;
+                const float* p = raster->pProjection ? raster->pProjection : cameraInfo.projection;
+                Matrix::Multiply( vp, p, v );
             }
-        };
+
+            rasterizer->Upload( currentFrameState.GetFrameIndex(),
+                                GeometryRasterType::SWAPCHAIN,
+                                mesh ? mesh->transform : RG_TRANSFORM_IDENTITY,
+                                prim,
+                                vp,
+                                raster->pViewport );
+
+            logDebugStat( Devmode::DebugPrimMode::NonWorld, nullptr, prim );
+        }
+        else
+        {
+            if( mesh == nullptr )
+            {
+                throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
+            }
+
+            uploadPrimitive_WithMeta( *mesh, prim );
+        }
+    };
 
     uploadPrimitive_FilterSwapchained( pMesh, *pPrimitive );
 }
@@ -1340,13 +1309,40 @@ void RTGL1::VulkanDevice::UploadLensFlare( const RgLensFlareInfo* pInfo )
     }
 }
 
+void RTGL1::VulkanDevice::UploadCamera( const RgCameraInfo* pInfo )
+{
+    if( pInfo == nullptr )
+    {
+        throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
+    }
+    if( pInfo->sType != RG_STRUCTURE_TYPE_CAMERA_INFO )
+    {
+        throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
+    }
+
+    cameraInfo.aspect      = pInfo->aspect;
+    cameraInfo.fovYRadians = pInfo->fovYRadians;
+    cameraInfo.cameraNear  = pInfo->cameraNear;
+    cameraInfo.cameraFar   = pInfo->cameraFar;
+
+    static_assert( sizeof( cameraInfo.projection ) == 16 * sizeof( float ) );
+    static_assert( sizeof( cameraInfo.view ) == 16 * sizeof( float ) );
+    static_assert( sizeof( pInfo->view ) == 16 * sizeof( float ) );
+
+    memcpy( cameraInfo.view, pInfo->view, 16 * sizeof( float ) );
+    Matrix::MakeProjectionMatrix( cameraInfo.projection,
+                                  pInfo->aspect,
+                                  pInfo->fovYRadians,
+                                  pInfo->cameraNear,
+                                  pInfo->cameraFar );
+}
+
 void RTGL1::VulkanDevice::UploadLight( const RgLightInfo* pInfo )
 {
     if( pInfo == nullptr )
     {
         throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
     }
-
     if( pInfo->sType != RG_STRUCTURE_TYPE_LIGHT_INFO )
     {
         throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
