@@ -1190,7 +1190,7 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
             modified.pNext             = modified_pbr.value().pNext;
         }
 
-        uploadPrimitive_Core( mesh, prim );
+        uploadPrimitive_Core( mesh, modified );
     };
 
     auto uploadPrimitive_FilterSwapchained = [ this, &uploadPrimitive_WithMeta ](
