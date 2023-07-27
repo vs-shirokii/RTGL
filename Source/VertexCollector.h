@@ -28,6 +28,8 @@
 #include "Common.h"
 #include "Material.h"
 #include "VertexCollectorFilter.h"
+#include "UniqueID.h"
+
 #include "RTGL1/RTGL1.h"
 
 namespace RTGL1
@@ -63,7 +65,7 @@ public:
                        bool                              isStatic,
                        const RgMeshInfo&                 parentMesh,
                        const RgMeshPrimitiveInfo&        info,
-                       uint64_t                          uniqueID,
+                       const PrimitiveUniqueID&          uniqueID,
                        std::span< MaterialTextures, 4 >  layerTextures,
                        std::span< RgColor4DPacked32, 4 > layerColors,
                        GeomInfoManager&                  geomInfoManager );

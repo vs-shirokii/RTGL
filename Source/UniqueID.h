@@ -25,13 +25,42 @@
 namespace RTGL1
 {
 
-namespace UniqueID
+struct PrimitiveUniqueID
 {
-    constexpr uint64_t MakeForPrimitive( const RgMeshInfo &mesh, const RgMeshPrimitiveInfo &primitive )
+    PrimitiveUniqueID( const RgMeshInfo& mesh, const RgMeshPrimitiveInfo& primitive )
+        : objectId( mesh.uniqueObjectID ), primitiveIndex( primitive.primitiveIndexInMesh )
     {
-        return uint64_t( mesh.uniqueObjectID ) << 32ull |
-               uint64_t( primitive.primitiveIndexInMesh );
     }
+
+    bool operator==( const PrimitiveUniqueID& other ) const
+    {
+        return objectId == other.objectId && primitiveIndex == other.primitiveIndex;
+    }
+
+    uint64_t objectId;
+    uint64_t primitiveIndex;
+};
+
 }
 
+namespace std
+{
+template<>
+struct hash< RTGL1::PrimitiveUniqueID >
+{
+    size_t operator()( const RTGL1::PrimitiveUniqueID& id ) const noexcept
+    {
+        static auto hashCombine = []( size_t seed, size_t v ) {
+            seed ^= v + 0x9e3779b9 + ( seed << 6 ) + ( seed >> 2 );
+            return seed;
+        };
+
+        size_t h = 0;
+
+        h = hashCombine( h, id.objectId );
+        h = hashCombine( h, id.primitiveIndex );
+
+        return h;
+    }
+};
 }

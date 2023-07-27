@@ -132,7 +132,7 @@ bool RTGL1::VertexCollector::AddPrimitive( uint32_t                          fra
                                            bool                              isStatic,
                                            const RgMeshInfo&                 parentMesh,
                                            const RgMeshPrimitiveInfo&        info,
-                                           uint64_t                          uniqueID,
+                                           const PrimitiveUniqueID&          uniqueID,
                                            std::span< MaterialTextures, 4 >  layerTextures,
                                            std::span< RgColor4DPacked32, 4 > layerColors,
                                            GeomInfoManager&                  geomInfoManager )

@@ -448,7 +448,7 @@ void RTGL1::VulkanDevice::Dev_Draw() const
                     ImGui::TableNextColumn();
                     if( mode != PrimMode::Decal && mode != PrimMode::NonWorld )
                     {
-                        ImGui::Text( "%u", prim.objectId );
+                        ImGui::Text( "%llu", prim.objectId );
                     }
 
                     ImGui::TableNextColumn();

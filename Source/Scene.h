@@ -26,6 +26,7 @@
 #include "LightManager.h"
 #include "VertexPreprocessing.h"
 #include "TextureMeta.h"
+#include "UniqueID.h"
 
 #include <variant>
 
@@ -100,7 +101,7 @@ private:
     bool StaticMeshExists( const RgMeshInfo& mesh ) const;
     bool StaticLightExists( const LightCopy& light ) const;
 
-    bool InsertPrimitiveInfo( uint64_t                   uniqueID,
+    bool InsertPrimitiveInfo( const PrimitiveUniqueID&   uniqueID,
                               bool                       isStatic,
                               const RgMeshInfo&          mesh,
                               const RgMeshPrimitiveInfo& primitive );
@@ -113,10 +114,10 @@ private:
     std::shared_ptr< VertexPreprocessing > vertPreproc;
 
     // Dynamic indices are cleared every frame
-    rgl::unordered_set< uint64_t >    dynamicUniqueIDs;
-    rgl::unordered_set< uint64_t >    staticUniqueIDs;
-    rgl::unordered_set< std::string > staticMeshNames;
-    std::vector< LightCopy >          staticLights;
+    rgl::unordered_set< PrimitiveUniqueID > dynamicUniqueIDs;
+    rgl::unordered_set< PrimitiveUniqueID > staticUniqueIDs;
+    rgl::unordered_set< std::string >       staticMeshNames;
+    std::vector< LightCopy >                staticLights;
 
     StaticGeometryToken  makingStatic{};
     DynamicGeometryToken makingDynamic{};

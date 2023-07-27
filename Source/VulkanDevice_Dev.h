@@ -28,7 +28,7 @@ struct Devmode
     {
         std::optional< UploadResult > result;
         uint32_t                      callIndex;
-        uint32_t                      objectId;
+        uint64_t                      objectId;
         std::string                   meshName;
         uint32_t                      primitiveIndex;
         std::string                   primitiveName;

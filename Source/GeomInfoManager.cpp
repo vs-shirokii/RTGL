@@ -432,7 +432,7 @@ void RTGL1::GeomInfoManager::PrepareForFrame( uint32_t frameIndex )
 }
 
 void RTGL1::GeomInfoManager::WriteGeomInfo( uint32_t                       frameIndex,
-                                            uint64_t                       geomUniqueID,
+                                            const PrimitiveUniqueID&       geomUniqueID,
                                             uint32_t                       localGeomIndex,
                                             VertexCollectorFilterTypeFlags flags,
                                             ShGeometryInstance&            src )
@@ -473,7 +473,7 @@ void RTGL1::GeomInfoManager::WriteGeomInfo( uint32_t                       frame
 }
 
 void RTGL1::GeomInfoManager::FillWithPrevFrameData( VertexCollectorFilterTypeFlags flags,
-                                                    uint64_t                       geomUniqueID,
+                                                    const PrimitiveUniqueID&       geomUniqueID,
                                                     uint32_t            currentGlobalGeomIndex,
                                                     ShGeometryInstance& dst,
                                                     uint32_t            frameIndex )
@@ -483,7 +483,7 @@ void RTGL1::GeomInfoManager::FillWithPrevFrameData( VertexCollectorFilterTypeFla
 
     int32_t* prevIndexToCurIndex = matchPrevShadow.get();
 
-    const rgl::unordered_map< uint64_t, GeomFrameInfo >* prevIdToInfo = nullptr;
+    const rgl::unordered_map< PrimitiveUniqueID, GeomFrameInfo >* prevIdToInfo = nullptr;
 
     bool isMovable = flags & VertexCollectorFilterTypeFlagBits::CF_STATIC_MOVABLE;
     bool isDynamic = flags & VertexCollectorFilterTypeFlagBits::CF_DYNAMIC;
@@ -550,7 +550,7 @@ void RTGL1::GeomInfoManager::MarkMovableHasPrevInfo( ShGeometryInstance& dst )
 }
 
 void RTGL1::GeomInfoManager::WriteInfoForNextUsage( VertexCollectorFilterTypeFlags flags,
-                                                    uint64_t                       geomUniqueID,
+                                                    const PrimitiveUniqueID&       geomUniqueID,
                                                     uint32_t currentGlobalGeomIndex,
                                                     const ShGeometryInstance& src,
                                                     uint32_t                  frameIndex )
@@ -558,7 +558,7 @@ void RTGL1::GeomInfoManager::WriteInfoForNextUsage( VertexCollectorFilterTypeFla
     bool isMovable = flags & VertexCollectorFilterTypeFlagBits::CF_STATIC_MOVABLE;
     bool isDynamic = flags & VertexCollectorFilterTypeFlagBits::CF_DYNAMIC;
 
-    rgl::unordered_map< uint64_t, GeomFrameInfo >* idToInfo = nullptr;
+    rgl::unordered_map< PrimitiveUniqueID, GeomFrameInfo >* idToInfo = nullptr;
 
     if( isDynamic )
     {

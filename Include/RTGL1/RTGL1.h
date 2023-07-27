@@ -460,7 +460,7 @@ typedef struct RgMeshInfo
     RgStructureType             sType;
     void*                       pNext;
     // Object is an instance of a mesh.
-    uint32_t                    uniqueObjectID;
+    uint64_t                    uniqueObjectID;
     // Name and primitive index is used to override meshes.
     const char*                 pMeshName;
     RgTransform                 transform;

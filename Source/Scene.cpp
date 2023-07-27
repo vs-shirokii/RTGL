@@ -109,7 +109,7 @@ RTGL1::UploadResult RTGL1::Scene::UploadPrimitive( uint32_t                   fr
                                                    const TextureManager&      textureManager,
                                                    bool                       isStatic )
 {
-    uint64_t uniqueID = UniqueID::MakeForPrimitive( mesh, primitive );
+    auto uniqueID = PrimitiveUniqueID{ mesh, primitive };
 
     if( !isStatic )
     {
@@ -212,7 +212,7 @@ void RTGL1::Scene::SubmitStaticLights( uint32_t          frameIndex,
     }
 }
 
-bool RTGL1::Scene::InsertPrimitiveInfo( uint64_t                   uniqueID,
+bool RTGL1::Scene::InsertPrimitiveInfo( const PrimitiveUniqueID&   uniqueID,
                                         bool                       isStatic,
                                         const RgMeshInfo&          mesh,
                                         const RgMeshPrimitiveInfo& primitive )

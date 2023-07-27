@@ -28,6 +28,7 @@
 #include "SpanCounted.h"
 #include "Utils.h"
 #include "VertexCollectorFilterType.h"
+#include "UniqueID.h"
 
 #include "Generated/ShaderCommonC.h"
 
@@ -58,7 +59,7 @@ public:
     // For dynamic geometry it should be called every frame,
     // and for static geometry -- only when whole static scene was changed.
     void WriteGeomInfo( uint32_t                       frameIndex,
-                        uint64_t                       geomUniqueID,
+                        const PrimitiveUniqueID&       geomUniqueID,
                         uint32_t                       localGeomIndex,
                         VertexCollectorFilterTypeFlags flags,
                         ShGeometryInstance&            src );
@@ -102,7 +103,7 @@ private:
     // Fill ShGeometryInstance with the data from previous frame
     // Note: frameIndex is not used if geom is not dynamic
     void FillWithPrevFrameData( VertexCollectorFilterTypeFlags flags,
-                                uint64_t                       geomUniqueID,
+                                const PrimitiveUniqueID&       geomUniqueID,
                                 uint32_t                       currentGlobalGeomIndex,
                                 ShGeometryInstance&            dst,
                                 uint32_t                       frameIndex = 0 );
@@ -112,7 +113,7 @@ private:
     // Save data for the next frame
     // Note: frameIndex is not used if geom is not dynamic
     void WriteInfoForNextUsage( VertexCollectorFilterTypeFlags flags,
-                                uint64_t                       geomUniqueID,
+                                const PrimitiveUniqueID&       geomUniqueID,
                                 uint32_t                       currentGlobalGeomIndex,
                                 const ShGeometryInstance&      src,
                                 uint32_t                       frameIndex = 0 );
@@ -131,8 +132,9 @@ private:
 
     // geometry's uniqueID to geom frame info,
     // used for getting info from previous frame
-    rgl::unordered_map< uint64_t, GeomFrameInfo > dynamicIDToGeomFrameInfo[ MAX_FRAMES_IN_FLIGHT ];
-    rgl::unordered_map< uint64_t, GeomFrameInfo > movableIDToGeomFrameInfo;
+    rgl::unordered_map< PrimitiveUniqueID, GeomFrameInfo >
+        dynamicIDToGeomFrameInfo[ MAX_FRAMES_IN_FLIGHT ];
+    rgl::unordered_map< PrimitiveUniqueID, GeomFrameInfo > movableIDToGeomFrameInfo;
 
 private:
     rgl::unordered_map< VertexCollectorFilterTypeFlags,

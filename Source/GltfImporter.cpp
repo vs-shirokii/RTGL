@@ -770,14 +770,12 @@ void RTGL1::GltfImporter::UploadToScene( VkCommandBuffer           cmd,
         
         auto primitiveExtra = json_parser::ReadStringAs< PrimitiveExtraInfo >(
             Utils::SafeCstr( srcNode->extras.data ) );
-
-        // TODO: really bad way to reduce hash64 to 32 bits
+        
         RgMeshInfo dstMesh = {
-            .uniqueObjectID =
-                uint32_t( std::hash< std::string_view >{}( srcNode->name ) % UINT32_MAX ),
-            .pMeshName    = srcNode->name,
-            .transform    = MakeRgTransformFromGltfNode( *srcNode ),
-            .isExportable = true,
+            .uniqueObjectID = std::hash< std::string_view >{}( srcNode->name ),
+            .pMeshName      = srcNode->name,
+            .transform      = MakeRgTransformFromGltfNode( *srcNode ),
+            .isExportable   = true,
         };
 
         for( uint32_t i = 0; i < srcNode->mesh->primitives_count; i++ )

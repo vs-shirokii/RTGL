@@ -28,6 +28,7 @@
 #include "VertexCollector.h"
 #include "ASComponent.h"
 #include "Token.h"
+#include "UniqueID.h"
 
 namespace RTGL1
 {
@@ -76,7 +77,7 @@ public:
     bool AddMeshPrimitive( uint32_t                   frameIndex,
                            const RgMeshInfo&          mesh,
                            const RgMeshPrimitiveInfo& primitive,
-                           uint64_t                   uniqueID,
+                           const PrimitiveUniqueID&   uniqueID,
                            bool                       isStatic,
                            const TextureManager&      textureManager,
                            GeomInfoManager&           geomInfoManager );
