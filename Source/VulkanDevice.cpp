@@ -1008,10 +1008,10 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
     Dev_TryBreak( pPrimitive->pTextureName, false );
 
 
-    static auto logDebugStat = [ this ]( Devmode::DebugPrimMode     mode,
-                                         const RgMeshInfo*          mesh,
-                                         const RgMeshPrimitiveInfo& prim,
-                                         UploadResult rtResult = UploadResult::Fail ) {
+    auto logDebugStat = [ this ]( Devmode::DebugPrimMode     mode,
+                                  const RgMeshInfo*          mesh,
+                                  const RgMeshPrimitiveInfo& prim,
+                                  UploadResult               rtResult = UploadResult::Fail ) {
         if( !devmode || devmode->primitivesTableMode != mode )
         {
             return;
@@ -1058,8 +1058,8 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
         }
     };
 
-    auto uploadPrimitive_Core = [ this ]( const RgMeshInfo&          mesh,
-                                          const RgMeshPrimitiveInfo& prim ) {
+    auto uploadPrimitive_Core = [ this, &logDebugStat ]( const RgMeshInfo&          mesh,
+                                                         const RgMeshPrimitiveInfo& prim ) {
         assert( !pnext::find< RgMeshPrimitiveForceRasterizedEXT >( &prim ) );
 
         if( IsRasterized( mesh, prim ) )
@@ -1193,7 +1193,7 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
         uploadPrimitive_Core( mesh, modified );
     };
 
-    auto uploadPrimitive_FilterSwapchained = [ this, &uploadPrimitive_WithMeta ](
+    auto uploadPrimitive_FilterSwapchained = [ this, &uploadPrimitive_WithMeta, &logDebugStat ](
                                                  const RgMeshInfo*          mesh,
                                                  const RgMeshPrimitiveInfo& prim ) {
         if( mesh )
