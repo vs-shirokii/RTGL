@@ -298,7 +298,7 @@ namespace detail
             .pNext                = nullptr,
             .disableEyeAdaptation = false,
             .ev100Min             = 0.0f,
-            .ev100Max             = 10.0f,
+            .ev100Max             = 8.0f,
             .luminanceWhitePoint  = 10.0f,
             .saturation           = { 0, 0, 0 },
             .crosstalk            = { 1, 1, 1 },
@@ -313,10 +313,10 @@ namespace detail
         constexpr static RgDrawFrameBloomParams value = {
             .sType                   = sType,
             .pNext                   = nullptr,
-            .bloomIntensity          = 1.0f,
+            .bloomIntensity          = 0.1f,
             .inputThreshold          = 4.0f,
             .bloomEmissionMultiplier = 16.0f,
-            .lensDirtIntensity       = 2.0f,
+            .lensDirtIntensity       = 1.0f,
         };
     };
 
