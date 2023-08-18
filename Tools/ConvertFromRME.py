@@ -21,6 +21,7 @@
 import os
 import sys
 import imageio
+import math
 import numpy as np
 import shutil
 from PIL import Image
@@ -43,34 +44,58 @@ def resize(float_img, new_shape):
     return intimg.astype(np.float32) / 255.0
 
 
+OVERWRITE_ORM           = False
+ROUGHNESS_BIAS          = 0.0
+ROUGHNESS_MULT          = 1.0
+METALLIC_BIAS           = 0.0
+METALLIC_MULT           = 1.0
+
+OVERWRITE_EMIS          = False
+EMIS_NORMALIZE_TO_ONE   = False
+
+
+def calculate_luminance(rgb_array):
+    return 0.2126 * rgb_array[..., 0] + 0.7152 * rgb_array[..., 1] + 0.0722 * rgb_array[..., 2]
+
+
 def convert(path_albedo, path_rme, result_path_orm, result_path_emis):
+    orm_is_ok = True
     if os.path.exists(result_path_orm):
-        print(f"Result file already exists, ignoring: {result_path_orm}")
-        return
+        if not OVERWRITE_ORM:
+            print(f"    Result file already exists, ignoring: {result_path_orm}")
+            orm_is_ok = False
+        else:
+            os.remove(result_path_orm)
     
     emis_is_ok = True
+    if os.path.exists(result_path_emis):
+        if not OVERWRITE_EMIS:
+            print(f"    Result file already exists, ignoring: {result_path_emis}")
+            emis_is_ok = False
+        else:
+            os.remove(result_path_emis)
+
     if not os.path.exists(path_albedo):
-        print("    No albedo file, NO EMISSION FILE will be produced")
-        emis_is_ok = False
+        print(f"    No albedo file, NO EMISSION FILE will be produced")
+        emis_is_ok = False        
 
-    if emis_is_ok:
-        if os.path.exists(result_path_emis):
-            print(f"Result file already exists, ignoring: {result_path_emis}")
-            return
+    if not orm_is_ok and not emis_is_ok:
+        return
 
-    rme    = imageio.imread(path_rme)
-    albedo = imageio.imread(path_albedo) if emis_is_ok else np.zeros((*rme.shape[:2], 4), dtype=np.uint8)
+    rme    = imageio.v3.imread(path_rme)
+    albedo = imageio.v3.imread(path_albedo) if emis_is_ok else np.zeros((*rme.shape[:2], 4), dtype=np.uint8)
 
     rme    = rme   .astype(np.float32) / 255.0
     albedo = albedo.astype(np.float32) / 255.0
 
-    # ( 1.0, rme[0], rme[1] )
-    orm = np.zeros((*rme.shape[:2], 4), dtype=np.float32)
-    orm[:, :, 0] = 1.0
-    orm[:, :, 1] = rme[:, :, 0]
-    orm[:, :, 2] = rme[:, :, 1]
-    orm[:, :, 3] = 1.0
-    imageio.imsave(result_path_orm, orm)
+    if orm_is_ok:
+        # ( 1.0, rme[0], rme[1] )
+        orm = np.zeros((*rme.shape[:2], 4), dtype=np.float32)
+        orm[:, :, 0] = 1.0
+        orm[:, :, 1] = np.clip(ROUGHNESS_BIAS + ROUGHNESS_MULT * rme[:, :, 0], 0.0, 1.0)
+        orm[:, :, 2] = np.clip(METALLIC_BIAS  + METALLIC_MULT  * rme[:, :, 1], 0.0, 1.0)
+        orm[:, :, 3] = 1.0
+        imageio.imsave(result_path_orm, (orm * 255.0).astype(np.uint8))
 
     # albedo * rme[2]
     if emis_is_ok:
@@ -87,11 +112,18 @@ def convert(path_albedo, path_rme, result_path_orm, result_path_emis):
                 albedo = resize(albedo, newsize)
     
         emis = np.zeros((newsize[0], newsize[1], 4), dtype=np.float32)
-        emis[:, :, 0] = albedo[:, :, 0] * rme[:, :, 2]
-        emis[:, :, 1] = albedo[:, :, 1] * rme[:, :, 2]
-        emis[:, :, 2] = albedo[:, :, 2] * rme[:, :, 2]
+        emis[:, :, 0] = albedo[:, :, 0] * np.clip(rme[:, :, 2], 0.0, 1.0)
+        emis[:, :, 1] = albedo[:, :, 1] * np.clip(rme[:, :, 2], 0.0, 1.0)
+        emis[:, :, 2] = albedo[:, :, 2] * np.clip(rme[:, :, 2], 0.0, 1.0)
+
+        if EMIS_NORMALIZE_TO_ONE:
+            lum = calculate_luminance(emis)
+            if (lum.max() > 0.0):
+                newmax = math.sqrt(lum.max() / 0.1)
+                emis = np.clip(emis * newmax / lum.max(), 0.0, 1.0)
+        
         emis[:, :, 3] = 1.0
-        imageio.imsave(result_path_emis, emis)
+        imageio.imsave(result_path_emis, (emis * 255.0).astype(np.uint8))
 
 
 def find_albedo_path(from_folder_abs, relative_dirpath, basename):
@@ -108,14 +140,14 @@ def find_albedo_path(from_folder_abs, relative_dirpath, basename):
 
 def main():
     if "--help" in sys.argv or "--h" in sys.argv or "-help" in sys.argv or "-h" in sys.argv:
-        print( "Usage: python.exe ConvertFromRME.py ")
+        print(f"Usage: python.exe ConvertFromRME.py")
         print(f"    It should be launched in the \'rt\' folder that contains \'{FROM_FOLDER}\' and \'{TO_FOLDER}\'")
-        print( "    The script reads '<name>.<extension>\' (albedo) + \'<name>_rme.<extension>\'")
+        print(f"    The script reads '<name>.<extension>\' (albedo) + \'<name>_rme.<extension>\'")
         print(f"    files from {FROM_FOLDER} folder and creates new files in {TO_FOLDER} folder:")
-        print( "    \'<name>_orm.<extension>\' + \'<name>_e.<extension>\',")
-        print( "    converting legacy Roughness-Metallic-Emission (RGB) textures into")
-        print( "    Occlusion-Roughness-Metallic (RGB) + Emission textures (RGB).")
-        print( "    Such file structure is motivated by glTF2 standard.")
+        print(f"    \'<name>_orm.<extension>\' + \'<name>_e.<extension>\',")
+        print(f"    converting legacy Roughness-Metallic-Emission (RGB) textures into")
+        print(f"    Occlusion-Roughness-Metallic (RGB) + Emission textures (RGB).")
+        print(f"    Such file structure is motivated by glTF2 standard.")
         print(f"    This file also copies _n (Normal) and albedo files (if were under \'{FROM_FOLDER}\').")
         return
     
@@ -136,10 +168,11 @@ def main():
             name, ext = os.path.splitext(f)
             if ext not in ACCEPTED_EXTENSIONS:
                 continue
+            print(f"{os.path.join(dirpath, f)}:")
             src_f = os.path.join(from_folder_abs, relative_dirpath, f)
             dst_f = os.path.join(to_folder_abs,   relative_dirpath, f)
             if os.path.exists(dst_f):
-                print(f"Destination file already exists: {dst_f}")
+                print(f"    Destination file already exists: {dst_f}")
                 continue
             if not name.endswith("_rme"):
                 os.makedirs(os.path.dirname(dst_f), exist_ok=True)
@@ -153,26 +186,27 @@ def main():
             if not name.endswith("_rme"):
                 continue
             basename = name.removesuffix("_rme")
+            print(f"{os.path.join(dirpath, f)}:")
             if ext not in ACCEPTED_EXTENSIONS:
-                print(f"Ignoring file because of its extension (\'{ext}\'): " + os.path.join(dirpath, f))
+                print(f"    Ignoring file because of its extension (\'{ext}\')")
                 continue
             path_albedo, tried = find_albedo_path(from_folder_abs, relative_dirpath, basename)
             path_rme           = os.path.join(from_folder_abs, relative_dirpath, f"{basename}_rme{ext}")
             result_path_orm    = os.path.join(to_folder_abs  , relative_dirpath, f"{basename}_orm{RESULT_EXTENSION}")
             result_path_emis   = os.path.join(to_folder_abs  , relative_dirpath, f"{basename}_e{RESULT_EXTENSION}")
             if not os.path.exists(path_rme):
-                print(f"Unexpectedly, rme file doesn't exist: {path_rme}")
+                print(f"    Unexpectedly, rme file doesn't exist: {path_rme}")
                 continue
             if not path_albedo:
-                print(f"WARNING: Can't find albedo file for: {path_rme}")
+                print(f"    WARNING: Can't find albedo file for: {path_rme}")
                 for t in tried:
-                    print(f"    Tried: {t}")
+                    print(f"        Tried: {t}")
             try:
                 convert(path_albedo, path_rme, result_path_orm, result_path_emis)
             except Exception as e:
-                print(f"Convert error: {e}, on files:")
-                print(f"    {path_albedo}")
-                print(f"    {path_rme}")
+                print(f"    Convert error: {e}, on files:")
+                print(f"        {path_albedo}")
+                print(f"        {path_rme}")
 
 
 if __name__ == '__main__':
