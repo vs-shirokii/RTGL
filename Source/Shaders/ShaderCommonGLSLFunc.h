@@ -496,4 +496,9 @@ bool classicShading( ivec2 regularPix )
 {
     return regularPix.x < globalUniform.lightmapScreenCoverage * globalUniform.renderWidth;
 }
+
+bool classicShading_Upscaled( ivec2 regularPix_Upscaled )
+{
+    return regularPix_Upscaled.x < globalUniform.lightmapScreenCoverage * globalUniform.upscaledRenderWidth;
+}
 #endif // DESC_SET_GLOBAL_UNIFORM

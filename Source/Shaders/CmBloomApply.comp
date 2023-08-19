@@ -65,6 +65,11 @@ void main()
         return;
     }
 
+    if( classicShading_Upscaled( pix ) )
+    {
+        effect_storeUnmodifiedToTarget( pix );
+        return;
+    }
 
     vec3 bloom =
         globalUniform.bloomIntensity * textureLod( framebufBloom_Result_Sampler, uv, 0 ).rgb;
