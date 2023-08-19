@@ -235,14 +235,15 @@ namespace detail
             detail::TypeToStructureType< RgDrawFrameRenderResolutionParams >;
 
         constexpr static RgDrawFrameRenderResolutionParams value = {
-            .sType                = sType,
-            .pNext                = nullptr,
-            .upscaleTechnique     = RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2,
-            .sharpenTechnique     = RG_RENDER_SHARPEN_TECHNIQUE_NONE,
-            .resolutionMode       = RG_RENDER_RESOLUTION_MODE_QUALITY,
-            .customRenderSize     = {},
-            .pPixelizedRenderSize = nullptr,
-            .resetUpscalerHistory = false,
+            .sType                     = sType,
+            .pNext                     = nullptr,
+            .upscaleTechnique          = RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2,
+            .sharpenTechnique          = RG_RENDER_SHARPEN_TECHNIQUE_NONE,
+            .resolutionMode            = RG_RENDER_RESOLUTION_MODE_QUALITY,
+            .customRenderSize          = {},
+            .pixelizedRenderSizeEnable = false,
+            .pixelizedRenderSize       = {},
+            .resetUpscalerHistory      = false,
         };
     };
 

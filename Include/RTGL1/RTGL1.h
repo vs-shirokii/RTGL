@@ -690,7 +690,7 @@ typedef enum RgRenderResolutionMode
     RG_RENDER_RESOLUTION_MODE_PERFORMANCE,
     RG_RENDER_RESOLUTION_MODE_BALANCED,
     RG_RENDER_RESOLUTION_MODE_QUALITY,
-    RG_RENDER_RESOLUTION_MODE_ULTRA_QUALITY, // with AMD_FSR, same as QUALITY
+    RG_RENDER_RESOLUTION_MODE_DLAA, // Only available with DLSS
 } RgRenderResolutionMode;
 
 typedef struct RgDrawFrameRenderResolutionParams
@@ -702,10 +702,11 @@ typedef struct RgDrawFrameRenderResolutionParams
     RgRenderResolutionMode   resolutionMode;
     // Used, if resolutionMode is RG_RENDER_RESOLUTION_MODE_CUSTOM
     RgExtent2D               customRenderSize;
-    // If not null, final image will be downscaled to this size at the very end.
+    // If true, final image will be downscaled to 'pixelizedRenderSize' at the very end.
     // Needed, if pixelized look is needed, but the actual rendering should
     // be done in higher resolution.
-    const RgExtent2D*        pPixelizedRenderSize;
+    RgBool32                 pixelizedRenderSizeEnable;
+    RgExtent2D               pixelizedRenderSize;
     // Drop history, e.g. if there's camera changed its position drastically.
     RgBool32                 resetUpscalerHistory;
 } RgDrawFrameRenderResolutionParams;

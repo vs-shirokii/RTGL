@@ -632,7 +632,7 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
         {
             accum = nvDlss->Apply( cmd,
                                    frameIndex,
-                                   framebuffers,
+                                   *framebuffers,
                                    renderResolution,
                                    jitter,
                                    timeDelta,
@@ -652,11 +652,12 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
                                     resolution.resetUpscalerHistory );
         }
 
-        accum = framebuffers->BlitForEffects( cmd,
-                                              frameIndex,
-                                              accum,
-                                              renderResolution.GetBlitFilter(),
-                                              resolution.pPixelizedRenderSize );
+        accum = framebuffers->BlitForEffects(
+            cmd,
+            frameIndex,
+            accum,
+            renderResolution.GetBlitFilter(),
+            resolution.pixelizedRenderSizeEnable ? &resolution.pixelizedRenderSize : nullptr );
     }
 
 

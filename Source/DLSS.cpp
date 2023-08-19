@@ -99,7 +99,7 @@ bool RTGL1::DLSS::TryInit( VkInstance       instance,
         .Length = 1,
     };
 
-    NVSDK_NGX_FeatureCommonInfo commonInfo = {
+    auto commonInfo = NVSDK_NGX_FeatureCommonInfo{
         .PathListInfo = pathsInfo,
         .LoggingInfo =
             enableDebug
@@ -290,8 +290,8 @@ static NVSDK_NGX_PerfQuality_Value ToNGXPerfQuality( RgRenderResolutionMode mode
             return NVSDK_NGX_PerfQuality_Value::NVSDK_NGX_PerfQuality_Value_Balanced;
         case RG_RENDER_RESOLUTION_MODE_QUALITY:
             return NVSDK_NGX_PerfQuality_Value::NVSDK_NGX_PerfQuality_Value_MaxQuality;
-        case RG_RENDER_RESOLUTION_MODE_ULTRA_QUALITY:
-            return NVSDK_NGX_PerfQuality_Value::NVSDK_NGX_PerfQuality_Value_UltraQuality;
+        case RG_RENDER_RESOLUTION_MODE_DLAA:
+            return NVSDK_NGX_PerfQuality_Value::NVSDK_NGX_PerfQuality_Value_DLAA;
         default:
             assert( 0 );
             return NVSDK_NGX_PerfQuality_Value::NVSDK_NGX_PerfQuality_Value_Balanced;
@@ -338,7 +338,7 @@ bool RTGL1::DLSS::ValidateDlssFeature( VkCommandBuffer               cmd,
     }
 
 
-    NVSDK_NGX_DLSS_Create_Params dlssParams = {
+    auto dlssParams = NVSDK_NGX_DLSS_Create_Params{
         .Feature = { .InWidth        = renderResolution.Width(),
                      .InHeight       = renderResolution.Height(),
                      .InTargetWidth  = renderResolution.UpscaledWidth(),
@@ -373,16 +373,15 @@ bool RTGL1::DLSS::ValidateDlssFeature( VkCommandBuffer               cmd,
     return true;
 }
 
-static NVSDK_NGX_Resource_VK ToNGXResource(
-    const std::shared_ptr< RTGL1::Framebuffers >& framebuffers,
-    uint32_t                                      frameIndex,
-    RTGL1::FramebufferImageIndex                  imageIndex,
-    NVSDK_NGX_Dimensions                          size,
-    bool                                          withWriteAccess = false )
+static NVSDK_NGX_Resource_VK ToNGXResource( const RTGL1::Framebuffers&   framebuffers,
+                                            uint32_t                     frameIndex,
+                                            RTGL1::FramebufferImageIndex imageIndex,
+                                            NVSDK_NGX_Dimensions         size,
+                                            bool                         withWriteAccess = false )
 {
-    auto [ image, view, format ] = framebuffers->GetImageHandles( imageIndex, frameIndex );
+    auto [ image, view, format ] = framebuffers.GetImageHandles( imageIndex, frameIndex );
 
-    VkImageSubresourceRange subresourceRange = {
+    auto subresourceRange = VkImageSubresourceRange{
         .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
         .baseMipLevel   = 0,
         .levelCount     = 1,
@@ -394,14 +393,13 @@ static NVSDK_NGX_Resource_VK ToNGXResource(
         view, image, subresourceRange, format, size.Width, size.Height, withWriteAccess );
 }
 
-RTGL1::FramebufferImageIndex RTGL1::DLSS::Apply(
-    VkCommandBuffer                        cmd,
-    uint32_t                               frameIndex,
-    const std::shared_ptr< Framebuffers >& framebuffers,
-    const RenderResolutionHelper&          renderResolution,
-    RgFloat2D                              jitterOffset,
-    double                                 timeDelta,
-    bool                                   resetAccumulation )
+auto RTGL1::DLSS::Apply( VkCommandBuffer               cmd,
+                         uint32_t                      frameIndex,
+                         Framebuffers&                 framebuffers,
+                         const RenderResolutionHelper& renderResolution,
+                         RgFloat2D                     jitterOffset,
+                         double                        timeDelta,
+                         bool                          resetAccumulation ) -> FramebufferImageIndex
 {
     if( !IsDlssAvailable() )
     {
@@ -426,7 +424,7 @@ RTGL1::FramebufferImageIndex RTGL1::DLSS::Apply(
     const FI outputImage = FI::FB_IMAGE_INDEX_UPSCALED_PONG;
 
 
-    CmdLabel label( cmd, "DLSS" );
+    auto label = CmdLabel{ cmd, "DLSS" };
 
 
     FI fs[] = {
@@ -434,15 +432,18 @@ RTGL1::FramebufferImageIndex RTGL1::DLSS::Apply(
         FI::FB_IMAGE_INDEX_MOTION_DLSS,
         FI::FB_IMAGE_INDEX_DEPTH_NDC,
     };
-    framebuffers->BarrierMultiple( cmd, frameIndex, fs, Framebuffers::BarrierType::Storage );
+    framebuffers.BarrierMultiple( cmd, frameIndex, fs, Framebuffers::BarrierType::Storage );
 
 
-    NVSDK_NGX_Coordinates sourceOffset = { 0, 0 };
-    NVSDK_NGX_Dimensions  sourceSize   = {
+    auto sourceOffset = NVSDK_NGX_Coordinates{
+        0,
+        0,
+    };
+    auto sourceSize = NVSDK_NGX_Dimensions{
         renderResolution.Width(),
         renderResolution.Height(),
     };
-    NVSDK_NGX_Dimensions targetSize = {
+    auto targetSize = NVSDK_NGX_Dimensions{
         renderResolution.UpscaledWidth(),
         renderResolution.UpscaledHeight(),
     };
@@ -457,7 +458,7 @@ RTGL1::FramebufferImageIndex RTGL1::DLSS::Apply(
     // clang-format on
 
 
-    NVSDK_NGX_VK_DLSS_Eval_Params evalParams = {
+    auto evalParams = NVSDK_NGX_VK_DLSS_Eval_Params{
         .Feature  = { .pInColor = &unresolvedColorResource, .pInOutput = &resolvedColorResource },
         .pInDepth = &depthResource,
         .pInMotionVectors          = &motionVectorsResource,
@@ -592,14 +593,13 @@ RTGL1::DLSS::DLSS( VkInstance       _instance,
 }
 RTGL1::DLSS::~DLSS() {}
 
-RTGL1::FramebufferImageIndex RTGL1::DLSS::Apply(
-    VkCommandBuffer                        cmd,
-    uint32_t                               frameIndex,
-    const std::shared_ptr< Framebuffers >& framebuffers,
-    const RenderResolutionHelper&          renderResolution,
-    RgFloat2D                              jitterOffset,
-    double                                 timeDelta,
-    bool                                   resetAccumulation )
+auto RTGL1::DLSS::Apply( VkCommandBuffer               cmd,
+                         uint32_t                      frameIndex,
+                         Framebuffers&                 framebuffers,
+                         const RenderResolutionHelper& renderResolution,
+                         RgFloat2D                     jitterOffset,
+                         double                        timeDelta,
+                         bool                          resetAccumulation ) -> FramebufferImageIndex
 {
     throw RgException(
         RG_RESULT_WRONG_FUNCTION_ARGUMENT,

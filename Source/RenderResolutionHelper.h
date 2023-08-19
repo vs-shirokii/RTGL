@@ -86,7 +86,7 @@ public:
                 case RG_RENDER_RESOLUTION_MODE_PERFORMANCE:
                 case RG_RENDER_RESOLUTION_MODE_BALANCED:
                 case RG_RENDER_RESOLUTION_MODE_QUALITY:
-                case RG_RENDER_RESOLUTION_MODE_ULTRA_QUALITY: break;
+                case RG_RENDER_RESOLUTION_MODE_DLAA: break;
                 default:
                     throw RgException(
                         RG_RESULT_WRONG_FUNCTION_ARGUMENT,
@@ -97,10 +97,11 @@ public:
 
         if( upscaleTechnique == RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2 )
         {
-            if( resolutionMode == RG_RENDER_RESOLUTION_MODE_ULTRA_QUALITY )
+            if( resolutionMode == RG_RENDER_RESOLUTION_MODE_DLAA )
             {
                 resolutionMode = RG_RENDER_RESOLUTION_MODE_QUALITY;
-                assert( 0 && "Ultra quality should not be used with FSR2" );
+                throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT,
+                                   "DLAA must not be used with FSR2" );
             }
 
             if( resolutionMode == RG_RENDER_RESOLUTION_MODE_CUSTOM )

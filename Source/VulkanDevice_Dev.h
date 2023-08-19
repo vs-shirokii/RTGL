@@ -73,8 +73,7 @@ struct Devmode
         RgRenderResolutionMode   resolutionMode;
         float                    customRenderSizeScale;
         bool                     pixelizedEnable;
-        int                      pixelized[ 2 ];
-        RgExtent2D               pixelizedForPtr;
+        int                      pixelizedHeight;
 
         float lightmapScreenCoverage;
 

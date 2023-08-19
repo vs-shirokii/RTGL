@@ -49,13 +49,13 @@ public:
     DLSS& operator=( const DLSS& other )     = delete;
     DLSS& operator=( DLSS&& other ) noexcept = delete;
 
-    FramebufferImageIndex Apply( VkCommandBuffer                        cmd,
-                                 uint32_t                               frameIndex,
-                                 const std::shared_ptr< Framebuffers >& framebuffers,
-                                 const RenderResolutionHelper&          renderResolution,
-                                 RgFloat2D                              jitterOffset,
-                                 double                                 timeDelta,
-                                 bool                                   resetAccumulation );
+    auto Apply( VkCommandBuffer               cmd,
+                uint32_t                      frameIndex,
+                Framebuffers&                 framebuffers,
+                const RenderResolutionHelper& renderResolution,
+                RgFloat2D                     jitterOffset,
+                double                        timeDelta,
+                bool                          resetAccumulation ) -> FramebufferImageIndex;
 
     void GetOptimalSettings( uint32_t               userWidth,
                              uint32_t               userHeight,

@@ -196,13 +196,13 @@ void RTGL1::VulkanDevice::Dev_Draw() const
                 ImGui::RadioButton( "Quality##Resolution",
                                     reinterpret_cast< int* >( &modifiers.resolutionMode ),
                                     RG_RENDER_RESOLUTION_MODE_QUALITY );
-                ImGui::SameLine();
-                ImGui::BeginDisabled( modifiers.upscaleTechnique ==
-                                      RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2 );
-                ImGui::RadioButton( "Ultra Quality##Resolution",
-                                    reinterpret_cast< int* >( &modifiers.resolutionMode ),
-                                    RG_RENDER_RESOLUTION_MODE_ULTRA_QUALITY );
-                ImGui::EndDisabled();
+                if( modifiers.upscaleTechnique == RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS )
+                {
+                    ImGui::SameLine();
+                    ImGui::RadioButton( "DLAA##Resolution",
+                                        reinterpret_cast< int* >( &modifiers.resolutionMode ),
+                                        RG_RENDER_RESOLUTION_MODE_DLAA );
+                }
                 ImGui::EndDisabled();
             }
             {
@@ -213,6 +213,13 @@ void RTGL1::VulkanDevice::Dev_Draw() const
                     "Custom render size", &modifiers.customRenderSizeScale, 0.1f, 1.5f );
 
                 ImGui::EndDisabled();
+            }
+            {
+                ImGui::Checkbox( "Downscale to pixelized", &modifiers.pixelizedEnable );
+                if( modifiers.pixelizedEnable )
+                {
+                    ImGui::SliderInt( "Pixelization size", &modifiers.pixelizedHeight, 100, 600 );
+                }
             }
 
             ImGui::TreePop();
@@ -961,6 +968,9 @@ void RTGL1::VulkanDevice::Dev_Override( RgDrawFrameRenderResolutionParams& resol
 
         // apply modifiers
         {
+            float aspect = float( renderResolution.UpscaledWidth() ) /
+                           float( renderResolution.UpscaledHeight() );
+
             dst_resol.upscaleTechnique = modifiers.upscaleTechnique;
             dst_resol.sharpenTechnique = modifiers.sharpenTechnique;
             dst_resol.resolutionMode   = modifiers.resolutionMode;
@@ -970,12 +980,12 @@ void RTGL1::VulkanDevice::Dev_Override( RgDrawFrameRenderResolutionParams& resol
                 ClampPix< uint32_t >( modifiers.customRenderSizeScale *
                                       float( renderResolution.UpscaledHeight() ) ),
             };
-            modifiers.pixelizedForPtr = {
-                ClampPix< uint32_t >( modifiers.pixelized[ 0 ] ),
-                ClampPix< uint32_t >( modifiers.pixelized[ 1 ] ),
+            dst_resol.pixelizedRenderSizeEnable = modifiers.pixelizedEnable;
+            dst_resol.pixelizedRenderSize       = {
+                ClampPix< uint32_t >(
+                    static_cast< uint32_t >( aspect * float( modifiers.pixelizedHeight ) ) ),
+                ClampPix< uint32_t >( modifiers.pixelizedHeight ),
             };
-            dst_resol.pPixelizedRenderSize =
-                modifiers.pixelizedEnable ? &modifiers.pixelizedForPtr : nullptr;
         }
         {
             dst_illum.maxBounceShadows                 = modifiers.maxBounceShadows;
@@ -1022,15 +1032,10 @@ void RTGL1::VulkanDevice::Dev_Override( RgDrawFrameRenderResolutionParams& resol
                 modifiers.customRenderSizeScale = 1.0f;
             }
 
-            modifiers.pixelizedEnable = src_resol.pPixelizedRenderSize != nullptr;
-
-            modifiers.pixelized[ 0 ] =
-                src_resol.pPixelizedRenderSize
-                    ? ClampPix< int >( src_resol.pPixelizedRenderSize->width )
-                    : 0;
-            modifiers.pixelized[ 1 ] =
-                src_resol.pPixelizedRenderSize
-                    ? ClampPix< int >( src_resol.pPixelizedRenderSize->height )
+            modifiers.pixelizedEnable = src_resol.pixelizedRenderSizeEnable;
+            modifiers.pixelizedHeight =
+                src_resol.pixelizedRenderSizeEnable
+                    ? ClampPix< int >( src_resol.pixelizedRenderSize.height )
                     : 0;
         }
         {
