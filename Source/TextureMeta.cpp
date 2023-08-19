@@ -61,6 +61,8 @@ RTGL1::TextureMetaManager::TextureMetaManager( std::filesystem::path _databaseFo
     : databaseFolder( std::move( _databaseFolder ) )
 {
     sourceGlobal = databaseFolder / TEXTURES_FILENAME;
+    // initial
+    TextureMetaManager::OnFileChanged( FileType::JSON, sourceGlobal );
 }
 
 auto RTGL1::TextureMetaManager::Access( const char* pTextureName ) const
