@@ -35,6 +35,11 @@ namespace
 {
 constexpr uint32_t AdditionalTexCoordMaxCount = MAX_STATIC_VERTEX_COUNT;
 
+constexpr auto StaticMask = RTGL1::VertexCollectorFilterTypeFlagBits::CF_STATIC_NON_MOVABLE |
+                            RTGL1::VertexCollectorFilterTypeFlagBits::CF_STATIC_MOVABLE;
+
+constexpr auto DynamicMask = RTGL1::VertexCollectorFilterTypeFlagBits::CF_DYNAMIC;
+
 bool IsFastBuild( RTGL1::VertexCollectorFilterTypeFlags filter )
 {
     using FT = RTGL1::VertexCollectorFilterTypeFlagBits;
@@ -102,12 +107,11 @@ RTGL1::ASManager::ASManager( VkDevice                                _device,
 
     {
         // static and movable static vertices share the same buffer as their data won't be changing
-        constexpr FL AllStaticFlags = FT::CF_STATIC_NON_MOVABLE | FT::CF_STATIC_MOVABLE |
-                                      FT::MASK_PASS_THROUGH_GROUP |
-                                      FT::MASK_PRIMARY_VISIBILITY_GROUP;
+        constexpr FL AllStaticFlags =
+            StaticMask | FT::MASK_PASS_THROUGH_GROUP | FT::MASK_PRIMARY_VISIBILITY_GROUP;
 
         constexpr FL AllDynamicFlags =
-            FT::CF_DYNAMIC | FT::MASK_PASS_THROUGH_GROUP | FT::MASK_PRIMARY_VISIBILITY_GROUP;
+            DynamicMask | FT::MASK_PASS_THROUGH_GROUP | FT::MASK_PRIMARY_VISIBILITY_GROUP;
 
         uint32_t maxVertsPerLayer[] = {
             MAX_STATIC_VERTEX_COUNT,
@@ -736,6 +740,14 @@ RTGL1::StaticGeometryToken RTGL1::ASManager::BeginStaticGeometry()
     collectorStatic->Reset();
     geomInfoMgr->ResetOnlyStatic();
 
+    for( const auto &[ flags, filter ] : asTypes )
+    {
+        if( flags & StaticMask )
+        {
+            filter->Reset();
+        }
+    }
+
     return StaticGeometryToken( InitAsExisting );
 }
 
@@ -747,8 +759,7 @@ void RTGL1::ASManager::SubmitStaticGeometry( StaticGeometryToken& token )
     // static geometry submission happens very infrequently, e.g. on level load
     vkDeviceWaitIdle( device );
 
-    using FT                   = VertexCollectorFilterTypeFlagBits;
-    constexpr auto StaticFlags = FT::CF_STATIC_NON_MOVABLE | FT::CF_STATIC_MOVABLE;
+    using FT = VertexCollectorFilterTypeFlagBits;
 
     // destroy previous static
     for( auto& staticBlas : allStaticBlas )
@@ -756,7 +767,7 @@ void RTGL1::ASManager::SubmitStaticGeometry( StaticGeometryToken& token )
         assert( !( staticBlas->FilterFlags() & FT::CF_DYNAMIC ) );
 
         // if flags have any of static bits
-        if( staticBlas->FilterFlags() & StaticFlags )
+        if( staticBlas->FilterFlags() & StaticMask )
         {
             staticBlas->Destroy();
             staticBlas->SetGeometryCount( 0 );
@@ -764,7 +775,7 @@ void RTGL1::ASManager::SubmitStaticGeometry( StaticGeometryToken& token )
     }
 
     // skip if all static geometries are empty
-    if( IsASTypeEmptyWithTheseFlags( StaticFlags ) )
+    if( IsASTypeEmptyWithTheseFlags( StaticMask ) )
     {
         return;
     }
@@ -781,7 +792,7 @@ void RTGL1::ASManager::SubmitStaticGeometry( StaticGeometryToken& token )
         for( auto& staticBlas : allStaticBlas )
         {
             // if flags have any of static bits
-            if( staticBlas->FilterFlags() & StaticFlags )
+            if( staticBlas->FilterFlags() & StaticMask )
             {
                 SetupBLAS( asBuilder, *staticBlas );
             }
@@ -812,6 +823,14 @@ RTGL1::DynamicGeometryToken RTGL1::ASManager::BeginDynamicGeometry( VkCommandBuf
 
     // dynamic AS must be recreated
     collectorDynamic[ frameIndex ]->Reset();
+
+    for( const auto& [ flags, filter ] : asTypes )
+    {
+        if( flags & DynamicMask )
+        {
+            filter->Reset();
+        }
+    }
 
     return DynamicGeometryToken( InitAsExisting );
 }
