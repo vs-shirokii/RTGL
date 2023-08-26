@@ -1181,14 +1181,14 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
 
             // insert
             modified_attachedLight.value().pNext = modified.pNext;
-            modified.pNext                       = modified_attachedLight.value().pNext;
+            modified.pNext                       = &modified_attachedLight.value();
         }
 
         if( modified_pbr )
         {
             // insert
             modified_pbr.value().pNext = modified.pNext;
-            modified.pNext             = modified_pbr.value().pNext;
+            modified.pNext             = &modified_pbr.value();
         }
 
         uploadPrimitive_Core( mesh, modified );
