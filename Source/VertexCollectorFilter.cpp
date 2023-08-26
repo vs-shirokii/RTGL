@@ -24,13 +24,6 @@
 
 using namespace RTGL1;
 
-VertexCollectorFilter::VertexCollectorFilter( VertexCollectorFilterTypeFlags _filter )
-    : filter( _filter )
-{
-}
-
-VertexCollectorFilter::~VertexCollectorFilter() {}
-
 const std::vector< uint32_t >& VertexCollectorFilter::GetPrimitiveCounts() const
 {
     return primitiveCounts;
@@ -55,39 +48,25 @@ void VertexCollectorFilter::Reset()
     asBuildRangeInfos.clear();
 }
 
-uint32_t VertexCollectorFilter::PushGeometry( VertexCollectorFilterTypeFlags            type,
-                                              const VkAccelerationStructureGeometryKHR& geom )
+uint32_t VertexCollectorFilter::PushGeometry(
+    VertexCollectorFilterTypeFlags                  type,
+    const VkAccelerationStructureGeometryKHR&       geom,
+    const VkAccelerationStructureBuildRangeInfoKHR& rangeInfo )
 {
     assert( ( type & filter ) == filter );
 
-    uint32_t localIndex = ( uint32_t )asGeometries.size();
-    asGeometries.push_back( geom );
+    const auto localIndex = static_cast< uint32_t >( asGeometries.size() );
+    {
+        asGeometries.push_back( geom );
+        asBuildRangeInfos.push_back( rangeInfo );
+        primitiveCounts.push_back( rangeInfo.primitiveCount );
+    }
 
     assert( localIndex < VertexCollectorFilterTypeFlags_GetAmountInGlobalArray( type ) );
-
     return localIndex;
-}
-
-void VertexCollectorFilter::PushPrimitiveCount( VertexCollectorFilterTypeFlags type,
-                                                uint32_t                       primCount )
-{
-    assert( ( type & filter ) == filter );
-    primitiveCounts.push_back( primCount );
-}
-
-void VertexCollectorFilter::PushRangeInfo(
-    VertexCollectorFilterTypeFlags type, const VkAccelerationStructureBuildRangeInfoKHR& rangeInfo )
-{
-    assert( ( type & filter ) == filter );
-    asBuildRangeInfos.push_back( rangeInfo );
-}
-
-VertexCollectorFilterTypeFlags VertexCollectorFilter::GetFilter() const
-{
-    return filter;
 }
 
 uint32_t VertexCollectorFilter::GetGeometryCount() const
 {
-    return ( uint32_t )asGeometries.size();
+    return static_cast< uint32_t >( asGeometries.size() );
 }

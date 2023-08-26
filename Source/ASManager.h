@@ -115,16 +115,14 @@ private:
     void UpdateBufferDescriptors( uint32_t frameIndex );
     void UpdateASDescriptors( uint32_t frameIndex );
 
-    bool SetupBLAS( BLASComponent& as, const VertexCollector& vertCollector );
+    void SetupBLAS( ASBuilder &asBuilder, BLASComponent& blas );
 
-    void UpdateBLAS( BLASComponent& as, const VertexCollector& vertCollector );
+    bool IsASTypeEmptyWithTheseFlags( RTGL1::VertexCollectorFilterTypeFlags flagsToCheck ) const;
 
     static bool SetupTLASInstanceFromBLAS( const BLASComponent& as,
                                            uint32_t             rayCullMaskWorld,
                                            bool                 allowGeometryWithSkyFlag,
                                            VkAccelerationStructureInstanceKHR& instance );
-
-    static bool IsFastBuild( VertexCollectorFilterTypeFlags filter );
 
 private:
     VkDevice                           device;
@@ -133,19 +131,21 @@ private:
     VkFence staticCopyFence;
 
     // for filling buffers
-    std::shared_ptr< VertexCollector > collectorStatic;
-    std::shared_ptr< VertexCollector > collectorDynamic[ MAX_FRAMES_IN_FLIGHT ];
+    std::unique_ptr< VertexCollector > collectorStatic;
+    std::unique_ptr< VertexCollector > collectorDynamic[ MAX_FRAMES_IN_FLIGHT ];
     // device-local buffer for storing previous info
     Buffer                             previousDynamicPositions;
     Buffer                             previousDynamicIndices;
 
     // building
     std::shared_ptr< ScratchBuffer > scratchBuffer;
-    std::shared_ptr< ASBuilder >     asBuilder;
 
     std::shared_ptr< CommandBufferManager > cmdManager;
     std::shared_ptr< TextureManager >       textureMgr;
     std::shared_ptr< GeomInfoManager >      geomInfoMgr;
+
+    rgl::unordered_map< VertexCollectorFilterTypeFlags, std::unique_ptr< VertexCollectorFilter > >
+        asTypes;
 
     std::vector< std::unique_ptr< BLASComponent > > allStaticBlas;
     std::vector< std::unique_ptr< BLASComponent > > allDynamicBlas[ MAX_FRAMES_IN_FLIGHT ];

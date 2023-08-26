@@ -20,10 +20,11 @@
 
 #pragma once
 
-#include <vector>
-
 #include "Common.h"
 #include "ScratchBuffer.h"
+
+#include <vector>
+#include <span>
 
 namespace RTGL1
 {
@@ -43,49 +44,57 @@ public:
     // pGeometries is a pointer to an array of size "geometryCount",
     // pRangeInfos is an array of size "geometryCount".
     // All pointers must be valid until BuildBottomLevel is called
-    void AddBLAS( VkAccelerationStructureKHR                      as,
-                  uint32_t                                        geometryCount,
-                  const VkAccelerationStructureGeometryKHR*       pGeometries,
-                  const VkAccelerationStructureBuildRangeInfoKHR* pRangeInfos,
-                  const VkAccelerationStructureBuildSizesInfoKHR& buildSizes,
-                  bool                                            fastTrace,
-                  bool                                            update,
-                  bool                                            isBLASUpdateable );
+    void AddBLAS( VkAccelerationStructureKHR                                  as,
+                  std::span< const VkAccelerationStructureGeometryKHR >       geometries,
+                  std::span< const VkAccelerationStructureBuildRangeInfoKHR > rangeInfos,
+                  const VkAccelerationStructureBuildSizesInfoKHR&             buildSizes,
+                  bool                                                        fastTrace,
+                  bool                                                        update,
+                  bool                                                        isBLASUpdateable );
 
-    void BuildBottomLevel( VkCommandBuffer cmd );
+    bool BuildBottomLevel( VkCommandBuffer cmd );
 
 
     // pGeometry is a pointer to one AS geometry,
     // pRangeInfo is a pointer to build range info.
     // All pointers must be valid until BuildTopLevel is called
     void AddTLAS( VkAccelerationStructureKHR                      as,
-                  const VkAccelerationStructureGeometryKHR*       pGeometry,
-                  const VkAccelerationStructureBuildRangeInfoKHR* pRangeInfo,
+                  const VkAccelerationStructureGeometryKHR*       instance,
+                  const VkAccelerationStructureBuildRangeInfoKHR* rangeInfo,
                   const VkAccelerationStructureBuildSizesInfoKHR& buildSizes,
                   bool                                            fastTrace,
                   bool                                            update );
 
-    void BuildTopLevel( VkCommandBuffer cmd );
+    bool BuildTopLevel( VkCommandBuffer cmd );
 
 
-    VkAccelerationStructureBuildSizesInfoKHR GetBuildSizes(
-        VkAccelerationStructureTypeKHR            type,
-        uint32_t                                  geometryCount,
-        const VkAccelerationStructureGeometryKHR* pGeometries,
-        const uint32_t*                           pMaxPrimitiveCount,
-        bool                                      fastTrace ) const;
+private:
+    auto GetBuildSizes( VkAccelerationStructureTypeKHR                  type,
+                        std::span< const VkAccelerationStructureGeometryKHR > geometries,
+                        std::span< const uint32_t > maxPrimitiveCountPerGeometry,
+                        bool fastTrace ) const -> VkAccelerationStructureBuildSizesInfoKHR;
 
-    // GetBuildSizes(..) for BLAS
-    VkAccelerationStructureBuildSizesInfoKHR GetBottomBuildSizes(
-        uint32_t                                  geometryCount,
-        const VkAccelerationStructureGeometryKHR* pGeometries,
-        const uint32_t*                           pMaxPrimitiveCount,
-        bool                                      fastTrace ) const;
-    // GetBuildSizes(..) for TLAS
-    VkAccelerationStructureBuildSizesInfoKHR GetTopBuildSizes(
-        const VkAccelerationStructureGeometryKHR* pGeometry,
-        uint32_t                                  maxPrimitiveCount,
-        bool                                      fastTrace ) const;
+public:
+    auto GetBottomBuildSizes( std::span< const VkAccelerationStructureGeometryKHR > geometries,
+                              std::span< const uint32_t > maxPrimitiveCountPerGeometry,
+                              bool fastTrace ) const -> VkAccelerationStructureBuildSizesInfoKHR
+    {
+        return GetBuildSizes( VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+                              geometries,
+                              maxPrimitiveCountPerGeometry,
+                              fastTrace );
+    }
+
+
+    auto GetTopBuildSizes( const VkAccelerationStructureGeometryKHR& instance,
+                           uint32_t                                  maxPrimitiveCountInInstance,
+                           bool                                      fastTrace ) const
+    {
+        return GetBuildSizes( VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
+                              { &instance, 1 },
+                              { &maxPrimitiveCountInInstance, 1 },
+                              fastTrace );
+    }
 
     bool IsEmpty() const;
 

@@ -70,52 +70,61 @@ RTGL1::VertexCollector::VertexCollector( VkDevice         _device,
                                          MemoryAllocator& _allocator,
                                          const uint32_t ( &_maxVertsPerLayer )[ 4 ],
                                          VertexCollectorFilterTypeFlags _filters )
-    : device( _device )
-    , filtersFlags( _filters )
-    , bufVertices( _allocator,
+    : device{ _device }
+    , filtersFlags{ _filters }
+    , bufVertices{ _allocator,
                    _maxVertsPerLayer[ 0 ],
                    MakeUsage( _filters ),
-                   MakeName( "Vertices", _filters ) )
-    , bufIndices( _allocator,
+                   MakeName( "Vertices", _filters ) }
+    , bufIndices{ _allocator,
                   MAX_INDEXED_PRIMITIVE_COUNT * 3,
                   MakeUsage( _filters ),
-                  MakeName( "Indices", _filters ) )
-    , bufTransforms( _allocator,
+                  MakeName( "Indices", _filters ) }
+    , bufTransforms{ _allocator,
                      MAX_BOTTOM_LEVEL_GEOMETRIES_COUNT,
                      MakeUsage( _filters ),
-                     MakeName( "BLAS Transforms", _filters ) )
-    , bufTexcoordLayer1( _allocator,
+                     MakeName( "BLAS Transforms", _filters ) }
+    , bufTexcoordLayer1{ _allocator,
                          _maxVertsPerLayer[ 1 ],
                          MakeUsage( _filters, false ),
-                         MakeName( "Texcoords Layer1", _filters ) )
-    , bufTexcoordLayer2( _allocator,
+                         MakeName( "Texcoords Layer1", _filters ) }
+    , bufTexcoordLayer2{ _allocator,
                          _maxVertsPerLayer[ 2 ],
                          MakeUsage( _filters, false ),
-                         MakeName( "Texcoords Layer2", _filters ) )
-    , bufTexcoordLayer3( _allocator,
+                         MakeName( "Texcoords Layer2", _filters ) }
+    , bufTexcoordLayer3{ _allocator,
                          _maxVertsPerLayer[ 3 ],
                          MakeUsage( _filters, false ),
-                         MakeName( "Texcoords Layer3", _filters ) )
+                         MakeName( "Texcoords Layer3", _filters ) }
 {
-    InitFilters( filtersFlags );
 }
 
 // device local buffers are shared with the "src" vertex collector
 RTGL1::VertexCollector::VertexCollector( const VertexCollector& _src, MemoryAllocator& _allocator )
-    : device( _src.device )
-    , filtersFlags( _src.filtersFlags )
-    , bufVertices( _src.bufVertices, _allocator, MakeName( "Vertices", _src.filtersFlags ) )
-    , bufIndices( _src.bufIndices, _allocator, MakeName( "Indices", _src.filtersFlags ) )
-    , bufTransforms(
-          _src.bufTransforms, _allocator, MakeName( "BLAS Transforms", _src.filtersFlags ) )
-    , bufTexcoordLayer1(
-          _src.bufTexcoordLayer1, _allocator, MakeName( "Texcoords Layer1", _src.filtersFlags ) )
-    , bufTexcoordLayer2(
-          _src.bufTexcoordLayer2, _allocator, MakeName( "Texcoords Layer2", _src.filtersFlags ) )
-    , bufTexcoordLayer3(
-          _src.bufTexcoordLayer3, _allocator, MakeName( "Texcoords Layer3", _src.filtersFlags ) )
+    : device{ _src.device }
+    , filtersFlags{ _src.filtersFlags }
+    , bufVertices{ _src.bufVertices, _allocator, MakeName( "Vertices", _src.filtersFlags ) }
+    , bufIndices{ _src.bufIndices, _allocator, MakeName( "Indices", _src.filtersFlags ) }
+    , bufTransforms{ _src.bufTransforms,
+                     _allocator,
+                     MakeName( "BLAS Transforms", _src.filtersFlags ) }
+    , bufTexcoordLayer1{ _src.bufTexcoordLayer1,
+                         _allocator,
+                         MakeName( "Texcoords Layer1", _src.filtersFlags ) }
+    , bufTexcoordLayer2{ _src.bufTexcoordLayer2,
+                         _allocator,
+                         MakeName( "Texcoords Layer2", _src.filtersFlags ) }
+    , bufTexcoordLayer3{ _src.bufTexcoordLayer3,
+                         _allocator,
+                         MakeName( "Texcoords Layer3", _src.filtersFlags ) }
 {
-    InitFilters( filtersFlags );
+}
+
+auto RTGL1::VertexCollector::CreateWithSameDeviceLocalBuffers( const VertexCollector& src,
+                                                               MemoryAllocator&       allocator )
+    -> std::unique_ptr< VertexCollector >
+{
+    return std::make_unique< VertexCollector >( src, allocator );
 }
 
 namespace
@@ -128,35 +137,12 @@ uint32_t AlignUpBy3( uint32_t x )
 
 }
 
-bool RTGL1::VertexCollector::AddPrimitive( uint32_t                          frameIndex,
-                                           bool                              isStatic,
-                                           const RgMeshInfo&                 parentMesh,
-                                           const RgMeshPrimitiveInfo&        info,
-                                           const PrimitiveUniqueID&          uniqueID,
-                                           std::span< MaterialTextures, 4 >  layerTextures,
-                                           std::span< RgColor4DPacked32, 4 > layerColors,
-                                           GeomInfoManager&                  geomInfoManager )
+auto RTGL1::VertexCollector::Upload( VertexCollectorFilterTypeFlags geomFlags,
+                                     const RgMeshInfo&              mesh,
+                                     const RgMeshPrimitiveInfo&     prim )
+    -> std::optional< UploadResult >
 {
     using FT = VertexCollectorFilterTypeFlagBits;
-    const VertexCollectorFilterTypeFlags geomFlags =
-        VertexCollectorFilterTypeFlags_GetForGeometry( parentMesh, info, isStatic );
-
-
-    // if exceeds a limit of geometries in a group with specified geomFlags
-    {
-        if( GetGeometryCount( geomFlags ) + 1 >=
-            VertexCollectorFilterTypeFlags_GetAmountInGlobalArray( geomFlags ) )
-        {
-            debug::Error( "Too many geometries in a group ({}-{}-{}). Limit is {}",
-                          uint32_t( geomFlags & FT::MASK_CHANGE_FREQUENCY_GROUP ),
-                          uint32_t( geomFlags & FT::MASK_PASS_THROUGH_GROUP ),
-                          uint32_t( geomFlags & FT::MASK_PRIMARY_VISIBILITY_GROUP ),
-                          VertexCollectorFilterTypeFlags_GetAmountInGlobalArray( geomFlags ) );
-            return false;
-        }
-    }
-
-
 
     const uint32_t vertIndex      = AlignUpBy3( curVertexCount );
     const uint32_t indIndex       = AlignUpBy3( curIndexCount );
@@ -165,230 +151,168 @@ bool RTGL1::VertexCollector::AddPrimitive( uint32_t                          fra
     const uint32_t texcIndex_2    = curTexCoordCount_Layer2;
     const uint32_t texcIndex_3    = curTexCoordCount_Layer3;
 
-    const bool     useIndices    = info.indexCount != 0 && info.pIndices != nullptr;
-    const uint32_t triangleCount = useIndices ? info.indexCount / 3 : info.vertexCount / 3;
+    const bool     useIndices    = prim.indexCount != 0 && prim.pIndices != nullptr;
+    const uint32_t triangleCount = useIndices ? prim.indexCount / 3 : prim.vertexCount / 3;
 
-    curVertexCount = vertIndex + info.vertexCount;
-    curIndexCount  = indIndex + ( useIndices ? info.indexCount : 0 );
+    curVertexCount = vertIndex + prim.vertexCount;
+    curIndexCount  = indIndex + ( useIndices ? prim.indexCount : 0 );
     curPrimitiveCount += triangleCount;
     curTransformCount += 1;
-    curTexCoordCount_Layer1 += GeomInfoManager::LayerExists( info, 1 ) ? info.vertexCount : 0;
-    curTexCoordCount_Layer2 += GeomInfoManager::LayerExists( info, 2 ) ? info.vertexCount : 0;
-    curTexCoordCount_Layer3 += GeomInfoManager::LayerExists( info, 3 ) ? info.vertexCount : 0;
+    curTexCoordCount_Layer1 += GeomInfoManager::LayerExists( prim, 1 ) ? prim.vertexCount : 0;
+    curTexCoordCount_Layer2 += GeomInfoManager::LayerExists( prim, 2 ) ? prim.vertexCount : 0;
+    curTexCoordCount_Layer3 += GeomInfoManager::LayerExists( prim, 3 ) ? prim.vertexCount : 0;
 
 
 
-    if( isStatic )
+    if( geomFlags & FT::CF_STATIC_NON_MOVABLE )
     {
         if( curVertexCount >= MAX_STATIC_VERTEX_COUNT )
         {
             debug::Error( "Too many static vertices: the limit is {}", MAX_STATIC_VERTEX_COUNT );
-            return false;
+            return {};
         }
-        assert( geomFlags & FT::CF_STATIC_NON_MOVABLE );
     }
     else
     {
         if( curVertexCount >= MAX_DYNAMIC_VERTEX_COUNT )
         {
             debug::Error( "Too many dynamic vertices: the limit is {}", MAX_DYNAMIC_VERTEX_COUNT );
-            return false;
+            return {};
         }
         assert( geomFlags & FT::CF_DYNAMIC );
+        assert( !( geomFlags & FT::CF_STATIC_MOVABLE ) );
     }
 
     if( curIndexCount >= MAX_INDEXED_PRIMITIVE_COUNT * 3 )
     {
         debug::Error( "Too many indices: the limit is {}", MAX_INDEXED_PRIMITIVE_COUNT * 3 );
-        return false;
-    }
-
-    if( geomInfoManager.GetCount( frameIndex ) + 1 >= MAX_BOTTOM_LEVEL_GEOMETRIES_COUNT )
-    {
-        debug::Error( "Too many geometry infos: the limit is {}",
-                      MAX_BOTTOM_LEVEL_GEOMETRIES_COUNT );
-        return false;
+        return {};
     }
 
 
 
     // copy data to buffers
-    CopyVertexDataToStaging( info, vertIndex );
-    CopyTexCoordsToStaging( 1, info, texcIndex_1 );
-    CopyTexCoordsToStaging( 2, info, texcIndex_2 );
-    CopyTexCoordsToStaging( 3, info, texcIndex_3 );
+    CopyVertexDataToStaging( prim, vertIndex, texcIndex_1, texcIndex_2, texcIndex_3 );
 
     if( useIndices )
     {
         assert( bufIndices.mapped );
         memcpy(
-            &bufIndices.mapped[ indIndex ], info.pIndices, info.indexCount * sizeof( uint32_t ) );
+            &bufIndices.mapped[ indIndex ], prim.pIndices, prim.indexCount * sizeof( uint32_t ) );
     }
 
     {
-        static_assert( sizeof( parentMesh.transform ) == sizeof( VkTransformMatrixKHR ) );
+        static_assert( sizeof( mesh.transform ) == sizeof( VkTransformMatrixKHR ) );
         assert( bufTransforms.mapped );
 
         memcpy( &bufTransforms.mapped[ transformIndex ],
-                &parentMesh.transform,
+                &mesh.transform,
                 sizeof( VkTransformMatrixKHR ) );
     }
 
 
 
-    VkAccelerationStructureGeometryKHR geom = {
+    auto triangles = VkAccelerationStructureGeometryTrianglesDataKHR{
+        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR,
+        // vertices
+        .vertexFormat = VK_FORMAT_R32G32B32_SFLOAT,
+        .vertexData   = { .deviceAddress = bufVertices.deviceLocal->GetAddress() +
+                                           vertIndex * sizeof( ShVertex ) +
+                                           offsetof( ShVertex, position ) },
+        .vertexStride = sizeof( ShVertex ),
+        .maxVertex    = prim.vertexCount,
+        // indices
+        .indexType = useIndices ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_NONE_KHR,
+        .indexData = { .deviceAddress = useIndices ? bufIndices.deviceLocal->GetAddress() +
+                                                         indIndex * sizeof( uint32_t )
+                                                   : 0 },
+        // transform
+        .transformData = { .deviceAddress = bufTransforms.deviceLocal->GetAddress() +
+                                            transformIndex * sizeof( VkTransformMatrixKHR ) },
+    };
+
+    auto geom = VkAccelerationStructureGeometryKHR{
         .sType        = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
         .geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR,
+        .geometry     = { .triangles = triangles },
         .flags        = geomFlags & FT::PT_OPAQUE
                             ? VkGeometryFlagsKHR( VK_GEOMETRY_OPAQUE_BIT_KHR )
-                            : VkGeometryFlagsKHR( VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR ),
+                            : VkGeometryFlagsKHR( VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR )
     };
-    {
-        VkAccelerationStructureGeometryTrianglesDataKHR trData = {
-            .sType         = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR,
 
-            .vertexFormat  = VK_FORMAT_R32G32B32_SFLOAT,
-            .vertexData    = {
-                .deviceAddress = bufVertices.deviceLocal->GetAddress() + vertIndex * sizeof( ShVertex ) + offsetof( ShVertex, position ),
-            },
-            .vertexStride  = sizeof( ShVertex ),
-            .maxVertex     = info.vertexCount,
-
-            .indexType     = VK_INDEX_TYPE_NONE_KHR,
-            .indexData     = {},
-
-            .transformData = {
-                .deviceAddress = bufTransforms.deviceLocal->GetAddress() + transformIndex * sizeof( VkTransformMatrixKHR ),
-            },
-        };
-
-        if( useIndices )
-        {
-            trData.indexType = VK_INDEX_TYPE_UINT32;
-            trData.indexData = {
-                .deviceAddress =
-                    bufIndices.deviceLocal->GetAddress() + indIndex * sizeof( uint32_t ),
-            };
-        }
-
-        geom.geometry.triangles = trData;
-    }
-
-
-    uint32_t localIndex = PushGeometry( geomFlags, geom );
-
-
-    {
-        VkAccelerationStructureBuildRangeInfoKHR rangeInfo = {
-            .primitiveCount  = triangleCount,
-            .primitiveOffset = 0,
-            .firstVertex     = 0,
-            .transformOffset = 0,
-        };
-        PushRangeInfo( geomFlags, rangeInfo );
-
-        PushPrimitiveCount( geomFlags, triangleCount );
-    }
-
-
-    const auto pbrInfo = pnext::find< RgMeshPrimitivePBREXT >( &info );
-
-    ShGeometryInstance geomInfo = {
-        .model     = RG_MATRIX_TRANSPOSED( parentMesh.transform ),
-        .prevModel = { /* set later */ },
-
-        .flags = GeomInfoManager::GetPrimitiveFlags( info ),
-
-        .texture_base = layerTextures[ 0 ].indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
-        .texture_base_ORM =
-            layerTextures[ 0 ].indices[ TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_INDEX ],
-        .texture_base_N = layerTextures[ 0 ].indices[ TEXTURE_NORMAL_INDEX ],
-        .texture_base_E = layerTextures[ 0 ].indices[ TEXTURE_EMISSIVE_INDEX ],
-
-        .texture_layer1 = layerTextures[ 1 ].indices[ 0 ],
-        .texture_layer2 = layerTextures[ 2 ].indices[ 0 ],
-        .texture_layer3 = layerTextures[ 3 ].indices[ 0 ],
-
-        .colorFactor_base   = layerColors[ 0 ],
-        .colorFactor_layer1 = layerColors[ 1 ],
-        .colorFactor_layer2 = layerColors[ 2 ],
-        .colorFactor_layer3 = layerColors[ 3 ],
-
-        .baseVertexIndex     = vertIndex,
-        .baseIndexIndex      = useIndices ? indIndex : UINT32_MAX,
-        .prevBaseVertexIndex = { /* set later */ },
-        .prevBaseIndexIndex  = { /* set later */ },
-        .vertexCount         = info.vertexCount,
-        .indexCount          = useIndices ? info.indexCount : UINT32_MAX,
-
-        .roughnessDefault = pbrInfo ? Utils::Saturate( pbrInfo->roughnessDefault ) : 1.0f,
-        .metallicDefault  = pbrInfo ? Utils::Saturate( pbrInfo->metallicDefault ) : 0.0f,
-
-        .emissiveMult = Utils::Saturate( info.emissive ),
-
-        // values ignored if doesn't exist
+    return UploadResult{
+        .asGeometry         = geom,
+        .triangleCount      = triangleCount,
+        .firstIndex         = useIndices ? std::optional{ indIndex } : std::nullopt,
+        .firstVertex        = vertIndex,
         .firstVertex_Layer1 = texcIndex_1,
         .firstVertex_Layer2 = texcIndex_2,
         .firstVertex_Layer3 = texcIndex_3,
     };
-
-
-    // global geometry index -- for indexing in geom infos buffer
-    // local geometry index -- index of geometry in BLAS
-    geomInfoManager.WriteGeomInfo( frameIndex, uniqueID, localIndex, geomFlags, geomInfo );
-
-    return true;
 }
 
 void RTGL1::VertexCollector::CopyVertexDataToStaging( const RgMeshPrimitiveInfo& info,
-                                                      uint32_t                   vertIndex )
+                                                      uint32_t                   vertIndex,
+                                                      uint32_t                   texcIndex_1,
+                                                      uint32_t                   texcIndex_2,
+                                                      uint32_t                   texcIndex_3 )
 {
-    assert( bufVertices.mapped );
-    assert( ( vertIndex + info.vertexCount ) * sizeof( ShVertex ) < bufVertices.staging.GetSize() );
-
-    ShVertex* const pDst = &bufVertices.mapped[ vertIndex ];
-
-    // must be same to copy
-    static_assert( std::is_same_v< decltype( info.pVertices ), const RgPrimitiveVertex* > );
-    static_assert( sizeof( ShVertex ) == sizeof( RgPrimitiveVertex ) );
-    static_assert( offsetof( ShVertex, position ) == offsetof( RgPrimitiveVertex, position ) );
-    static_assert( offsetof( ShVertex, normal ) == offsetof( RgPrimitiveVertex, normal ) );
-    static_assert( offsetof( ShVertex, tangent ) == offsetof( RgPrimitiveVertex, tangent ) );
-    static_assert( offsetof( ShVertex, texCoord ) == offsetof( RgPrimitiveVertex, texCoord ) );
-    static_assert( offsetof( ShVertex, color ) == offsetof( RgPrimitiveVertex, color ) );
-
-    memcpy( pDst, info.pVertices, info.vertexCount * sizeof( ShVertex ) );
-}
-
-void RTGL1::VertexCollector::CopyTexCoordsToStaging( uint32_t                   layerIndex,
-                                                     const RgMeshPrimitiveInfo& info,
-                                                     uint32_t                   dstTexcoordIndex )
-{
-    SharedDeviceLocal< RgFloat2D >* txc = nullptr;
-    switch( layerIndex )
     {
-        case 1: txc = &bufTexcoordLayer1; break;
-        case 2: txc = &bufTexcoordLayer2; break;
-        case 3: txc = &bufTexcoordLayer3; break;
-        default: assert( 0 ); return;
+        assert( bufVertices.mapped );
+        assert( ( vertIndex + info.vertexCount ) * sizeof( ShVertex ) <
+                bufVertices.staging.GetSize() );
+
+        ShVertex* const pDst = &bufVertices.mapped[ vertIndex ];
+
+        // must be same to copy
+        static_assert( std::is_same_v< decltype( info.pVertices ), const RgPrimitiveVertex* > );
+        static_assert( sizeof( ShVertex ) == sizeof( RgPrimitiveVertex ) );
+        static_assert( offsetof( ShVertex, position ) == offsetof( RgPrimitiveVertex, position ) );
+        static_assert( offsetof( ShVertex, normal ) == offsetof( RgPrimitiveVertex, normal ) );
+        static_assert( offsetof( ShVertex, tangent ) == offsetof( RgPrimitiveVertex, tangent ) );
+        static_assert( offsetof( ShVertex, texCoord ) == offsetof( RgPrimitiveVertex, texCoord ) );
+        static_assert( offsetof( ShVertex, color ) == offsetof( RgPrimitiveVertex, color ) );
+
+        memcpy( pDst, info.pVertices, info.vertexCount * sizeof( ShVertex ) );
     }
 
-    if( const RgFloat2D* src = GeomInfoManager::AccessLayerTexCoords( info, layerIndex ) )
     {
-        if( txc->IsInitialized() && txc->mapped )
+        struct TdDst
         {
-            memcpy( &txc->mapped[ dstTexcoordIndex ], src, info.vertexCount * sizeof( RgFloat2D ) );
-        }
-        else
+            uint32_t                        layerIndex;
+            SharedDeviceLocal< RgFloat2D >* buffer;
+            uint32_t                        offset;
+        };
+
+        TdDst dsts[] = {
+            { .layerIndex = 1, .buffer = &bufTexcoordLayer1, .offset = texcIndex_1 },
+            { .layerIndex = 2, .buffer = &bufTexcoordLayer2, .offset = texcIndex_2 },
+            { .layerIndex = 3, .buffer = &bufTexcoordLayer3, .offset = texcIndex_3 },
+        };
+
+        for( auto& dst : dsts )
         {
-            debug::Error(
-                "Found Layer{} texture coords on a primitive, but buffer was not allocated. "
-                "Recheck RgInstanceCreateInfo::{}",
-                layerIndex,
-                layerIndex == 1   ? "allowTexCoordLayer1"
-                : layerIndex == 2 ? "allowTexCoordLayer2"
-                : layerIndex == 3 ? "allowTexCoordLayer3"
-                                  : "<unknown>" );
+            if( const RgFloat2D* src =
+                    GeomInfoManager::AccessLayerTexCoords( info, dst.layerIndex ) )
+            {
+                if( dst.buffer->IsInitialized() && dst.buffer->mapped )
+                {
+                    memcpy( &dst.buffer->mapped[ dst.offset ],
+                            src,
+                            info.vertexCount * sizeof( RgFloat2D ) );
+                }
+                else
+                {
+                    debug::Error( "Found Layer{} texture coords on a primitive, but buffer was not "
+                                  "allocated. "
+                                  "Recheck RgInstanceCreateInfo::{}",
+                                  dst.layerIndex,
+                                  dst.layerIndex == 1   ? "allowTexCoordLayer1"
+                                  : dst.layerIndex == 2 ? "allowTexCoordLayer2"
+                                  : dst.layerIndex == 3 ? "allowTexCoordLayer3"
+                                                        : "<unknown>" );
+                }
+            }
         }
     }
 }
@@ -402,11 +326,6 @@ void RTGL1::VertexCollector::Reset()
     curTexCoordCount_Layer1 = 0;
     curTexCoordCount_Layer2 = 0;
     curTexCoordCount_Layer3 = 0;
-
-    for( auto& f : filters )
-    {
-        f.second->Reset();
-    }
 }
 
 bool RTGL1::VertexCollector::CopyVertexDataFromStaging( VkCommandBuffer cmd )
@@ -678,55 +597,6 @@ VkBuffer RTGL1::VertexCollector::GetIndexBuffer() const
     return bufIndices.deviceLocal->GetBuffer();
 }
 
-const std::vector< uint32_t >& RTGL1::VertexCollector::GetPrimitiveCounts(
-    VertexCollectorFilterTypeFlags filter ) const
-{
-    auto f = filters.find( filter );
-    assert( f != filters.end() );
-
-    return f->second->GetPrimitiveCounts();
-}
-
-const std::vector< VkAccelerationStructureGeometryKHR >& RTGL1::VertexCollector::GetASGeometries(
-    VertexCollectorFilterTypeFlags filter ) const
-{
-    auto f = filters.find( filter );
-    assert( f != filters.end() );
-
-    return f->second->GetASGeometries();
-}
-
-const std::vector< VkAccelerationStructureBuildRangeInfoKHR >& RTGL1::VertexCollector::
-    GetASBuildRangeInfos( VertexCollectorFilterTypeFlags filter ) const
-{
-    auto f = filters.find( filter );
-    assert( f != filters.end() );
-
-    return f->second->GetASBuildRangeInfos();
-}
-
-bool RTGL1::VertexCollector::AreGeometriesEmpty( VertexCollectorFilterTypeFlags flags ) const
-{
-    for( const auto& p : filters )
-    {
-        const auto& f = p.second;
-
-        // if filter includes any type from flags
-        // and it's not empty
-        if( ( f->GetFilter() & flags ) && f->GetGeometryCount() > 0 )
-        {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-bool RTGL1::VertexCollector::AreGeometriesEmpty( VertexCollectorFilterTypeFlagBits type ) const
-{
-    return AreGeometriesEmpty( ( VertexCollectorFilterTypeFlags )type );
-}
-
 void RTGL1::VertexCollector::InsertVertexPreprocessBeginBarrier( VkCommandBuffer cmd )
 {
     // barriers were already inserted in CopyFromStaging()
@@ -784,50 +654,6 @@ void RTGL1::VertexCollector::InsertVertexPreprocessFinishBarrier( VkCommandBuffe
                           0,
                           nullptr );
 }
-
-uint32_t RTGL1::VertexCollector::PushGeometry( VertexCollectorFilterTypeFlags            type,
-                                               const VkAccelerationStructureGeometryKHR& geom )
-{
-    assert( filters.find( type ) != filters.end() );
-
-    return filters[ type ]->PushGeometry( type, geom );
-}
-
-void RTGL1::VertexCollector::PushPrimitiveCount( VertexCollectorFilterTypeFlags type,
-                                                 uint32_t                       primCount )
-{
-    assert( filters.find( type ) != filters.end() );
-
-    filters[ type ]->PushPrimitiveCount( type, primCount );
-}
-
-void RTGL1::VertexCollector::PushRangeInfo(
-    VertexCollectorFilterTypeFlags type, const VkAccelerationStructureBuildRangeInfoKHR& rangeInfo )
-{
-    assert( filters.find( type ) != filters.end() );
-
-    filters[ type ]->PushRangeInfo( type, rangeInfo );
-}
-
-uint32_t RTGL1::VertexCollector::GetGeometryCount( VertexCollectorFilterTypeFlags type )
-{
-    assert( filters.find( type ) != filters.end() );
-
-    return filters[ type ]->GetGeometryCount();
-}
-
-uint32_t RTGL1::VertexCollector::GetAllGeometryCount() const
-{
-    uint32_t count = 0;
-
-    for( const auto& f : filters )
-    {
-        count += f.second->GetGeometryCount();
-    }
-
-    return count;
-}
-
 uint32_t RTGL1::VertexCollector::GetCurrentVertexCount() const
 {
     return curVertexCount;
@@ -836,34 +662,4 @@ uint32_t RTGL1::VertexCollector::GetCurrentVertexCount() const
 uint32_t RTGL1::VertexCollector::GetCurrentIndexCount() const
 {
     return curIndexCount;
-}
-
-void RTGL1::VertexCollector::AddFilter( VertexCollectorFilterTypeFlags filterGroup )
-{
-    if( filterGroup == ( VertexCollectorFilterTypeFlags )0 )
-    {
-        return;
-    }
-
-    assert( filters.find( filterGroup ) == filters.end() );
-
-    filters[ filterGroup ] = std::make_shared< VertexCollectorFilter >( filterGroup );
-}
-
-// try create filters for each group (mask)
-void RTGL1::VertexCollector::InitFilters( VertexCollectorFilterTypeFlags flags )
-{
-    assert( flags != 0 );
-
-    typedef VertexCollectorFilterTypeFlags    FL;
-    typedef VertexCollectorFilterTypeFlagBits FT;
-
-    // iterate over all pairs of group bits
-    VertexCollectorFilterTypeFlags_IterateOverFlags( [ this, flags ]( FL f ) {
-        // if flags contain this pair of group bits
-        if( ( flags & f ) == f )
-        {
-            AddFilter( f );
-        }
-    } );
 }

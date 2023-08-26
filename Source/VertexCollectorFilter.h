@@ -33,28 +33,27 @@ namespace RTGL1
 class VertexCollectorFilter
 {
 public:
-    explicit VertexCollectorFilter( VertexCollectorFilterTypeFlags filter );
-    ~VertexCollectorFilter();
+    explicit VertexCollectorFilter( VertexCollectorFilterTypeFlags _filter ) : filter( _filter ) {}
+    ~VertexCollectorFilter() = default;
 
-    VertexCollectorFilter( const VertexCollectorFilter& other )                = delete;
-    VertexCollectorFilter( VertexCollectorFilter&& other ) noexcept            = delete;
-    VertexCollectorFilter& operator=( const VertexCollectorFilter& other )     = delete;
-    VertexCollectorFilter& operator=( VertexCollectorFilter&& other ) noexcept = delete;
+    VertexCollectorFilter( const VertexCollectorFilter& other )            = delete;
+    VertexCollectorFilter& operator=( const VertexCollectorFilter& other ) = delete;
+    VertexCollectorFilter( VertexCollectorFilter&& other )                 = delete;
+    VertexCollectorFilter& operator=( VertexCollectorFilter&& other )      = delete;
 
-    const std::vector< uint32_t >&                                 GetPrimitiveCounts() const;
-    const std::vector< VkAccelerationStructureGeometryKHR >&       GetASGeometries() const;
-    const std::vector< VkAccelerationStructureBuildRangeInfoKHR >& GetASBuildRangeInfos() const;
+    auto GetPrimitiveCounts() const -> const std::vector< uint32_t >&;
+    auto GetASGeometries() const -> const std::vector< VkAccelerationStructureGeometryKHR >&;
+    auto GetASBuildRangeInfos() const
+        -> const std::vector< VkAccelerationStructureBuildRangeInfoKHR >&;
 
     void Reset();
 
-    uint32_t PushGeometry( VertexCollectorFilterTypeFlags            type,
-                           const VkAccelerationStructureGeometryKHR& geom );
-    void     PushPrimitiveCount( VertexCollectorFilterTypeFlags type, uint32_t primCount );
-    void     PushRangeInfo( VertexCollectorFilterTypeFlags                  type,
-                            const VkAccelerationStructureBuildRangeInfoKHR& rangeInfo );
+    auto PushGeometry( VertexCollectorFilterTypeFlags                  type,
+                       const VkAccelerationStructureGeometryKHR&       geom,
+                       const VkAccelerationStructureBuildRangeInfoKHR& rangeInfo ) -> uint32_t;
 
-    VertexCollectorFilterTypeFlags GetFilter() const;
-    uint32_t                       GetGeometryCount() const;
+    auto FilterFlags() const -> VertexCollectorFilterTypeFlags { return filter; }
+    auto GetGeometryCount() const -> uint32_t;
 
 private:
     VertexCollectorFilterTypeFlags filter;

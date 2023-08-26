@@ -49,9 +49,13 @@ public:
                               MemoryAllocator& allocator,
                               const uint32_t ( &maxVertsPerLayer )[ 4 ],
                               VertexCollectorFilterTypeFlags filters );
-
+    
     // Create new vertex collector, but with shared device local buffers
     explicit VertexCollector( const VertexCollector& src, MemoryAllocator& allocator );
+
+    static auto CreateWithSameDeviceLocalBuffers( const VertexCollector& src,
+                                                  MemoryAllocator&       allocator )
+        -> std::unique_ptr< VertexCollector >;
 
     ~VertexCollector() = default;
 
@@ -60,15 +64,20 @@ public:
     VertexCollector& operator=( const VertexCollector& other )     = delete;
     VertexCollector& operator=( VertexCollector&& other ) noexcept = delete;
 
+    struct UploadResult
+    {
+        VkAccelerationStructureGeometryKHR asGeometry;
+        uint32_t                           triangleCount;
+        std::optional< uint32_t >          firstIndex;
+        uint32_t                           firstVertex;
+        uint32_t                           firstVertex_Layer1;
+        uint32_t                           firstVertex_Layer2;
+        uint32_t                           firstVertex_Layer3;
+    };
 
-    bool AddPrimitive( uint32_t                          frameIndex,
-                       bool                              isStatic,
-                       const RgMeshInfo&                 parentMesh,
-                       const RgMeshPrimitiveInfo&        info,
-                       const PrimitiveUniqueID&          uniqueID,
-                       std::span< MaterialTextures, 4 >  layerTextures,
-                       std::span< RgColor4DPacked32, 4 > layerColors,
-                       GeomInfoManager&                  geomInfoManager );
+    auto Upload( VertexCollectorFilterTypeFlags geomFlags,
+                 const RgMeshInfo&              mesh,
+                 const RgMeshPrimitiveInfo&     prim ) -> std::optional< UploadResult >;
 
 
     // Clear data that was generated while collecting.
@@ -87,57 +96,24 @@ public:
     uint32_t GetCurrentVertexCount() const;
     uint32_t GetCurrentIndexCount() const;
 
-
-    // Get primitive counts from filters. Null if corresponding filter wasn't found.
-    const std::vector< uint32_t >& GetPrimitiveCounts(
-        VertexCollectorFilterTypeFlags filter ) const;
-
-    // Get AS geometries data from filters. Null if corresponding filter wasn't found.
-    const std::vector< VkAccelerationStructureGeometryKHR >& GetASGeometries(
-        VertexCollectorFilterTypeFlags filter ) const;
-
-    // Get AS build range infos from filters. Null if corresponding filter wasn't found.
-    const std::vector< VkAccelerationStructureBuildRangeInfoKHR >& GetASBuildRangeInfos(
-        VertexCollectorFilterTypeFlags filter ) const;
-
-
-    // Are all geometries for each filter type in "flags" empty?
-    bool AreGeometriesEmpty( VertexCollectorFilterTypeFlags flags ) const;
-    // Are all geometries of this type empty?
-    bool AreGeometriesEmpty( VertexCollectorFilterTypeFlagBits type ) const;
-
-
+        
     // Make sure that copying was done
     void InsertVertexPreprocessBeginBarrier( VkCommandBuffer cmd );
     // Make sure that preprocessing is done, and prepare for use in AS build and in shaders
     void InsertVertexPreprocessFinishBarrier( VkCommandBuffer cmd );
 
 private:
-    void CopyVertexDataToStaging( const RgMeshPrimitiveInfo& info, uint32_t vertIndex );
-    void CopyTexCoordsToStaging( uint32_t                   layerIndex,
-                                 const RgMeshPrimitiveInfo& info,
-                                 uint32_t                   dstTexcoordIndex );
+    void CopyVertexDataToStaging( const RgMeshPrimitiveInfo& info,
+                                  uint32_t                   vertIndex,
+                                  uint32_t                   texcIndex_1,
+                                  uint32_t                   texcIndex_2,
+                                  uint32_t                   texcIndex_3 );
 
     bool CopyVertexDataFromStaging( VkCommandBuffer cmd );
     bool CopyTexCoordsFromStaging( VkCommandBuffer cmd, uint32_t layerIndex );
     bool CopyIndexDataFromStaging( VkCommandBuffer cmd );
     bool CopyTransformsFromStaging( VkCommandBuffer cmd, bool insertMemBarrier );
-
-    // Parse flags to flag bit pairs and create instances of
-    // VertexCollectorFilter. Flag bit pair contains one bit from
-    // each flag bit group (e.g. change frequency group and pass through group).
-    void InitFilters( VertexCollectorFilterTypeFlags flags );
-
-    void     AddFilter( VertexCollectorFilterTypeFlags filterGroup );
-    uint32_t PushGeometry( VertexCollectorFilterTypeFlags            type,
-                           const VkAccelerationStructureGeometryKHR& geom );
-    void     PushPrimitiveCount( VertexCollectorFilterTypeFlags type, uint32_t primCount );
-    void     PushRangeInfo( VertexCollectorFilterTypeFlags                  type,
-                            const VkAccelerationStructureBuildRangeInfoKHR& rangeInfo );
-
-    uint32_t GetGeometryCount( VertexCollectorFilterTypeFlags type );
-    uint32_t GetAllGeometryCount() const;
-
+    
 private:
     VkDevice                       device;
     VertexCollectorFilterTypeFlags filtersFlags;
@@ -231,9 +207,6 @@ private:
     uint32_t curTexCoordCount_Layer1{ 0 };
     uint32_t curTexCoordCount_Layer2{ 0 };
     uint32_t curTexCoordCount_Layer3{ 0 };
-
-    rgl::unordered_map< VertexCollectorFilterTypeFlags, std::shared_ptr< VertexCollectorFilter > >
-        filters;
 };
 
 }

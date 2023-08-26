@@ -74,12 +74,13 @@ struct BLASComponent final : public ASComponent
 {
 public:
     explicit BLASComponent( VkDevice device, VertexCollectorFilterTypeFlags filter );
-    VertexCollectorFilterTypeFlags GetFilter() const;
 
-    void                           SetGeometryCount( uint32_t geomCount );
+    auto FilterFlags() const { return filter; }
 
-    bool                           IsEmpty() const;
-    uint32_t                       GetGeomCount() const;
+    void SetGeometryCount( uint32_t geomCount );
+
+    auto IsEmpty() const -> bool;
+    auto GetGeomCount() const -> uint32_t;
 
 protected:
     void        CreateAS( VkDeviceSize size ) override;

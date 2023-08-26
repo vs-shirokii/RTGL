@@ -155,11 +155,6 @@ const char* RTGL1::TLASComponent::GetBufferDebugName() const
     return "TLAS buffer";
 }
 
-RTGL1::VertexCollectorFilterTypeFlags RTGL1::BLASComponent::GetFilter() const
-{
-    return filter;
-}
-
 void RTGL1::BLASComponent::SetGeometryCount( uint32_t geomCount )
 {
     this->geomCount = geomCount;

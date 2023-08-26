@@ -32,14 +32,13 @@ ASBuilder::ASBuilder( VkDevice _device, std::shared_ptr< ScratchBuffer > _common
 {
 }
 
-VkAccelerationStructureBuildSizesInfoKHR ASBuilder::GetBuildSizes(
-    VkAccelerationStructureTypeKHR            type,
-    uint32_t                                  geometryCount,
-    const VkAccelerationStructureGeometryKHR* pGeometries,
-    const uint32_t*                           pMaxPrimitiveCount,
-    bool                                      fastTrace ) const
+auto ASBuilder::GetBuildSizes( VkAccelerationStructureTypeKHR                  type,
+                               std::span< const VkAccelerationStructureGeometryKHR > geometries,
+                               std::span< const uint32_t > maxPrimitiveCountPerGeometry,
+                               bool fastTrace ) const -> VkAccelerationStructureBuildSizesInfoKHR
 {
-    assert( geometryCount > 0 );
+    assert( !geometries.empty() );
+    assert( geometries.size() == maxPrimitiveCountPerGeometry.size() );
 
     VkBuildAccelerationStructureFlagsKHR flags =
         fastTrace ? VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR
@@ -48,12 +47,12 @@ VkAccelerationStructureBuildSizesInfoKHR ASBuilder::GetBuildSizes(
     // mode, srcAccelerationStructure, dstAccelerationStructure
     // and all VkDeviceOrHostAddressKHR except transformData are ignored
     // in vkGetAccelerationStructureBuildSizesKHR(..)
-    VkAccelerationStructureBuildGeometryInfoKHR buildInfo = {
+    auto buildInfo = VkAccelerationStructureBuildGeometryInfoKHR{
         .sType         = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
         .type          = type,
         .flags         = flags,
-        .geometryCount = geometryCount,
-        .pGeometries   = pGeometries,
+        .geometryCount = static_cast< uint32_t >( geometries.size() ),
+        .pGeometries   = geometries.data(),
         .ppGeometries  = nullptr,
     };
 
@@ -64,47 +63,26 @@ VkAccelerationStructureBuildSizesInfoKHR ASBuilder::GetBuildSizes(
     svkGetAccelerationStructureBuildSizesKHR( device,
                                               VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
                                               &buildInfo,
-                                              pMaxPrimitiveCount,
+                                              maxPrimitiveCountPerGeometry.data(),
                                               &sizeInfo );
 
     return sizeInfo;
 }
 
-VkAccelerationStructureBuildSizesInfoKHR ASBuilder::GetBottomBuildSizes(
-    uint32_t                                  geometryCount,
-    const VkAccelerationStructureGeometryKHR* pGeometries,
-    const uint32_t*                           pMaxPrimitiveCount,
-    bool                                      fastTrace ) const
-{
-    return GetBuildSizes( VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
-                          geometryCount,
-                          pGeometries,
-                          pMaxPrimitiveCount,
-                          fastTrace );
-}
 
-VkAccelerationStructureBuildSizesInfoKHR ASBuilder::GetTopBuildSizes(
-    const VkAccelerationStructureGeometryKHR* pGeometry,
-    uint32_t                                  maxPrimitiveCount,
-    bool                                      fastTrace ) const
-{
-    return GetBuildSizes(
-        VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR, 1, pGeometry, &maxPrimitiveCount, fastTrace );
-}
-
-void ASBuilder::AddBLAS( VkAccelerationStructureKHR                      as,
-                         uint32_t                                        geometryCount,
-                         const VkAccelerationStructureGeometryKHR*       pGeometries,
-                         const VkAccelerationStructureBuildRangeInfoKHR* pRangeInfos,
-                         const VkAccelerationStructureBuildSizesInfoKHR& buildSizes,
-                         bool                                            fastTrace,
-                         bool                                            update,
-                         bool                                            isBLASUpdateable )
+void ASBuilder::AddBLAS( VkAccelerationStructureKHR                                  as,
+                         std::span< const VkAccelerationStructureGeometryKHR >       geometries,
+                         std::span< const VkAccelerationStructureBuildRangeInfoKHR > rangeInfos,
+                         const VkAccelerationStructureBuildSizesInfoKHR&             buildSizes,
+                         bool                                                        fastTrace,
+                         bool                                                        update,
+                         bool isBLASUpdateable )
 {
     // while building bottom level, top level must be not
     assert( topLBuildInfo.geomInfos.empty() && topLBuildInfo.rangeInfos.empty() );
 
-    assert( geometryCount > 0 );
+    assert( !geometries.empty() );
+    assert( geometries.size() == rangeInfos.size() );
 
     VkDeviceSize scratchSize =
         std::max( buildSizes.updateScratchSize, buildSizes.buildScratchSize );
@@ -118,7 +96,7 @@ void ASBuilder::AddBLAS( VkAccelerationStructureKHR                      as,
         flags |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
     }
 
-    VkAccelerationStructureBuildGeometryInfoKHR buildInfo = {
+    auto buildInfo = VkAccelerationStructureBuildGeometryInfoKHR{
         .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
         .type  = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
         .flags = flags,
@@ -126,8 +104,8 @@ void ASBuilder::AddBLAS( VkAccelerationStructureKHR                      as,
                         : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR,
         .srcAccelerationStructure = update ? as : VK_NULL_HANDLE,
         .dstAccelerationStructure = as,
-        .geometryCount            = geometryCount,
-        .pGeometries              = pGeometries,
+        .geometryCount            = static_cast<uint32_t>(geometries.size()),
+        .pGeometries              = geometries.data(),
         .ppGeometries             = nullptr,
         .scratchData = {
             .deviceAddress = scratchBuffer->GetScratchAddress( scratchSize ),
@@ -135,13 +113,17 @@ void ASBuilder::AddBLAS( VkAccelerationStructureKHR                      as,
     };
 
     bottomLBuildInfo.geomInfos.push_back( buildInfo );
-    bottomLBuildInfo.rangeInfos.push_back( pRangeInfos );
+    bottomLBuildInfo.rangeInfos.push_back( rangeInfos.data() );
 }
 
-void ASBuilder::BuildBottomLevel( VkCommandBuffer cmd )
+bool ASBuilder::BuildBottomLevel( VkCommandBuffer cmd )
 {
     assert( bottomLBuildInfo.geomInfos.size() == bottomLBuildInfo.rangeInfos.size() );
-    assert( !bottomLBuildInfo.geomInfos.empty() );
+
+    if( bottomLBuildInfo.geomInfos.empty() )
+    {
+        return false;
+    }
 
     // build bottom level
     svkCmdBuildAccelerationStructuresKHR(
@@ -152,11 +134,13 @@ void ASBuilder::BuildBottomLevel( VkCommandBuffer cmd )
 
     bottomLBuildInfo.geomInfos.clear();
     bottomLBuildInfo.rangeInfos.clear();
+
+    return true;
 }
 
 void ASBuilder::AddTLAS( VkAccelerationStructureKHR                      as,
-                         const VkAccelerationStructureGeometryKHR*       pGeometry,
-                         const VkAccelerationStructureBuildRangeInfoKHR* pRangeInfo,
+                         const VkAccelerationStructureGeometryKHR*       instance,
+                         const VkAccelerationStructureBuildRangeInfoKHR* rangeInfo,
                          const VkAccelerationStructureBuildSizesInfoKHR& buildSizes,
                          bool                                            fastTrace,
                          bool                                            update )
@@ -179,7 +163,7 @@ void ASBuilder::AddTLAS( VkAccelerationStructureKHR                      as,
         .srcAccelerationStructure = update ? as : VK_NULL_HANDLE,
         .dstAccelerationStructure = as,
         .geometryCount            = 1,
-        .pGeometries              = pGeometry,
+        .pGeometries              = instance,
         .ppGeometries             = nullptr,
         .scratchData = {
             .deviceAddress = scratchBuffer->GetScratchAddress( scratchSize ),
@@ -187,13 +171,17 @@ void ASBuilder::AddTLAS( VkAccelerationStructureKHR                      as,
     };
 
     topLBuildInfo.geomInfos.push_back( buildInfo );
-    topLBuildInfo.rangeInfos.push_back( pRangeInfo );
+    topLBuildInfo.rangeInfos.push_back( rangeInfo );
 }
 
-void ASBuilder::BuildTopLevel( VkCommandBuffer cmd )
+bool ASBuilder::BuildTopLevel( VkCommandBuffer cmd )
 {
     assert( topLBuildInfo.geomInfos.size() == topLBuildInfo.rangeInfos.size() );
-    assert( !topLBuildInfo.geomInfos.empty() );
+
+    if( topLBuildInfo.geomInfos.empty() )
+    {
+        return false;
+    }
 
     // build bottom level
     svkCmdBuildAccelerationStructuresKHR( cmd,
@@ -203,6 +191,8 @@ void ASBuilder::BuildTopLevel( VkCommandBuffer cmd )
 
     topLBuildInfo.geomInfos.clear();
     topLBuildInfo.rangeInfos.clear();
+
+    return true;
 }
 
 bool ASBuilder::IsEmpty() const

@@ -76,32 +76,38 @@ constexpr VertexCollectorFilterTypeFlagBits VertexCollectorFilterGroup_PrimaryVi
 };
 
 
-inline VertexCollectorFilterTypeFlags operator|( VertexCollectorFilterTypeFlagBits a, VertexCollectorFilterTypeFlagBits b )
+inline constexpr VertexCollectorFilterTypeFlags operator|( VertexCollectorFilterTypeFlagBits a,
+                                                           VertexCollectorFilterTypeFlagBits b )
 {
     return VertexCollectorFilterTypeFlags( a ) | VertexCollectorFilterTypeFlags( b );
 }
 
-inline VertexCollectorFilterTypeFlags operator|( VertexCollectorFilterTypeFlags a, VertexCollectorFilterTypeFlagBits b )
+inline constexpr VertexCollectorFilterTypeFlags operator|( VertexCollectorFilterTypeFlags    a,
+                                                           VertexCollectorFilterTypeFlagBits b )
 {
     return a | VertexCollectorFilterTypeFlags( b );
 }
 
-inline VertexCollectorFilterTypeFlags operator|( VertexCollectorFilterTypeFlagBits a, VertexCollectorFilterTypeFlags b )
+inline constexpr VertexCollectorFilterTypeFlags operator|( VertexCollectorFilterTypeFlagBits a,
+                                                           VertexCollectorFilterTypeFlags    b )
 {
     return VertexCollectorFilterTypeFlags( a ) | b;
 }
 
-inline VertexCollectorFilterTypeFlags operator&( VertexCollectorFilterTypeFlagBits a, VertexCollectorFilterTypeFlagBits b )
+inline constexpr VertexCollectorFilterTypeFlags operator&( VertexCollectorFilterTypeFlagBits a,
+                                                           VertexCollectorFilterTypeFlagBits b )
 {
     return VertexCollectorFilterTypeFlags( a ) & VertexCollectorFilterTypeFlags( b );
 }
 
-inline VertexCollectorFilterTypeFlags operator&( VertexCollectorFilterTypeFlags a, VertexCollectorFilterTypeFlagBits b )
+inline constexpr VertexCollectorFilterTypeFlags operator&( VertexCollectorFilterTypeFlags    a,
+                                                           VertexCollectorFilterTypeFlagBits b )
 {
     return a & VertexCollectorFilterTypeFlags( b );
 }
 
-inline VertexCollectorFilterTypeFlags operator&( VertexCollectorFilterTypeFlagBits a, VertexCollectorFilterTypeFlags b )
+inline constexpr VertexCollectorFilterTypeFlags operator&( VertexCollectorFilterTypeFlagBits a,
+                                                           VertexCollectorFilterTypeFlags    b )
 {
     return VertexCollectorFilterTypeFlags( a ) & b;
 }
