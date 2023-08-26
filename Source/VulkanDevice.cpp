@@ -1176,8 +1176,10 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
 
         if( modified_attachedLight )
         {
+#if 0 // don't translate intensity from non-metric for lights specified in textures.json
             modified_attachedLight->intensity = Utils::IntensityFromNonMetric(
                 modified_attachedLight->intensity, sceneImportExport->GetWorldScale() );
+#endif
 
             // insert
             modified_attachedLight.value().pNext = modified.pNext;
