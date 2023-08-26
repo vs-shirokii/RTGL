@@ -657,7 +657,7 @@ void TextureManager::InsertMaterial( uint32_t         frameIndex,
                                      std::string_view materialName,
                                      const Material&  material )
 {
-    auto [ iter, insertednew ] = materials.insert( { std::string( materialName ), material } );
+    auto [ iter, insertednew ] = materials.emplace( std::string( materialName ), material );
 
     if( !insertednew )
     {

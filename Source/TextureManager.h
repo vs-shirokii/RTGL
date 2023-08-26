@@ -213,9 +213,8 @@ private:
     std::vector< Texture >               texturesToDestroy[ MAX_FRAMES_IN_FLIGHT ];
     std::vector< std::filesystem::path > texturesToReload;
 
-    // TODO: string keys pool
-    rgl::unordered_map< std::string, Material > materials;
-    rgl::unordered_set< std::string >           importedMaterials;
+    rgl::string_map< Material > materials;
+    rgl::string_set             importedMaterials;
 
     uint32_t waterNormalTextureIndex;
     uint32_t dirtMaskTextureIndex;

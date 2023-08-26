@@ -82,7 +82,7 @@ private:
     std::shared_ptr< TextureDescriptors > cubemapDesc;
     std::shared_ptr< CubemapUploader >    cubemapUploader;
 
-    std::unordered_map< std::string, Texture > cubemaps;
+    rgl::string_map< Texture >                 cubemaps;
     std::vector< Texture >                     cubemapsToDestroy[ MAX_FRAMES_IN_FLIGHT ];
 };
 

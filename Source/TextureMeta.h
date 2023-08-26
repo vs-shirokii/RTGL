@@ -60,8 +60,8 @@ private:
     std::filesystem::path sourceGlobal;
     std::filesystem::path sourceScene;
 
-    rgl::unordered_map< std::string, TextureMeta > dataGlobal;
-    rgl::unordered_map< std::string, TextureMeta > dataScene;
+    rgl::string_map< TextureMeta > dataGlobal;
+    rgl::string_map< TextureMeta > dataScene;
 };
 
 }

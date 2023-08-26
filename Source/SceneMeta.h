@@ -50,7 +50,7 @@ public:
 private:
     std::filesystem::path metafile;
 
-    rgl::unordered_map< std::string, SceneMeta > data;
+    rgl::string_map< SceneMeta > data;
 };
 
 }

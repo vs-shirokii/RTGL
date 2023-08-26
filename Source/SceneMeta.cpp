@@ -33,7 +33,7 @@ void RTGL1::SceneMetaManager::Modify( std::string_view             sceneName,
                                       RgDrawFrameVolumetricParams& volumetric,
                                       RgDrawFrameSkyParams&        sky ) const
 {
-    auto iter = data.find( std::string( sceneName ) );
+    auto iter = data.find( sceneName );
     if( iter == data.end() )
     {
         return;
@@ -99,8 +99,7 @@ void RTGL1::SceneMetaManager::OnFileChanged( FileType type, const std::filesyste
                 {
                     if( !data.contains( m.sceneName ) )
                     {
-                        std::string key = m.sceneName;
-                        data.insert_or_assign( key, std::move( m ) );
+                        data.insert_or_assign( std::string{ m.sceneName }, std::move( m ) );
                     }
                     else
                     {

@@ -293,7 +293,7 @@ bool RTGL1::CubemapManager::TryCreateCubemap( VkCommandBuffer              cmd,
         .filepath      = {},
     };
 
-    auto [ iter, insertednew ] = cubemaps.insert( { std::string( info.pTextureName ), txd } );
+    auto [ iter, insertednew ] = cubemaps.emplace( std::string( info.pTextureName ), txd );
 
     if( !insertednew )
     {

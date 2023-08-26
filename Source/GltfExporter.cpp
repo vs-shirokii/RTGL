@@ -780,7 +780,7 @@ struct GltfTextures
 
     TextureSet Access( std::string_view materialName ) const
     {
-        auto iter = materialAccess.find( std::string( materialName ) );
+        auto iter = materialAccess.find( materialName );
         return iter != materialAccess.end() ? iter->second : TextureSet{};
     }
 
@@ -798,7 +798,7 @@ private:
     rgl::span_counted< cgltf_image >   images;
     rgl::span_counted< cgltf_texture > textures;
 
-    std::unordered_map< std::string, TextureSet > materialAccess;
+    rgl::string_map< TextureSet > materialAccess;
 };
 
 cgltf_material MakeMaterial( const RTGL1::DeepCopyOfPrimitive& rgprim,

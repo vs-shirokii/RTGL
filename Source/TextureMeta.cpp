@@ -73,7 +73,7 @@ auto RTGL1::TextureMetaManager::Access( const char* pTextureName ) const
         return std::nullopt;
     }
 
-    auto strTextureName = std::string( pTextureName );
+    auto strTextureName = std::string_view{ pTextureName };
     {
         auto found = dataScene.find( strTextureName );
         if( found != dataScene.end() )
@@ -110,8 +110,7 @@ void RTGL1::TextureMetaManager::RereadFromFiles( std::filesystem::path sceneFile
             {
                 if( !data.contains( v.textureName ) )
                 {
-                    std::string key = v.textureName;
-                    data.insert_or_assign( key, std::move( v ) );
+                    data.insert_or_assign( std::string{ v.textureName }, std::move( v ) );
                 }
                 else
                 {
