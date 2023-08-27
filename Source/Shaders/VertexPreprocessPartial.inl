@@ -20,44 +20,25 @@
 
 
 #if defined(VERTEX_PREPROCESS_PARTIAL_DYNAMIC)
-
+    #define FUNC_NAME convertForInstance_Dynamic
     #define GET_POSITIONS getDynamicVerticesPositions
     #define GET_NORMALS getDynamicVerticesNormals
     #define SET_NORMALS setDynamicVerticesNormals
     #define INDICES dynamicIndices
-
-#elif defined(VERTEX_PREPROCESS_PARTIAL_STATIC_ALL) || defined(VERTEX_PREPROCESS_PARTIAL_STATIC_MOVABLE)
-
+#elif defined(VERTEX_PREPROCESS_PARTIAL_STATIC)
+    #define FUNC_NAME convertForInstance_Static
     #define GET_POSITIONS getStaticVerticesPositions
     #define GET_NORMALS getStaticVerticesNormals
     #define SET_NORMALS setStaticVerticesNormals
     #define INDICES staticIndices
-
 #else
     #error
 #endif
 
 
 
-
-// translate from local to global geom index
-const int geomIndexOffset = globalUniform.instanceGeomInfoOffset[tlasInstanceIndex / 4][tlasInstanceIndex % 4];
-const int geomCount = globalUniform.instanceGeomCount[tlasInstanceIndex / 4][tlasInstanceIndex % 4];
-
-for (uint localGeomIndex = gl_LocalInvocationID.x; localGeomIndex < geomCount; localGeomIndex += gl_WorkGroupSize.x)
+void FUNC_NAME (const ShGeometryInstance inst)
 {
-    const ShGeometryInstance inst = geometryInstances[geomIndexOffset + localGeomIndex];
-
-#if defined(VERTEX_PREPROCESS_PARTIAL_STATIC_MOVABLE)
-    const bool isMovable = (inst.flags & GEOM_INST_FLAG_IS_MOVABLE) != 0;
-    
-    // ignore non-movable if preprocess mode allows only movable
-    if (!isMovable)
-    {
-        continue;
-    }
-#endif
-
     const bool useIndices = inst.baseIndexIndex != UINT32_MAX;
     const bool genNormals = (inst.flags & GEOM_INST_FLAG_GENERATE_NORMALS) != 0;
     // -1 if normals should be inverted
@@ -130,11 +111,11 @@ for (uint localGeomIndex = gl_LocalInvocationID.x; localGeomIndex < geomCount; l
 }
 
 
+#undef FUNC_NAME
 #undef GET_POSITIONS
 #undef GET_NORMALS
 #undef SET_NORMALS
 #undef INDICES
 
-#undef VERTEX_PREPROCESS_PARTIAL_STATIC_ALL
-#undef VERTEX_PREPROCESS_PARTIAL_STATIC_MOVABLE
+#undef VERTEX_PREPROCESS_PARTIAL_STATIC
 #undef VERTEX_PREPROCESS_PARTIAL_DYNAMIC

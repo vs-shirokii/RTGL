@@ -229,14 +229,8 @@ CONST = {
     "MAX_DYNAMIC_VERTEX_COUNT"              : 1 << 21,
     "MAX_INDEXED_PRIMITIVE_COUNT"           : 1 << 20,
    
-    "MAX_BOTTOM_LEVEL_GEOMETRIES_COUNT"     : 1 << 12,
-    "MAX_BOTTOM_LEVEL_GEOMETRIES_COUNT_POW" : CONST_TO_EVALUATE,
-    "MAX_GEOMETRY_PRIMITIVE_COUNT"          : CONST_TO_EVALUATE,
-    "MAX_GEOMETRY_PRIMITIVE_COUNT_POW"      : CONST_TO_EVALUATE,
-    # used for first-person geometries
-    "LOWER_BOTTOM_LEVEL_GEOMETRIES_COUNT"   : 1 << 8,
-    
-    "MAX_TOP_LEVEL_INSTANCE_COUNT"          : 45,
+    "MAX_INSTANCE_COUNT"                    : 1 << 16,
+    "MAX_GEOM_INFO_COUNT"                   : 1 << 17,
     
     "BINDING_VERTEX_BUFFER_STATIC"              : 0,
     "BINDING_VERTEX_BUFFER_DYNAMIC"             : 1,
@@ -336,7 +330,7 @@ CONST = {
     "GEOM_INST_FLAG_EXACT_NORMALS"          : BIT( 19 ),
     "GEOM_INST_FLAG_IGNORE_REFRACT_AFTER"   : BIT( 20 ),
     "GEOM_INST_FLAG_RESERVED_5"             : BIT( 21 ),
-    "GEOM_INST_FLAG_RESERVED_6"             : BIT( 22 ),
+    "GEOM_INST_FLAG_IS_DYNAMIC"             : BIT( 22 ),
     "GEOM_INST_FLAG_THIN_MEDIA"             : BIT( 23 ),
     "GEOM_INST_FLAG_REFRACT"                : BIT( 24 ),
     "GEOM_INST_FLAG_REFLECT"                : BIT( 25 ),
@@ -469,9 +463,6 @@ def evalConst():
     assert CONST[ "MATERIAL_BLENDING_TYPE_BIT_COUNT" ] * CONST[ "GEOM_INST_FLAG_BLENDING_LAYER_COUNT" ] <= 8
     CONST[ "MATERIAL_BLENDING_TYPE_BIT_MASK" ]          = ( 1 << int( CONST[ "MATERIAL_BLENDING_TYPE_BIT_COUNT" ] ) ) - 1
 
-    CONST[ "MAX_BOTTOM_LEVEL_GEOMETRIES_COUNT_POW" ]    = int( log2( CONST[ "MAX_BOTTOM_LEVEL_GEOMETRIES_COUNT" ] ) )
-    CONST[ "MAX_GEOMETRY_PRIMITIVE_COUNT_POW" ]         = 32 - CONST[ "MAX_BOTTOM_LEVEL_GEOMETRIES_COUNT_POW" ]
-    CONST[ "MAX_GEOMETRY_PRIMITIVE_COUNT" ]             = 1 << CONST[ "MAX_GEOMETRY_PRIMITIVE_COUNT_POW" ]
     CONST[ "BLUE_NOISE_TEXTURE_SIZE_POW" ]              = int( log2( CONST[ "BLUE_NOISE_TEXTURE_SIZE" ] ) )
 
     assert len( [ None for _, v in CONST.items() if v == CONST_TO_EVALUATE ] ) == 0, "All CONST_TO_EVALUATE values must be calculated"
@@ -619,9 +610,6 @@ GLOBAL_UNIFORM_STRUCT = [
     #(TYPE_FLOAT32,      1,      "_pad3",                            1),
 
     # for std140
-    (TYPE_INT32,        4,      "instanceGeomInfoOffset",       align4(CONST["MAX_TOP_LEVEL_INSTANCE_COUNT"]) // 4),
-    (TYPE_INT32,        4,      "instanceGeomInfoOffsetPrev",   align4(CONST["MAX_TOP_LEVEL_INSTANCE_COUNT"]) // 4),
-    (TYPE_INT32,        4,      "instanceGeomCount",            align4(CONST["MAX_TOP_LEVEL_INSTANCE_COUNT"]) // 4),
     (TYPE_FLOAT32,     44,      "viewProjCubemap",              6),
     (TYPE_FLOAT32,     44,      "skyCubemapRotationTransform",  1),
 ]
@@ -692,11 +680,6 @@ TONEMAPPING_STRUCT = [
     (TYPE_FLOAT32,      1,      "avgLuminance",         1),
 ]
 
-VERT_PREPROC_PUSH_STRUCT = [
-    (TYPE_UINT32,       1,      "tlasInstanceCount",            1),
-    (TYPE_UINT32,       1,      "tlasInstanceIsDynamicBits",    align(CONST["MAX_TOP_LEVEL_INSTANCE_COUNT"], 32) // 32),
-]
-
 INDIRECT_DRAW_CMD_STRUCT = [
     (TYPE_UINT32,       1,      "indexCount",           1),
     (TYPE_UINT32,       1,      "instanceCount",        1),
@@ -749,7 +732,6 @@ STRUCTS = {
     "ShTonemapping":            (TONEMAPPING_STRUCT,            False,  0,                          0),
     "ShLightEncoded":           (LIGHT_ENCODED_STRUCT,          False,  STRUCT_ALIGNMENT_STD430,    0),
     "ShLightInCell":            (LIGHT_IN_CELL,                 False,  STRUCT_ALIGNMENT_STD430,    0),
-    "ShVertPreprocessing":      (VERT_PREPROC_PUSH_STRUCT,      False,  0,                          0),
     "ShIndirectDrawCommand":    (INDIRECT_DRAW_CMD_STRUCT,      False,  STRUCT_ALIGNMENT_STD430,    0),
     # TODO: should be STRUCT_ALIGNMENT_STD430, but current generator is not great as it just adds pads at the end, so it's 0
     "ShLensFlareInstance":      (LENS_FLARES_INSTANCE_STRUCT,   False,  0,                          0),

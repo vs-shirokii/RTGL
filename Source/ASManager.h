@@ -33,17 +33,8 @@
 namespace RTGL1
 {
 
-struct ShVertPreprocessing;
-
 class ASManager
 {
-public:
-    struct TLASPrepareResult
-    {
-        VkAccelerationStructureInstanceKHR instances[ 45 ];
-        uint32_t                           instanceCount;
-    };
-
 public:
     ASManager( VkDevice                                device,
                const PhysicalDevice&                   physDevice,
@@ -85,14 +76,16 @@ public:
 
     // Prepare data for building TLAS.
     // Also fill uniform with current state.
-    std::pair< TLASPrepareResult, ShVertPreprocessing > PrepareForBuildingTLAS(
-        uint32_t         frameIndex,
-        ShGlobalUniform& uniformData,
-        uint32_t         uniformData_rayCullMaskWorld,
-        bool             allowGeometryWithSkyFlag,
-        bool             disableRTGeometry,
-        bool             disableStaticGeometry ) const;
-    void BuildTLAS( VkCommandBuffer cmd, uint32_t frameIndex, const TLASPrepareResult& info );
+    auto PrepareForBuildingTLAS( uint32_t         frameIndex,
+                                 ShGlobalUniform& uniformData,
+                                 uint32_t         uniformData_rayCullMaskWorld,
+                                 bool             allowGeometryWithSkyFlag,
+                                 bool             disableRTGeometry,
+                                 bool             disableStaticGeometry ) const
+        -> std::vector< VkAccelerationStructureInstanceKHR >;
+    void BuildTLAS( VkCommandBuffer                                          cmd,
+                    uint32_t                                                 frameIndex,
+                    const std::vector< VkAccelerationStructureInstanceKHR >& allVkTlas );
 
 
     // Copy current dynamic vertex and index data to
@@ -115,14 +108,18 @@ private:
     void UpdateBufferDescriptors( uint32_t frameIndex );
     void UpdateASDescriptors( uint32_t frameIndex );
 
-    void SetupBLAS( ASBuilder &asBuilder, BLASComponent& blas );
+    struct TlasInstance
+    {
+        VertexCollectorFilterTypeFlags flags;
+        BLASComponent                  blas;
+        VertexCollector::UploadResult  geometry;
+    };
 
-    bool IsASTypeEmptyWithTheseFlags( RTGL1::VertexCollectorFilterTypeFlags flagsToCheck ) const;
-
-    static bool SetupTLASInstanceFromBLAS( const BLASComponent& as,
-                                           uint32_t             rayCullMaskWorld,
-                                           bool                 allowGeometryWithSkyFlag,
-                                           VkAccelerationStructureInstanceKHR& instance );
+    static auto MakeVkTLAS( const TlasInstance& blas,
+                            uint32_t            rayCullMaskWorld,
+                            bool                allowGeometryWithSkyFlag,
+                            const RgTransform&  transform )
+        -> std::optional< VkAccelerationStructureInstanceKHR >;
 
 private:
     VkDevice                           device;
@@ -132,6 +129,7 @@ private:
 
     // for filling buffers
     std::unique_ptr< VertexCollector > collectorStatic;
+    std::unique_ptr< VertexCollector > collectorReplacements;
     std::unique_ptr< VertexCollector > collectorDynamic[ MAX_FRAMES_IN_FLIGHT ];
     // device-local buffer for storing previous info
     Buffer                             previousDynamicPositions;
@@ -139,16 +137,18 @@ private:
 
     // building
     std::shared_ptr< ScratchBuffer > scratchBuffer;
+    std::unique_ptr< ASBuilder >     asBuilder;
 
     std::shared_ptr< CommandBufferManager > cmdManager;
     std::shared_ptr< TextureManager >       textureMgr;
     std::shared_ptr< GeomInfoManager >      geomInfoMgr;
 
-    rgl::unordered_map< VertexCollectorFilterTypeFlags, std::unique_ptr< VertexCollectorFilter > >
-        asTypes;
+    rgl::string_map< TlasInstance > meshNameToReplacement;
 
-    std::vector< std::unique_ptr< BLASComponent > > allStaticBlas;
-    std::vector< std::unique_ptr< BLASComponent > > allDynamicBlas[ MAX_FRAMES_IN_FLIGHT ];
+    std::vector< std::unique_ptr< TlasInstance > > allStaticInstances;
+    std::vector< std::unique_ptr< TlasInstance > > allDynamicInstances[ MAX_FRAMES_IN_FLIGHT ];
+
+    std::vector< std::pair< RgTransform, TlasInstance* > > allInstancesInThisFrame;
 
     // top level AS
     std::unique_ptr< AutoBuffer >    instanceBuffer;

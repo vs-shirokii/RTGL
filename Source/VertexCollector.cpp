@@ -33,20 +33,17 @@
 namespace
 {
 
-auto MakeName( std::string_view basename, RTGL1::VertexCollectorFilterTypeFlags filter )
+auto MakeName( std::string_view bufname, std::string_view classname )
 {
-    return std::format( "VC: {}-{}",
-                        basename,
-                        filter & RTGL1::VertexCollectorFilterTypeFlagBits::CF_DYNAMIC ? "Dynamic"
-                                                                                      : "Static" );
+    return std::format( "VC: {}-{}", bufname, classname );
 }
 
-auto MakeUsage( RTGL1::VertexCollectorFilterTypeFlags filter, bool accelStructureRead = true )
+auto MakeUsage( bool isDynamic, bool accelStructureRead )
 {
     VkBufferUsageFlags usage =
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 
-    if( filter & RTGL1::VertexCollectorFilterTypeFlagBits::CF_DYNAMIC )
+    if( isDynamic )
     {
         // dynamic vertices need also be copied to previous frame buffer
         usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -69,62 +66,57 @@ auto MakeUsage( RTGL1::VertexCollectorFilterTypeFlags filter, bool accelStructur
 RTGL1::VertexCollector::VertexCollector( VkDevice         _device,
                                          MemoryAllocator& _allocator,
                                          const uint32_t ( &_maxVertsPerLayer )[ 4 ],
-                                         VertexCollectorFilterTypeFlags _filters )
+                                         bool             _isDynamic,
+                                         std::string_view _debugName )
     : device{ _device }
-    , filtersFlags{ _filters }
     , bufVertices{ _allocator,
                    _maxVertsPerLayer[ 0 ],
-                   MakeUsage( _filters ),
-                   MakeName( "Vertices", _filters ) }
+                   MakeUsage( _isDynamic, true ),
+                   MakeName( "Vertices", _debugName ) }
     , bufIndices{ _allocator,
                   MAX_INDEXED_PRIMITIVE_COUNT * 3,
-                  MakeUsage( _filters ),
-                  MakeName( "Indices", _filters ) }
-    , bufTransforms{ _allocator,
-                     MAX_BOTTOM_LEVEL_GEOMETRIES_COUNT,
-                     MakeUsage( _filters ),
-                     MakeName( "BLAS Transforms", _filters ) }
+                  MakeUsage( _isDynamic, true ),
+                  MakeName( "Indices", _debugName ) }
     , bufTexcoordLayer1{ _allocator,
                          _maxVertsPerLayer[ 1 ],
-                         MakeUsage( _filters, false ),
-                         MakeName( "Texcoords Layer1", _filters ) }
+                         MakeUsage( _isDynamic, false ),
+                         MakeName( "Texcoords Layer1", _debugName ) }
     , bufTexcoordLayer2{ _allocator,
                          _maxVertsPerLayer[ 2 ],
-                         MakeUsage( _filters, false ),
-                         MakeName( "Texcoords Layer2", _filters ) }
+                         MakeUsage( _isDynamic, false ),
+                         MakeName( "Texcoords Layer2", _debugName ) }
     , bufTexcoordLayer3{ _allocator,
                          _maxVertsPerLayer[ 3 ],
-                         MakeUsage( _filters, false ),
-                         MakeName( "Texcoords Layer3", _filters ) }
+                         MakeUsage( _isDynamic, false ),
+                         MakeName( "Texcoords Layer3", _debugName ) }
 {
 }
 
 // device local buffers are shared with the "src" vertex collector
-RTGL1::VertexCollector::VertexCollector( const VertexCollector& _src, MemoryAllocator& _allocator )
+RTGL1::VertexCollector::VertexCollector( const VertexCollector& _src,
+                                         MemoryAllocator&       _allocator,
+                                         std::string_view       _debugName )
     : device{ _src.device }
-    , filtersFlags{ _src.filtersFlags }
-    , bufVertices{ _src.bufVertices, _allocator, MakeName( "Vertices", _src.filtersFlags ) }
-    , bufIndices{ _src.bufIndices, _allocator, MakeName( "Indices", _src.filtersFlags ) }
-    , bufTransforms{ _src.bufTransforms,
-                     _allocator,
-                     MakeName( "BLAS Transforms", _src.filtersFlags ) }
+    , bufVertices{ _src.bufVertices, _allocator, MakeName( "Vertices", _debugName ) }
+    , bufIndices{ _src.bufIndices, _allocator, MakeName( "Indices", _debugName ) }
     , bufTexcoordLayer1{ _src.bufTexcoordLayer1,
                          _allocator,
-                         MakeName( "Texcoords Layer1", _src.filtersFlags ) }
+                         MakeName( "Texcoords Layer1", _debugName ) }
     , bufTexcoordLayer2{ _src.bufTexcoordLayer2,
                          _allocator,
-                         MakeName( "Texcoords Layer2", _src.filtersFlags ) }
+                         MakeName( "Texcoords Layer2", _debugName ) }
     , bufTexcoordLayer3{ _src.bufTexcoordLayer3,
                          _allocator,
-                         MakeName( "Texcoords Layer3", _src.filtersFlags ) }
+                         MakeName( "Texcoords Layer3", _debugName ) }
 {
 }
 
 auto RTGL1::VertexCollector::CreateWithSameDeviceLocalBuffers( const VertexCollector& src,
-                                                               MemoryAllocator&       allocator )
+                                                               MemoryAllocator&       allocator,
+                                                               std::string_view       debugName )
     -> std::unique_ptr< VertexCollector >
 {
-    return std::make_unique< VertexCollector >( src, allocator );
+    return std::make_unique< VertexCollector >( src, allocator, debugName );
 }
 
 namespace
@@ -144,12 +136,11 @@ auto RTGL1::VertexCollector::Upload( VertexCollectorFilterTypeFlags geomFlags,
 {
     using FT = VertexCollectorFilterTypeFlagBits;
 
-    const uint32_t vertIndex      = AlignUpBy3( curVertexCount );
-    const uint32_t indIndex       = AlignUpBy3( curIndexCount );
-    const uint32_t transformIndex = curTransformCount;
-    const uint32_t texcIndex_1    = curTexCoordCount_Layer1;
-    const uint32_t texcIndex_2    = curTexCoordCount_Layer2;
-    const uint32_t texcIndex_3    = curTexCoordCount_Layer3;
+    const uint32_t vertIndex   = AlignUpBy3( curVertexCount );
+    const uint32_t indIndex    = AlignUpBy3( curIndexCount );
+    const uint32_t texcIndex_1 = curTexCoordCount_Layer1;
+    const uint32_t texcIndex_2 = curTexCoordCount_Layer2;
+    const uint32_t texcIndex_3 = curTexCoordCount_Layer3;
 
     const bool     useIndices    = prim.indexCount != 0 && prim.pIndices != nullptr;
     const uint32_t triangleCount = useIndices ? prim.indexCount / 3 : prim.vertexCount / 3;
@@ -157,14 +148,13 @@ auto RTGL1::VertexCollector::Upload( VertexCollectorFilterTypeFlags geomFlags,
     curVertexCount = vertIndex + prim.vertexCount;
     curIndexCount  = indIndex + ( useIndices ? prim.indexCount : 0 );
     curPrimitiveCount += triangleCount;
-    curTransformCount += 1;
     curTexCoordCount_Layer1 += GeomInfoManager::LayerExists( prim, 1 ) ? prim.vertexCount : 0;
     curTexCoordCount_Layer2 += GeomInfoManager::LayerExists( prim, 2 ) ? prim.vertexCount : 0;
     curTexCoordCount_Layer3 += GeomInfoManager::LayerExists( prim, 3 ) ? prim.vertexCount : 0;
 
 
 
-    if( geomFlags & FT::CF_STATIC_NON_MOVABLE )
+    if( !( geomFlags & FT::CF_DYNAMIC ) )
     {
         if( curVertexCount >= MAX_STATIC_VERTEX_COUNT )
         {
@@ -179,8 +169,6 @@ auto RTGL1::VertexCollector::Upload( VertexCollectorFilterTypeFlags geomFlags,
             debug::Error( "Too many dynamic vertices: the limit is {}", MAX_DYNAMIC_VERTEX_COUNT );
             return {};
         }
-        assert( geomFlags & FT::CF_DYNAMIC );
-        assert( !( geomFlags & FT::CF_STATIC_MOVABLE ) );
     }
 
     if( curIndexCount >= MAX_INDEXED_PRIMITIVE_COUNT * 3 )
@@ -201,15 +189,6 @@ auto RTGL1::VertexCollector::Upload( VertexCollectorFilterTypeFlags geomFlags,
             &bufIndices.mapped[ indIndex ], prim.pIndices, prim.indexCount * sizeof( uint32_t ) );
     }
 
-    {
-        static_assert( sizeof( mesh.transform ) == sizeof( VkTransformMatrixKHR ) );
-        assert( bufTransforms.mapped );
-
-        memcpy( &bufTransforms.mapped[ transformIndex ],
-                &mesh.transform,
-                sizeof( VkTransformMatrixKHR ) );
-    }
-
 
 
     auto triangles = VkAccelerationStructureGeometryTrianglesDataKHR{
@@ -226,9 +205,6 @@ auto RTGL1::VertexCollector::Upload( VertexCollectorFilterTypeFlags geomFlags,
         .indexData = { .deviceAddress = useIndices ? bufIndices.deviceLocal->GetAddress() +
                                                          indIndex * sizeof( uint32_t )
                                                    : 0 },
-        // transform
-        .transformData = { .deviceAddress = bufTransforms.deviceLocal->GetAddress() +
-                                            transformIndex * sizeof( VkTransformMatrixKHR ) },
     };
 
     auto geom = VkAccelerationStructureGeometryKHR{
@@ -240,9 +216,16 @@ auto RTGL1::VertexCollector::Upload( VertexCollectorFilterTypeFlags geomFlags,
                             : VkGeometryFlagsKHR( VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR )
     };
 
+    auto range = VkAccelerationStructureBuildRangeInfoKHR{
+        .primitiveCount  = triangleCount,
+        .primitiveOffset = 0,
+        .firstVertex     = 0,
+        .transformOffset = 0,
+    };
+
     return UploadResult{
-        .asGeometry         = geom,
-        .triangleCount      = triangleCount,
+        .asGeometryInfo     = geom,
+        .asRange            = range,
         .firstIndex         = useIndices ? std::optional{ indIndex } : std::nullopt,
         .firstVertex        = vertIndex,
         .firstVertex_Layer1 = texcIndex_1,
@@ -322,7 +305,6 @@ void RTGL1::VertexCollector::Reset()
     curVertexCount          = 0;
     curIndexCount           = 0;
     curPrimitiveCount       = 0;
-    curTransformCount       = 0;
     curTexCoordCount_Layer1 = 0;
     curTexCoordCount_Layer2 = 0;
     curTexCoordCount_Layer3 = 0;
@@ -391,49 +373,6 @@ bool RTGL1::VertexCollector::CopyIndexDataFromStaging( VkCommandBuffer cmd )
 
     vkCmdCopyBuffer(
         cmd, bufIndices.staging.GetBuffer(), bufIndices.deviceLocal->GetBuffer(), 1, &info );
-
-    return true;
-}
-
-bool RTGL1::VertexCollector::CopyTransformsFromStaging( VkCommandBuffer cmd, bool insertMemBarrier )
-{
-    if( curTransformCount == 0 )
-    {
-        return false;
-    }
-
-    VkBufferCopy info = {
-        .srcOffset = 0,
-        .dstOffset = 0,
-        .size      = curTransformCount * sizeof( VkTransformMatrixKHR ),
-    };
-
-    vkCmdCopyBuffer(
-        cmd, bufTransforms.staging.GetBuffer(), bufTransforms.deviceLocal->GetBuffer(), 1, &info );
-
-    if( insertMemBarrier )
-    {
-        VkBufferMemoryBarrier trnBr = {
-            .sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
-            .dstAccessMask       = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .buffer              = bufTransforms.deviceLocal->GetBuffer(),
-            .size                = curTransformCount * sizeof( VkTransformMatrixKHR ),
-        };
-
-        vkCmdPipelineBarrier( cmd,
-                              VK_PIPELINE_STAGE_TRANSFER_BIT,
-                              VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
-                              0,
-                              0,
-                              nullptr,
-                              1,
-                              &trnBr,
-                              0,
-                              nullptr );
-    }
 
     return true;
 }
@@ -539,31 +478,6 @@ bool RTGL1::VertexCollector::CopyFromStaging( VkCommandBuffer cmd )
                                   0,
                                   nullptr );
         }
-    }
-
-    if( CopyTransformsFromStaging( cmd, false ) )
-    {
-        VkBufferMemoryBarrier br = {
-            .sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
-            .dstAccessMask       = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .buffer              = bufTransforms.deviceLocal->GetBuffer(),
-            .size                = curTransformCount * sizeof( VkTransformMatrixKHR ),
-        };
-
-        vkCmdPipelineBarrier( cmd,
-                              VK_PIPELINE_STAGE_TRANSFER_BIT,
-                              VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
-                              0,
-                              0,
-                              nullptr,
-                              1,
-                              &br,
-                              0,
-                              nullptr );
-        copiedAny = true;
     }
 
     return copiedAny;

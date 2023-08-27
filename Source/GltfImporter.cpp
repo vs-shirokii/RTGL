@@ -772,10 +772,11 @@ void RTGL1::GltfImporter::UploadToScene( VkCommandBuffer           cmd,
             Utils::SafeCstr( srcNode->extras.data ) );
         
         RgMeshInfo dstMesh = {
+            .sType          = RG_STRUCTURE_TYPE_MESH_INFO,
+            .flags          = 0,
             .uniqueObjectID = std::hash< std::string_view >{}( srcNode->name ),
             .pMeshName      = srcNode->name,
             .transform      = MakeRgTransformFromGltfNode( *srcNode ),
-            .isExportable   = true,
         };
 
         for( uint32_t i = 0; i < srcNode->mesh->primitives_count; i++ )

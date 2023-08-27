@@ -36,7 +36,6 @@ protected:
 
 public:
     virtual ~ASComponent() = 0;
-    void Destroy();
 
     ASComponent( const ASComponent& other ) = delete;
     ASComponent( ASComponent&& other ) noexcept = delete;
@@ -57,6 +56,7 @@ protected:
 
 private:
     void CreateBuffer( const std::shared_ptr< MemoryAllocator >& allocator, VkDeviceSize size );
+    void Destroy();
 
     VkDeviceAddress GetASAddress( VkAccelerationStructureKHR as ) const;
 
@@ -73,22 +73,11 @@ protected:
 struct BLASComponent final : public ASComponent
 {
 public:
-    explicit BLASComponent( VkDevice device, VertexCollectorFilterTypeFlags filter );
-
-    auto FilterFlags() const { return filter; }
-
-    void SetGeometryCount( uint32_t geomCount );
-
-    auto IsEmpty() const -> bool;
-    auto GetGeomCount() const -> uint32_t;
+    explicit BLASComponent( VkDevice device, const char* debugName = nullptr );
 
 protected:
     void        CreateAS( VkDeviceSize size ) override;
     const char* GetBufferDebugName() const override;
-
-private:
-    VertexCollectorFilterTypeFlags filter;
-    uint32_t                       geomCount;
 };
 
 

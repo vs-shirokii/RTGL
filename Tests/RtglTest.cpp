@@ -578,8 +578,6 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
                     { 0, 0, 1, 0.0f },
                 } },
                 .isExportable   = false,
-                .animationName  = nullptr,
-                .animationTime  = 0.0f,
             };
 
             auto prim = RgMeshPrimitiveInfo{
@@ -612,8 +610,6 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
                     { 0, 0, 1, 1.0f },
                 } },
                 .isExportable   = false,
-                .animationName  = nullptr,
-                .animationTime  = 0.0f,
             };
 
             auto prim = RgMeshPrimitiveInfo{

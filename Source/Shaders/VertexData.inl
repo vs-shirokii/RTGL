@@ -294,33 +294,22 @@ ShTriangle makeTriangle(const ShVertex a, const ShVertex b, const ShVertex c)
     return tr;
 }
 
-// Get geometry index in "geometryInstances" array by instanceID, localGeometryIndex.
-int getGeometryIndex(int instanceID, int localGeometryIndex)
-{
-    return globalUniform.instanceGeomInfoOffset[instanceID / 4][instanceID % 4] + localGeometryIndex;
-}
-
 bool getCurrentGeometryIndexByPrev(int prevInstanceID, int prevLocalGeometryIndex, out int curFrameGlobalGeomIndex)
 {
-    // get previous frame's global geom index
-    const int prevFrameGeomIndex = globalUniform.instanceGeomInfoOffsetPrev[prevInstanceID / 4][prevInstanceID % 4] + prevLocalGeometryIndex;
-    
-    // try to find global geom index in current frame by it
-    curFrameGlobalGeomIndex = geomIndexPrevToCur[prevFrameGeomIndex];
+    // try to find instance index in current frame by it
+    curFrameGlobalGeomIndex = geomIndexPrevToCur[prevInstanceID];
 
     // -1 : no prev to cur exist
     return curFrameGlobalGeomIndex >= 0;
 }
 
-// localGeometryIndex is index of geometry in pGeometries in BLAS
-// primitiveId is index of a triangle
+// instanceID  - index in TLAS
+// primitiveId - index of a triangle
 ShTriangle getTriangle(int instanceID, int instanceCustomIndex, int localGeometryIndex, int primitiveId)
 {
     ShTriangle tr;
 
-    // get info about geometry by the index in pGeometries in BLAS with index "instanceID"
-    const int globalGeometryIndex = getGeometryIndex(instanceID, localGeometryIndex);
-    const ShGeometryInstance inst = geometryInstances[globalGeometryIndex];
+    const ShGeometryInstance inst = geometryInstances[instanceID];
 
     const bool isDynamic = (instanceCustomIndex & INSTANCE_CUSTOM_INDEX_FLAG_DYNAMIC) == INSTANCE_CUSTOM_INDEX_FLAG_DYNAMIC;
 
@@ -655,12 +644,6 @@ bool unpackPrevVisibilityBuffer(const vec4 v, out vec3 prevPos)
     prevPos = prevVerts * baryCoords;
 
     return true;
-}
-
-mat4 getModelMatrix(int instanceID, int localGeometryIndex)
-{
-    int globalGeometryIndex = getGeometryIndex(instanceID, localGeometryIndex);
-    return geometryInstances[globalGeometryIndex].model;
 }
 #endif // DESC_SET_VERTEX_DATA
 #endif // DESC_SET_GLOBAL_UNIFORM

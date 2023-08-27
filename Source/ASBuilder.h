@@ -32,13 +32,16 @@ namespace RTGL1
 class ASBuilder
 {
 public:
-    explicit ASBuilder( VkDevice device, std::shared_ptr< ScratchBuffer > commonScratchBuffer );
+    explicit ASBuilder( std::shared_ptr< ScratchBuffer > commonScratchBuffer );
     ~ASBuilder() = default;
 
-    ASBuilder( const ASBuilder& other )     = delete;
-    ASBuilder( ASBuilder&& other ) noexcept = delete;
-    ASBuilder& operator=( const ASBuilder& other ) = delete;
+    ASBuilder( const ASBuilder& other )                = delete;
+    ASBuilder( ASBuilder&& other ) noexcept            = delete;
+    ASBuilder& operator=( const ASBuilder& other )     = delete;
     ASBuilder& operator=( ASBuilder&& other ) noexcept = delete;
+
+
+    bool IsEmpty() const;
 
 
     // pGeometries is a pointer to an array of size "geometryCount",
@@ -68,38 +71,38 @@ public:
     bool BuildTopLevel( VkCommandBuffer cmd );
 
 
-private:
-    auto GetBuildSizes( VkAccelerationStructureTypeKHR                  type,
-                        std::span< const VkAccelerationStructureGeometryKHR > geometries,
-                        std::span< const uint32_t > maxPrimitiveCountPerGeometry,
-                        bool fastTrace ) const -> VkAccelerationStructureBuildSizesInfoKHR;
-
-public:
-    auto GetBottomBuildSizes( std::span< const VkAccelerationStructureGeometryKHR > geometries,
-                              std::span< const uint32_t > maxPrimitiveCountPerGeometry,
-                              bool fastTrace ) const -> VkAccelerationStructureBuildSizesInfoKHR
+    static auto GetBottomBuildSizes( VkDevice                                  device,
+                                     const VkAccelerationStructureGeometryKHR& geometry,
+                                     const uint32_t maxPrimitiveCountPerGeometry,
+                                     bool           fastTrace )
     {
-        return GetBuildSizes( VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
-                              geometries,
-                              maxPrimitiveCountPerGeometry,
+        return GetBuildSizes( device,
+                              VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+                              { &geometry, 1 },
+                              { &maxPrimitiveCountPerGeometry, 1 },
                               fastTrace );
     }
 
-
-    auto GetTopBuildSizes( const VkAccelerationStructureGeometryKHR& instance,
-                           uint32_t                                  maxPrimitiveCountInInstance,
-                           bool                                      fastTrace ) const
+    static auto GetTopBuildSizes( VkDevice                                  device,
+                                  const VkAccelerationStructureGeometryKHR& instance,
+                                  uint32_t maxPrimitiveCountInInstance,
+                                  bool     fastTrace )
     {
-        return GetBuildSizes( VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
+        return GetBuildSizes( device,
+                              VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
                               { &instance, 1 },
                               { &maxPrimitiveCountInInstance, 1 },
                               fastTrace );
     }
 
-    bool IsEmpty() const;
+private:
+    static auto GetBuildSizes( VkDevice                                              device,
+                               VkAccelerationStructureTypeKHR                        type,
+                               std::span< const VkAccelerationStructureGeometryKHR > geometries,
+                               std::span< const uint32_t > maxPrimitiveCountPerGeometry,
+                               bool fastTrace ) -> VkAccelerationStructureBuildSizesInfoKHR;
 
 private:
-    VkDevice                         device;
     std::shared_ptr< ScratchBuffer > scratchBuffer;
 
     struct BuildInfo

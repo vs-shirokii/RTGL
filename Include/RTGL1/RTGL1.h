@@ -352,6 +352,12 @@ typedef enum RgMeshPrimitiveFlagBits
 } RgMeshPrimitiveFlagBits;
 typedef uint32_t RgMeshPrimitiveFlags;
 
+typedef enum RgMeshInfoFlagBits
+{
+    RG_MESH_INFO_EXPORT_AS_SEPARATE_FILE    = 1,
+} RgMeshInfoFlagBits;
+typedef uint32_t RgMeshInfoFlags;
+
 typedef struct RgPrimitiveVertex
 {
     float               position[ 3 ];      uint32_t _padding0;
@@ -459,6 +465,7 @@ typedef struct RgMeshInfo
 {
     RgStructureType             sType;
     void*                       pNext;
+    RgMeshInfoFlags             flags;
     // Object is an instance of a mesh.
     uint64_t                    uniqueObjectID;
     // Name and primitive index is used to override meshes.
@@ -466,8 +473,6 @@ typedef struct RgMeshInfo
     RgTransform                 transform;
     // Set to true, if an object can be exported.
     RgBool32                    isExportable;
-    const char*                 animationName;
-    float                       animationTime;
 } RgMeshInfo;
 
 RGAPI RgResult RGCONV rgUploadMeshPrimitive( RgInstance                 instance,

@@ -130,32 +130,6 @@ vec3 processAlbedo(
 }
 
 
-#if defined( HITINFO_INL_INDIR )
-vec3 getHitInfoAlbedoOnly( ShPayload pl )
-{
-    int instanceId, instCustomIndex;
-    int geomIndex, primIndex;
-
-    unpackInstanceIdAndCustomIndex( pl.instIdAndIndex, instanceId, instCustomIndex );
-    unpackGeometryAndPrimitiveIndex( pl.geomAndPrimIndex, geomIndex, primIndex );
-
-    const ShTriangle tr = getTriangle( instanceId, instCustomIndex, geomIndex, primIndex );
-
-    const vec2 inBaryCoords = pl.baryCoords;
-    const vec3 baryCoords   = vec3( 1.0f - inBaryCoords.x - inBaryCoords.y, inBaryCoords.x, inBaryCoords.y );
-
-    const vec2 texCoords[] = {
-        tr.layerTexCoord[ 0 ] * baryCoords,
-        tr.layerTexCoord[ 1 ] * baryCoords,
-        tr.layerTexCoord[ 2 ] * baryCoords,
-        tr.layerTexCoord[ 3 ] * baryCoords,
-    };
-
-    return processAlbedo( tr.geometryInstanceFlags, texCoords, tr.layerColorTextures, tr.layerColors, 0 );
-}
-#endif // HITINFO_INL_INDIR
-
-
 #if defined( HITINFO_INL_PRIM )
 // "Ray Traced Reflections in 'Wolfenstein: Youngblood'", Jiho Choi, Jim Kjellin, Patrik Willbo, Dmitry Zhdan
 float getBounceLOD(float roughness, float viewDist, float hitDist, float screenWidth, float bounceMipBias)

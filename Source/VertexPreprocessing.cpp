@@ -45,12 +45,12 @@ RTGL1::VertexPreprocessing::~VertexPreprocessing()
     DestroyPipelines();
 }
 
-void RTGL1::VertexPreprocessing::Preprocess( VkCommandBuffer            cmd,
-                                             uint32_t                   frameIndex,
-                                             uint32_t                   preprocMode,
-                                             const GlobalUniform&       uniform,
-                                             ASManager&                 asManager,
-                                             const ShVertPreprocessing& push )
+void RTGL1::VertexPreprocessing::Preprocess( VkCommandBuffer      cmd,
+                                             uint32_t             frameIndex,
+                                             uint32_t             preprocMode,
+                                             const GlobalUniform& uniform,
+                                             ASManager&           asManager,
+                                             uint32_t             tlasInstanceCount )
 {
     CmdLabel label( cmd, "Vertex preprocessing" );
 
@@ -82,11 +82,7 @@ void RTGL1::VertexPreprocessing::Preprocess( VkCommandBuffer            cmd,
                              nullptr );
 
 
-    vkCmdPushConstants(
-        cmd, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof( ShVertPreprocessing ), &push );
-
-
-    vkCmdDispatch( cmd, push.tlasInstanceCount, 1, 1 );
+    vkCmdDispatch( cmd, tlasInstanceCount, 1, 1 );
 
 
     asManager.OnVertexPreprocessingFinish(
@@ -102,18 +98,10 @@ void RTGL1::VertexPreprocessing::OnShaderReload( const ShaderManager* shaderMana
 void RTGL1::VertexPreprocessing::CreatePipelineLayout( const VkDescriptorSetLayout* pSetLayouts,
                                                        uint32_t                     setLayoutCount )
 {
-    VkPushConstantRange pc = {
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        .offset     = 0,
-        .size       = sizeof( ShVertPreprocessing ),
-    };
-
     VkPipelineLayoutCreateInfo plLayoutInfo = {
-        .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount         = setLayoutCount,
-        .pSetLayouts            = pSetLayouts,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges    = &pc,
+        .sType          = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = setLayoutCount,
+        .pSetLayouts    = pSetLayouts,
     };
 
     VkResult r = vkCreatePipelineLayout( device, &plLayoutInfo, nullptr, &pipelineLayout );
@@ -127,9 +115,9 @@ void RTGL1::VertexPreprocessing::CreatePipelineLayout( const VkDescriptorSetLayo
 
 void RTGL1::VertexPreprocessing::CreatePipelines( const ShaderManager* shaderManager )
 {
-    VkResult                 r;
+    VkResult r;
 
-    uint32_t                 specInfoDataOnlyDynamic = 0;
+    uint32_t specInfoDataOnlyDynamic = 0;
 
     VkSpecializationMapEntry specEntry = {
         .constantID = 0,

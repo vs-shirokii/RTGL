@@ -28,8 +28,6 @@
 namespace RTGL1
 {
 
-struct ShVertPreprocessing;
-
 class VertexPreprocessing : public IShaderDependency
 {
 public:
@@ -40,19 +38,19 @@ public:
 
     ~VertexPreprocessing() override;
 
-    VertexPreprocessing( const VertexPreprocessing& other )     = delete;
-    VertexPreprocessing( VertexPreprocessing&& other ) noexcept = delete;
-    VertexPreprocessing& operator=( const VertexPreprocessing& other ) = delete;
+    VertexPreprocessing( const VertexPreprocessing& other )                = delete;
+    VertexPreprocessing( VertexPreprocessing&& other ) noexcept            = delete;
+    VertexPreprocessing& operator=( const VertexPreprocessing& other )     = delete;
     VertexPreprocessing& operator=( VertexPreprocessing&& other ) noexcept = delete;
 
-    void                 Preprocess( VkCommandBuffer            cmd,
-                                     uint32_t                   frameIndex,
-                                     uint32_t                   preprocMode,
-                                     const GlobalUniform&       uniform,
-                                     ASManager&                 asManager,
-                                     const ShVertPreprocessing& push );
+    void Preprocess( VkCommandBuffer      cmd,
+                     uint32_t             frameIndex,
+                     uint32_t             preprocMode,
+                     const GlobalUniform& uniform,
+                     ASManager&           asManager,
+                     uint32_t             tlasInstanceCount );
 
-    void                 OnShaderReload( const ShaderManager* shaderManager ) override;
+    void OnShaderReload( const ShaderManager* shaderManager ) override;
 
 private:
     void CreatePipelineLayout( const VkDescriptorSetLayout* pSetLayouts, uint32_t setLayoutCount );

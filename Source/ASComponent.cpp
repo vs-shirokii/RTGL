@@ -21,19 +21,17 @@
 #include "ASComponent.h"
 
 RTGL1::ASComponent::ASComponent( VkDevice _device, const char* _debugName )
-    : device( _device ), as( VK_NULL_HANDLE ), debugName( _debugName )
+    : device{ _device }, as{ VK_NULL_HANDLE }, debugName{ _debugName }
 {
 }
 
-RTGL1::BLASComponent::BLASComponent( VkDevice _device, VertexCollectorFilterTypeFlags _filter )
-    : ASComponent( _device, VertexCollectorFilterTypeFlags_GetNameForBLAS( _filter ) )
-    , filter( _filter )
-    , geomCount( 0 )
+RTGL1::BLASComponent::BLASComponent( VkDevice _device, const char* _debugName )
+    : ASComponent{ _device, _debugName }
 {
 }
 
 RTGL1::TLASComponent::TLASComponent( VkDevice _device, const char* _debugName )
-    : ASComponent( _device, _debugName )
+    : ASComponent{ _device, _debugName }
 {
 }
 

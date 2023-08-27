@@ -48,13 +48,17 @@ public:
     explicit VertexCollector( VkDevice         device,
                               MemoryAllocator& allocator,
                               const uint32_t ( &maxVertsPerLayer )[ 4 ],
-                              VertexCollectorFilterTypeFlags filters );
-    
+                              bool             isDynamic,
+                              std::string_view debugName );
+
     // Create new vertex collector, but with shared device local buffers
-    explicit VertexCollector( const VertexCollector& src, MemoryAllocator& allocator );
+    explicit VertexCollector( const VertexCollector& src,
+                              MemoryAllocator&       allocator,
+                              std::string_view       debugName );
 
     static auto CreateWithSameDeviceLocalBuffers( const VertexCollector& src,
-                                                  MemoryAllocator&       allocator )
+                                                  MemoryAllocator&       allocator,
+                                                  std::string_view       debugName )
         -> std::unique_ptr< VertexCollector >;
 
     ~VertexCollector() = default;
@@ -66,13 +70,13 @@ public:
 
     struct UploadResult
     {
-        VkAccelerationStructureGeometryKHR asGeometry;
-        uint32_t                           triangleCount;
-        std::optional< uint32_t >          firstIndex;
-        uint32_t                           firstVertex;
-        uint32_t                           firstVertex_Layer1;
-        uint32_t                           firstVertex_Layer2;
-        uint32_t                           firstVertex_Layer3;
+        VkAccelerationStructureGeometryKHR       asGeometryInfo;
+        VkAccelerationStructureBuildRangeInfoKHR asRange;
+        std::optional< uint32_t >                firstIndex;
+        uint32_t                                 firstVertex;
+        uint32_t                                 firstVertex_Layer1;
+        uint32_t                                 firstVertex_Layer2;
+        uint32_t                                 firstVertex_Layer3;
     };
 
     auto Upload( VertexCollectorFilterTypeFlags geomFlags,
@@ -96,7 +100,7 @@ public:
     uint32_t GetCurrentVertexCount() const;
     uint32_t GetCurrentIndexCount() const;
 
-        
+
     // Make sure that copying was done
     void InsertVertexPreprocessBeginBarrier( VkCommandBuffer cmd );
     // Make sure that preprocessing is done, and prepare for use in AS build and in shaders
@@ -112,11 +116,9 @@ private:
     bool CopyVertexDataFromStaging( VkCommandBuffer cmd );
     bool CopyTexCoordsFromStaging( VkCommandBuffer cmd, uint32_t layerIndex );
     bool CopyIndexDataFromStaging( VkCommandBuffer cmd );
-    bool CopyTransformsFromStaging( VkCommandBuffer cmd, bool insertMemBarrier );
-    
+
 private:
-    VkDevice                       device;
-    VertexCollectorFilterTypeFlags filtersFlags;
+    VkDevice device;
 
 
     template< typename T >
@@ -195,7 +197,6 @@ private:
 
     SharedDeviceLocal< ShVertex >             bufVertices;
     SharedDeviceLocal< uint32_t >             bufIndices;
-    SharedDeviceLocal< VkTransformMatrixKHR > bufTransforms;
     SharedDeviceLocal< RgFloat2D >            bufTexcoordLayer1;
     SharedDeviceLocal< RgFloat2D >            bufTexcoordLayer2;
     SharedDeviceLocal< RgFloat2D >            bufTexcoordLayer3;
@@ -203,7 +204,6 @@ private:
     uint32_t curVertexCount{ 0 };
     uint32_t curIndexCount{ 0 };
     uint32_t curPrimitiveCount{ 0 };
-    uint32_t curTransformCount{ 0 };
     uint32_t curTexCoordCount_Layer1{ 0 };
     uint32_t curTexCoordCount_Layer2{ 0 };
     uint32_t curTexCoordCount_Layer3{ 0 };

@@ -60,7 +60,7 @@ public:
     // and for static geometry -- only when whole static scene was changed.
     void WriteGeomInfo( uint32_t                       frameIndex,
                         const PrimitiveUniqueID&       geomUniqueID,
-                        uint32_t                       localGeomIndex,
+                        uint32_t                       tlasInstanceID,
                         VertexCollectorFilterTypeFlags flags,
                         ShGeometryInstance&            src );
 
@@ -81,6 +81,8 @@ public:
     static const RgFloat2D* AccessLayerTexCoords( const RgMeshPrimitiveInfo& info,
                                                   uint32_t                   layerIndex );
 
+    using MatchPrevIndexType = int32_t;
+
 private:
     struct GeomFrameInfo
     {
@@ -89,36 +91,26 @@ private:
         uint32_t baseIndexIndex;
         uint32_t vertexCount;
         uint32_t indexCount;
-        uint32_t prevGlobalGeomIndex;
+        uint32_t tlasInstanceID;
     };
 
 private:
-    void ResetMatchPrevForGroup( uint32_t frameIndex, VertexCollectorFilterTypeFlags groupFlags );
-
-    void ResetOnlyDynamic( uint32_t frameIndex );
-
-    static uint32_t GetGlobalGeomIndex( uint32_t                       localGeomIndex,
-                                        VertexCollectorFilterTypeFlags flags );
+    static void ResetGroup( rgl::unordered_map< PrimitiveUniqueID, GeomFrameInfo >& idToInfo,
+                            const std::vector< PrimitiveUniqueID >& idsToClear );
 
     // Fill ShGeometryInstance with the data from previous frame
     // Note: frameIndex is not used if geom is not dynamic
-    void FillWithPrevFrameData( VertexCollectorFilterTypeFlags flags,
-                                const PrimitiveUniqueID&       geomUniqueID,
-                                uint32_t                       currentGlobalGeomIndex,
-                                ShGeometryInstance&            dst,
-                                uint32_t                       frameIndex = 0 );
+    void FillWithPrevFrameData( const PrimitiveUniqueID& geomUniqueID,
+                                uint32_t                 tlasInstanceID,
+                                ShGeometryInstance&      dst,
+                                uint32_t                 frameIndex );
 
-    void MarkNoPrevInfo( ShGeometryInstance& dst );
-    void MarkMovableHasPrevInfo( ShGeometryInstance& dst );
     // Save data for the next frame
     // Note: frameIndex is not used if geom is not dynamic
-    void WriteInfoForNextUsage( VertexCollectorFilterTypeFlags flags,
-                                const PrimitiveUniqueID&       geomUniqueID,
-                                uint32_t                       currentGlobalGeomIndex,
-                                const ShGeometryInstance&      src,
-                                uint32_t                       frameIndex = 0 );
-
-    uint32_t RecalculateCount( uint32_t frameIndex ) const;
+    void WriteInfoForNextUsage( const PrimitiveUniqueID&  geomUniqueID,
+                                uint32_t                  tlasInstanceID,
+                                const ShGeometryInstance& src,
+                                uint32_t                  frameIndex );
 
 private:
     VkDevice device;
@@ -126,25 +118,17 @@ private:
     // buffer for getting info for geometry in BLAS
     std::shared_ptr< AutoBuffer > buffer;
 
-    std::shared_ptr< AutoBuffer > matchPrev;
+    std::shared_ptr< AutoBuffer >           matchPrev;
     // special CPU side buffer to reduce granular writes to staging
-    std::unique_ptr< int32_t[] >  matchPrevShadow;
+    std::unique_ptr< MatchPrevIndexType[] > matchPrevShadow;
 
     // geometry's uniqueID to geom frame info,
     // used for getting info from previous frame
     rgl::unordered_map< PrimitiveUniqueID, GeomFrameInfo >
-        dynamicIDToGeomFrameInfo[ MAX_FRAMES_IN_FLIGHT ];
-    rgl::unordered_map< PrimitiveUniqueID, GeomFrameInfo > movableIDToGeomFrameInfo;
+        userUniqueIDToGeomFrameInfo[ MAX_FRAMES_IN_FLIGHT ];
 
-private:
-    rgl::unordered_map< VertexCollectorFilterTypeFlags,
-                        rgl::subspan_incremental< ShGeometryInstance > >
-        mappedBufferRegions[ MAX_FRAMES_IN_FLIGHT ]{};
-
-    uint32_t mappedBufferRegionsCount[ MAX_FRAMES_IN_FLIGHT ]{}; // optimization
-
-    rgl::subspan_incremental< ShGeometryInstance >& AccessGeometryInstanceGroup(
-        uint32_t frameIndex, VertexCollectorFilterTypeFlags flagsForGroup );
+    std::vector< PrimitiveUniqueID > staticUniqueIds;
+    std::vector< PrimitiveUniqueID > dynamicUniqueIds;
 };
 
 inline RgColor4DPacked32 PackEmissiveFactorAndStrength( RgColor4DPacked32 factor, float strength )

@@ -35,11 +35,6 @@ namespace
 {
 constexpr uint32_t AdditionalTexCoordMaxCount = MAX_STATIC_VERTEX_COUNT;
 
-constexpr auto StaticMask = RTGL1::VertexCollectorFilterTypeFlagBits::CF_STATIC_NON_MOVABLE |
-                            RTGL1::VertexCollectorFilterTypeFlagBits::CF_STATIC_MOVABLE;
-
-constexpr auto DynamicMask = RTGL1::VertexCollectorFilterTypeFlagBits::CF_DYNAMIC;
-
 bool IsFastBuild( RTGL1::VertexCollectorFilterTypeFlags filter )
 {
     using FT = RTGL1::VertexCollectorFilterTypeFlagBits;
@@ -75,25 +70,6 @@ RTGL1::ASManager::ASManager( VkDevice                                _device,
     , asDescSetLayout( VK_NULL_HANDLE )
     , asDescSets{}
 {
-    typedef VertexCollectorFilterTypeFlags    FL;
-    typedef VertexCollectorFilterTypeFlagBits FT;
-
-
-    // init AS structs for each dimension
-    VertexCollectorFilterTypeFlags_IterateOverFlags( [ this ]( FL f ) {
-        if( f & FT::CF_DYNAMIC )
-        {
-            for( auto& b : allDynamicBlas )
-            {
-                b.emplace_back( std::make_unique< BLASComponent >( device, f ) );
-            }
-        }
-        else
-        {
-            allStaticBlas.emplace_back( std::make_unique< BLASComponent >( device, f ) );
-        }
-    } );
-
     for( auto& t : tlas )
     {
         t = std::make_unique< TLASComponent >( device, "TLAS main" );
@@ -103,17 +79,11 @@ RTGL1::ASManager::ASManager( VkDevice                                _device,
         const uint32_t scratchOffsetAligment =
             _physDevice.GetASProperties().minAccelerationStructureScratchOffsetAlignment;
         scratchBuffer = std::make_shared< ScratchBuffer >( allocator, scratchOffsetAligment );
+        asBuilder     = std::make_unique< ASBuilder >( scratchBuffer );
     }
 
     {
-        // static and movable static vertices share the same buffer as their data won't be changing
-        constexpr FL AllStaticFlags =
-            StaticMask | FT::MASK_PASS_THROUGH_GROUP | FT::MASK_PRIMARY_VISIBILITY_GROUP;
-
-        constexpr FL AllDynamicFlags =
-            DynamicMask | FT::MASK_PASS_THROUGH_GROUP | FT::MASK_PRIMARY_VISIBILITY_GROUP;
-
-        uint32_t maxVertsPerLayer[] = {
+        const uint32_t maxVertsPerLayer[] = {
             MAX_STATIC_VERTEX_COUNT,
             _enableTexCoordLayer1 ? AdditionalTexCoordMaxCount : 0,
             _enableTexCoordLayer2 ? AdditionalTexCoordMaxCount : 0,
@@ -121,23 +91,18 @@ RTGL1::ASManager::ASManager( VkDevice                                _device,
         };
 
         collectorStatic = std::make_unique< VertexCollector >(
-            device, *allocator, maxVertsPerLayer, AllStaticFlags );
+            device, *allocator, maxVertsPerLayer, false, "Static" );
 
-        for( uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++ )
+        collectorReplacements = std::make_unique< VertexCollector >(
+            device, *allocator, maxVertsPerLayer, false, "Replacements" );
+
+        for( auto& c : collectorDynamic )
         {
-            collectorDynamic[ i ] =
-                i == 0 ? std::make_unique< VertexCollector >(
-                             device, *allocator, maxVertsPerLayer, AllDynamicFlags )
-                       : VertexCollector::CreateWithSameDeviceLocalBuffers(
-                             *( collectorDynamic[ 0 ] ), *allocator );
+            c = collectorDynamic[ 0 ] ? VertexCollector::CreateWithSameDeviceLocalBuffers(
+                                            *( collectorDynamic[ 0 ] ), *allocator, "Dynamic" )
+                                      : std::make_unique< VertexCollector >(
+                                            device, *allocator, maxVertsPerLayer, true, "Dynamic" );
         }
-
-        VertexCollectorFilterTypeFlags_IterateOverFlags( [ this ]( FL f ) {
-            if( ( f & AllStaticFlags ) || ( f & AllDynamicFlags ) )
-            {
-                asTypes[ f ] = std::make_unique< VertexCollectorFilter >( f );
-            }
-        } );
     }
 
     previousDynamicPositions.Init( *allocator,
@@ -157,15 +122,14 @@ RTGL1::ASManager::ASManager( VkDevice                                _device,
     // instance buffer for TLAS
     instanceBuffer = std::make_unique< AutoBuffer >( allocator );
 
-    VkDeviceSize instanceBufferSize =
-        MAX_TOP_LEVEL_INSTANCE_COUNT * sizeof( VkAccelerationStructureInstanceKHR );
+    constexpr VkDeviceSize instanceBufferSize =
+        MAX_INSTANCE_COUNT * sizeof( VkAccelerationStructureInstanceKHR );
+
     instanceBuffer->Create(
         instanceBufferSize,
         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
             VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
         "TLAS instance buffer" );
-
-    static_assert( std::size( TLASPrepareResult{}.instances ) == MAX_TOP_LEVEL_INSTANCE_COUNT );
 
 
     CreateDescriptors();
@@ -622,117 +586,11 @@ void RTGL1::ASManager::UpdateASDescriptors( uint32_t frameIndex )
 
 RTGL1::ASManager::~ASManager()
 {
-    for( auto& as : allStaticBlas )
-    {
-        as->Destroy();
-    }
-
-    for( uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++ )
-    {
-        for( auto& as : allDynamicBlas[ i ] )
-        {
-            as->Destroy();
-        }
-
-        tlas[ i ]->Destroy();
-    }
-
     vkDestroyDescriptorPool( device, descPool, nullptr );
     vkDestroyDescriptorSetLayout( device, buffersDescSetLayout, nullptr );
     vkDestroyDescriptorSetLayout( device, asDescSetLayout, nullptr );
     vkDestroyFence( device, staticCopyFence, nullptr );
 }
-
-
-bool RTGL1::ASManager::IsASTypeEmptyWithTheseFlags(
-    VertexCollectorFilterTypeFlags flagsToCheck ) const
-{
-    for( const auto& [ flags, filter ] : asTypes )
-    {
-        // if filter includes any type from flags
-        if( ( flags & flagsToCheck ) )
-        {
-            if( filter->GetGeometryCount() > 0 )
-            {
-                // and it's not empty
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
-void RTGL1::ASManager::SetupBLAS( ASBuilder& asBuilder, BLASComponent& blas )
-{
-    assert( asTypes.contains( blas.FilterFlags() ) );
-
-    const auto& filter = asTypes[ blas.FilterFlags() ];
-
-    // TODO: remove
-    blas.SetGeometryCount( static_cast< uint32_t >( filter->GetASGeometries().size() ) );
-
-    if( blas.IsEmpty() )
-    {
-        return;
-    }
-
-    // get AS size and create buffer for AS
-    const auto buildSizes = asBuilder.GetBottomBuildSizes( filter->GetASGeometries(),
-                                                           filter->GetPrimitiveCounts(),
-                                                           IsFastTrace( blas.FilterFlags() ) );
-
-    // if no buffer, or it was created, but its size is too small for current AS
-    blas.RecreateIfNotValid( buildSizes, allocator );
-
-    assert( blas.GetAS() != VK_NULL_HANDLE );
-
-    // add BLAS, all passed arrays must be alive until BuildBottomLevel() call
-    asBuilder.AddBLAS( blas.GetAS(),
-                       filter->GetASGeometries(),
-                       filter->GetASBuildRangeInfos(),
-                       buildSizes,
-                       IsFastTrace( blas.FilterFlags() ),
-                       false,
-                       blas.FilterFlags() & VertexCollectorFilterTypeFlagBits::CF_STATIC_MOVABLE );
-}
-
-#if 0
-void RTGL1::ASManager::UpdateBLAS( BLASComponent& blas, const VertexCollector& vertCollector )
-{
-    const auto  filter = blas.GetFilter();
-    const auto& geoms  = vertCollector.GetASGeometries( filter );
-
-    blas.SetGeometryCount( static_cast< uint32_t >( geoms.size() ) );
-
-    if( blas.IsEmpty() )
-    {
-        return;
-    }
-
-    const auto& ranges     = vertCollector.GetASBuildRangeInfos( filter );
-    const auto& primCounts = vertCollector.GetPrimitiveCounts( filter );
-
-    const bool fastTrace = !IsFastBuild( filter );
-    // must be just updated
-    const bool update = true;
-
-    const auto buildSizes =
-        asBuilder->GetBottomBuildSizes( geoms.size(), geoms.data(), primCounts.data(), fastTrace );
-
-    assert( blas.IsValid( buildSizes ) );
-    assert( blas.GetAS() != VK_NULL_HANDLE );
-
-    // add BLAS, all passed arrays must be alive until BuildBottomLevel() call
-    asBuilder->AddBLAS( blas.GetAS(),
-                        geoms.size(),
-                        geoms.data(),
-                        ranges.data(),
-                        buildSizes,
-                        fastTrace,
-                        update,
-                        blas.GetFilter() & VertexCollectorFilterTypeFlagBits::CF_STATIC_MOVABLE );
-}
-#endif
 
 RTGL1::StaticGeometryToken RTGL1::ASManager::BeginStaticGeometry()
 {
@@ -740,13 +598,11 @@ RTGL1::StaticGeometryToken RTGL1::ASManager::BeginStaticGeometry()
     collectorStatic->Reset();
     geomInfoMgr->ResetOnlyStatic();
 
-    for( const auto &[ flags, filter ] : asTypes )
-    {
-        if( flags & StaticMask )
-        {
-            filter->Reset();
-        }
-    }
+    // static geometry submission happens very infrequently, e.g. on level load
+    vkDeviceWaitIdle( device );
+
+    // destroy previous static
+    allStaticInstances.clear();
 
     return StaticGeometryToken( InitAsExisting );
 }
@@ -756,26 +612,7 @@ void RTGL1::ASManager::SubmitStaticGeometry( StaticGeometryToken& token )
     assert( token );
     token = {};
 
-    // static geometry submission happens very infrequently, e.g. on level load
-    vkDeviceWaitIdle( device );
-
-    using FT = VertexCollectorFilterTypeFlagBits;
-
-    // destroy previous static
-    for( auto& staticBlas : allStaticBlas )
-    {
-        assert( !( staticBlas->FilterFlags() & FT::CF_DYNAMIC ) );
-
-        // if flags have any of static bits
-        if( staticBlas->FilterFlags() & StaticMask )
-        {
-            staticBlas->Destroy();
-            staticBlas->SetGeometryCount( 0 );
-        }
-    }
-
-    // skip if all static geometries are empty
-    if( IsASTypeEmptyWithTheseFlags( StaticMask ) )
+    if( allStaticInstances.empty() )
     {
         return;
     }
@@ -785,22 +622,8 @@ void RTGL1::ASManager::SubmitStaticGeometry( StaticGeometryToken& token )
     // copy from staging with barrier
     collectorStatic->CopyFromStaging( cmd );
 
-    {
-        auto asBuilder = ASBuilder{ device, scratchBuffer };
-
-        // setup static blas
-        for( auto& staticBlas : allStaticBlas )
-        {
-            // if flags have any of static bits
-            if( staticBlas->FilterFlags() & StaticMask )
-            {
-                SetupBLAS( asBuilder, *staticBlas );
-            }
-        }
-
-        // build AS
-        asBuilder.BuildBottomLevel( cmd );
-    }
+    assert( !asBuilder->IsEmpty() );
+    asBuilder->BuildBottomLevel( cmd );
 
     // submit geom info, in case if rgStartNewScene and rgSubmitStaticGeometries
     // were out of rgStartFrame - rgDrawFrame, so static geominfo-s won't be
@@ -815,23 +638,19 @@ void RTGL1::ASManager::SubmitStaticGeometry( StaticGeometryToken& token )
 RTGL1::DynamicGeometryToken RTGL1::ASManager::BeginDynamicGeometry( VkCommandBuffer cmd,
                                                                     uint32_t        frameIndex )
 {
-    scratchBuffer->Reset();
-
     // store data of current frame to use it in the next one
     CopyDynamicDataToPrevBuffers( cmd,
                                   Utils::GetPreviousByModulo( frameIndex, MAX_FRAMES_IN_FLIGHT ) );
 
-    // dynamic AS must be recreated
+    scratchBuffer->Reset();
+    // dynamic vertices are refilled each frame
     collectorDynamic[ frameIndex ]->Reset();
+    // destroy dynamic instances from N-2
+    allDynamicInstances[ frameIndex ].clear();
 
-    for( const auto& [ flags, filter ] : asTypes )
-    {
-        if( flags & DynamicMask )
-        {
-            filter->Reset();
-        }
-    }
+    allInstancesInThisFrame.clear();
 
+    assert( asBuilder->IsEmpty() );
     return DynamicGeometryToken( InitAsExisting );
 }
 
@@ -843,64 +662,104 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
                                          const TextureManager&      textureManager,
                                          GeomInfoManager&           geomInfoManager )
 {
-    if( geomInfoManager.GetCount( frameIndex ) + 1 >= MAX_BOTTOM_LEVEL_GEOMETRIES_COUNT )
+    if( geomInfoManager.GetCount( frameIndex ) >= MAX_GEOM_INFO_COUNT )
     {
-        debug::Error( "Too many geometry infos: the limit is {}",
-                      MAX_BOTTOM_LEVEL_GEOMETRIES_COUNT );
+        debug::Error( "Too many geometry infos: the limit is {}", MAX_GEOM_INFO_COUNT );
         return false;
     }
 
-    auto& collector = isStatic ? collectorStatic : collectorDynamic[ frameIndex ];
-
-    const auto geomFlags =
-        VertexCollectorFilterTypeFlags_GetForGeometry( mesh, primitive, isStatic );
-
-    if( !asTypes.contains( geomFlags ) )
+    bool isReplacement = false;
+    if( !isStatic )
     {
-        assert( false );
-        return false;
-    }
-
-    // if exceeds a limit of geometries in a group with specified geomFlags
-    {
-        using FT = VertexCollectorFilterTypeFlagBits;
-        if( asTypes[ geomFlags ]->GetGeometryCount() + 1 >=
-            VertexCollectorFilterTypeFlags_GetAmountInGlobalArray( geomFlags ) )
+        if( !Utils::IsCstrEmpty( mesh.pMeshName ) )
         {
-            debug::Error( "Too many geometries in a group ({}-{}-{}). Limit is {}",
-                          uint32_t( geomFlags & FT::MASK_CHANGE_FREQUENCY_GROUP ),
-                          uint32_t( geomFlags & FT::MASK_PASS_THROUGH_GROUP ),
-                          uint32_t( geomFlags & FT::MASK_PRIMARY_VISIBILITY_GROUP ),
-                          VertexCollectorFilterTypeFlags_GetAmountInGlobalArray( geomFlags ) );
-            return false;
+            if( mesh.flags & RG_MESH_INFO_EXPORT_AS_SEPARATE_FILE )
+            {
+                auto foundReplacement = meshNameToReplacement.find( mesh.pMeshName );
+                if( foundReplacement != meshNameToReplacement.end() )
+                {
+                    isReplacement = true;
+                }
+            }
         }
     }
 
-    auto uploaded = collector->Upload( geomFlags, mesh, primitive );
+    /*if( disableStaticGeometry )
+    {
+        if( !isDynamic )
+        {
+            continue;
+        }
+    }*/
+
+    const auto geomFlags =
+        VertexCollectorFilterTypeFlags_GetForGeometry( mesh, primitive, isStatic, isReplacement );
+
+    auto& dstInstances = isStatic ? allStaticInstances : allDynamicInstances[ frameIndex ];
+    auto& dstCollector = isStatic ? collectorStatic : collectorDynamic[ frameIndex ];
+
+
+    // if exceeds a limit of geometries in a group with specified geomFlags
+    if( dstInstances.size() >= MAX_INSTANCE_COUNT )
+    {
+        using FT = VertexCollectorFilterTypeFlagBits;
+        debug::Error( "Too many geometries in a group ({}-{}-{}). Limit is {}",
+                      uint32_t( geomFlags & FT::MASK_CHANGE_FREQUENCY_GROUP ),
+                      uint32_t( geomFlags & FT::MASK_PASS_THROUGH_GROUP ),
+                      uint32_t( geomFlags & FT::MASK_PRIMARY_VISIBILITY_GROUP ),
+                      MAX_INSTANCE_COUNT );
+        return false;
+    }
+
+
+    auto uploaded = std::optional< VertexCollector::UploadResult >{};
+    if( !isReplacement )
+    {
+        uploaded = dstCollector->Upload( geomFlags, mesh, primitive );
+    }
+    else
+    {
+    }
+
     if( !uploaded )
     {
         return false;
     }
 
 
+    const auto tlasInstanceId = static_cast< uint32_t >( allInstancesInThisFrame.size() );
 
-    uint32_t localIndex =
-        asTypes[ geomFlags ]->PushGeometry( geomFlags,
-                                            uploaded->asGeometry,
-                                            VkAccelerationStructureBuildRangeInfoKHR{
-                                                .primitiveCount  = uploaded->triangleCount,
-                                                .primitiveOffset = 0,
-                                                .firstVertex     = 0,
-                                                .transformOffset = 0,
-                                            } );
+    // NOTE: must be std::unique_ptr, so pointers in asBuilder are valid until end of the frame
+    auto tlasInstance = std::make_unique< TlasInstance >( TlasInstance{
+        .flags    = geomFlags,
+        .blas     = BLASComponent{ device },
+        .geometry = *uploaded,
+    } );
 
+    const bool fastTrace = isStatic ? true : false;
 
+    // get AS size and create buffer for AS
+    const auto buildSizes =
+        ASBuilder::GetBottomBuildSizes( device,
+                                        tlasInstance->geometry.asGeometryInfo,
+                                        tlasInstance->geometry.asRange.primitiveCount,
+                                        fastTrace );
+    tlasInstance->blas.RecreateIfNotValid( buildSizes, allocator );
+
+    // add BLAS, all passed arrays must be alive until BuildBottomLevel() call
+    asBuilder->AddBLAS( tlasInstance->blas.GetAS(),
+                        { &tlasInstance->geometry.asGeometryInfo, 1 },
+                        { &tlasInstance->geometry.asRange, 1 },
+                        buildSizes,
+                        fastTrace,
+                        false,
+                        false );
 
     const auto pbrInfo       = pnext::find< RgMeshPrimitivePBREXT >( &primitive );
     const auto layerTextures = textureManager.GetTexturesForLayers( primitive );
     const auto layerColors   = textureManager.GetColorForLayers( primitive );
 
-    auto geomInstance = ShGeometryInstance{
+    auto geomInfo = ShGeometryInstance{
         .model     = RG_MATRIX_TRANSPOSED( mesh.transform ),
         .prevModel = { /* set in geomInfoManager */ },
 
@@ -942,7 +801,10 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
 
     // global geometry index -- for indexing in geom infos buffer
     // local geometry index -- index of geometry in BLAS
-    geomInfoManager.WriteGeomInfo( frameIndex, uniqueID, localIndex, geomFlags, geomInstance );
+    geomInfoManager.WriteGeomInfo( frameIndex, uniqueID, tlasInstanceId, geomFlags, geomInfo );
+
+    dstInstances.push_back( std::move( tlasInstance ) );
+    allInstancesInThisFrame.emplace_back( mesh.transform, dstInstances.back().get() );
 
     return true;
 }
@@ -960,41 +822,47 @@ void RTGL1::ASManager::SubmitDynamicGeometry( DynamicGeometryToken& token,
     collectorDynamic[ frameIndex ]->CopyFromStaging( cmd );
 
 
-    auto asBuilder = ASBuilder{ device, scratchBuffer };
-    for( auto& dynamicBlas : allDynamicBlas[ frameIndex ] )
-    {
-        // must be dynamic
-        assert( dynamicBlas->FilterFlags() & VertexCollectorFilterTypeFlagBits::CF_DYNAMIC );
-
-        SetupBLAS( asBuilder, *dynamicBlas );
-    }
-
-    if( asBuilder.BuildBottomLevel( cmd ) )
+    if( asBuilder->BuildBottomLevel( cmd ) )
     {
         // sync AS access
         Utils::ASBuildMemoryBarrier( cmd );
     }
 }
 
-bool RTGL1::ASManager::SetupTLASInstanceFromBLAS( const BLASComponent& blas,
-                                                  uint32_t             rayCullMaskWorld,
-                                                  bool                 allowGeometryWithSkyFlag,
-                                                  VkAccelerationStructureInstanceKHR& instance )
+auto RTGL1::ASManager::MakeVkTLAS( const TlasInstance& tlasInstance,
+                                   uint32_t            rayCullMaskWorld,
+                                   bool                allowGeometryWithSkyFlag,
+                                   const RgTransform&  transform )
+    -> std::optional< VkAccelerationStructureInstanceKHR >
 {
-    typedef VertexCollectorFilterTypeFlagBits FT;
+    using FT = VertexCollectorFilterTypeFlagBits;
 
-    if( blas.GetAS() == VK_NULL_HANDLE || blas.IsEmpty() )
+    auto rgToVkTransform = []( const RgTransform& t ) {
+        return VkTransformMatrixKHR{ {
+            { t.matrix[ 0 ][ 0 ], t.matrix[ 1 ][ 0 ], t.matrix[ 2 ][ 0 ], t.matrix[ 3 ][ 0 ] },
+            { t.matrix[ 0 ][ 1 ], t.matrix[ 1 ][ 1 ], t.matrix[ 2 ][ 1 ], t.matrix[ 3 ][ 1 ] },
+            { t.matrix[ 0 ][ 2 ], t.matrix[ 1 ][ 2 ], t.matrix[ 2 ][ 2 ], t.matrix[ 3 ][ 2 ] },
+        } };
+    };
+
+
+    if( tlasInstance.blas.GetAS() == VK_NULL_HANDLE )
     {
-        return false;
+        assert( 0 );
+        return {};
     }
 
-    const auto filter = blas.FilterFlags();
 
-    instance.accelerationStructureReference = blas.GetASAddress();
+    auto instance = VkAccelerationStructureInstanceKHR{
+        .transform                              = rgToVkTransform( transform ),
+        .instanceCustomIndex                    = 0,
+        .mask                                   = 0,
+        .instanceShaderBindingTableRecordOffset = 0,
+        .flags                                  = 0,
+        .accelerationStructureReference         = tlasInstance.blas.GetASAddress(),
+    };
 
-    instance.transform = VK_TRANSFORM_IDENTITY;
-
-    instance.instanceCustomIndex = 0;
+    const auto filter = tlasInstance.flags;
 
 
     if( filter & FT::CF_DYNAMIC )
@@ -1025,8 +893,7 @@ bool RTGL1::ASManager::SetupTLASInstanceFromBLAS( const BLASComponent& blas,
 
             if( !( rayCullMaskWorld & INSTANCE_MASK_WORLD_0 ) )
             {
-                instance = {};
-                return false;
+                return {};
             }
         }
         else if( filter & FT::PV_WORLD_1 )
@@ -1035,8 +902,7 @@ bool RTGL1::ASManager::SetupTLASInstanceFromBLAS( const BLASComponent& blas,
 
             if( !( rayCullMaskWorld & INSTANCE_MASK_WORLD_1 ) )
             {
-                instance = {};
-                return false;
+                return {};
             }
         }
         else if( filter & FT::PV_WORLD_2 )
@@ -1045,8 +911,7 @@ bool RTGL1::ASManager::SetupTLASInstanceFromBLAS( const BLASComponent& blas,
 
             if( !( rayCullMaskWorld & INSTANCE_MASK_WORLD_2 ) )
             {
-                instance = {};
-                return false;
+                return {};
             }
 
 #if RAYCULLMASK_SKY_IS_WORLD2
@@ -1101,121 +966,59 @@ bool RTGL1::ASManager::SetupTLASInstanceFromBLAS( const BLASComponent& blas,
     }
 
 
-    return true;
+    return instance;
 }
 
-static void WriteInstanceGeomInfo( int32_t*                    instanceGeomInfoOffset,
-                                   int32_t*                    instanceGeomCount,
-                                   uint32_t                    index,
-                                   const RTGL1::BLASComponent& blas )
+auto RTGL1::ASManager::PrepareForBuildingTLAS( uint32_t         frameIndex,
+                                               ShGlobalUniform& uniformData,
+                                               uint32_t         uniformData_rayCullMaskWorld,
+                                               bool             allowGeometryWithSkyFlag,
+                                               bool             disableRTGeometry,
+                                               bool ) const
+    -> std::vector< VkAccelerationStructureInstanceKHR >
 {
-    assert( index < MAX_TOP_LEVEL_INSTANCE_COUNT );
-
-    uint32_t arrayOffset =
-        RTGL1::VertexCollectorFilterTypeFlags_GetOffsetInGlobalArray( blas.FilterFlags() );
-    uint32_t geomCount = blas.GetGeomCount();
-
-    // BLAS must not be empty, if it's added to TLAS
-    assert( geomCount < MAX_BOTTOM_LEVEL_GEOMETRIES_COUNT );
-
-    instanceGeomInfoOffset[ index ] = static_cast< int32_t >( arrayOffset );
-    instanceGeomCount[ index ]      = static_cast< int32_t >( geomCount );
-}
-
-std::pair< RTGL1::ASManager::TLASPrepareResult, RTGL1::ShVertPreprocessing > RTGL1::ASManager::
-    PrepareForBuildingTLAS( uint32_t         frameIndex,
-                            ShGlobalUniform& uniformData,
-                            uint32_t         uniformData_rayCullMaskWorld,
-                            bool             allowGeometryWithSkyFlag,
-                            bool             disableRTGeometry,
-                            bool             disableStaticGeometry ) const
-{
-    typedef VertexCollectorFilterTypeFlagBits FT;
-
-    static_assert( std::size( TLASPrepareResult{}.instances ) == MAX_TOP_LEVEL_INSTANCE_COUNT,
-                   "Change TLASPrepareResult sizes" );
-
-
-    TLASPrepareResult   r    = {};
-    ShVertPreprocessing push = {};
-
-
     if( disableRTGeometry )
     {
-        return std::make_pair( r, push );
+        return {};
     }
 
+    auto allVkTlas = std::vector< VkAccelerationStructureInstanceKHR >{};
+    allVkTlas.reserve( allInstancesInThisFrame.size() );
 
-    // write geometry offsets to uniform to access geomInfos
-    // with instance ID and local (in terms of BLAS) geometry index in shaders;
-    // Note: std140 requires elements to be aligned by sizeof(vec4)
-    int32_t* instanceGeomInfoOffset = uniformData.instanceGeomInfoOffset;
-
-    // write geometry counts of each BLAS for iterating in vertex preprocessing
-    int32_t* instanceGeomCount = uniformData.instanceGeomCount;
-
-    const std::vector< std::unique_ptr< BLASComponent > >* blasArrays[] = {
-        &allStaticBlas,
-        &allDynamicBlas[ frameIndex ],
-    };
-
-    for( const auto* blasArr : blasArrays )
+    for( const auto& [ transform, tlasInstance ] : allInstancesInThisFrame )
     {
-        for( const auto& blas : *blasArr )
+        auto vkTlas = MakeVkTLAS(
+            *tlasInstance, uniformData_rayCullMaskWorld, allowGeometryWithSkyFlag, transform );
+
+        if( !vkTlas )
         {
-            const bool isDynamic = blas->FilterFlags() & FT::CF_DYNAMIC;
-
-            if( disableStaticGeometry )
-            {
-                if( !isDynamic )
-                {
-                    continue;
-                }
-            }
-
-            // add to TLAS instances array
-            bool isAdded = SetupTLASInstanceFromBLAS( *blas,
-                                                      uniformData_rayCullMaskWorld,
-                                                      allowGeometryWithSkyFlag,
-                                                      r.instances[ r.instanceCount ] );
-
-            if( isAdded )
-            {
-                // mark bit if dynamic
-                if( isDynamic )
-                {
-                    push.tlasInstanceIsDynamicBits[ r.instanceCount /
-                                                    MAX_TOP_LEVEL_INSTANCE_COUNT ] |=
-                        1 << ( r.instanceCount % MAX_TOP_LEVEL_INSTANCE_COUNT );
-                }
-
-                WriteInstanceGeomInfo(
-                    instanceGeomInfoOffset, instanceGeomCount, r.instanceCount, *blas );
-                r.instanceCount++;
-            }
+            // must not happen
+            return {};
         }
+
+        allVkTlas.push_back( *vkTlas );
     }
 
-    push.tlasInstanceCount = r.instanceCount;
-
-    return std::make_pair( r, push );
+    return allVkTlas;
 }
 
-void RTGL1::ASManager::BuildTLAS( VkCommandBuffer          cmd,
-                                  uint32_t                 frameIndex,
-                                  const TLASPrepareResult& r )
+void RTGL1::ASManager::BuildTLAS(
+    VkCommandBuffer                                          cmd,
+    uint32_t                                                 frameIndex,
+    const std::vector< VkAccelerationStructureInstanceKHR >& allVkTlas )
 {
     CmdLabel label( cmd, "Building TLAS" );
 
 
-    if( r.instanceCount > 0 )
+    if( !allVkTlas.empty() )
     {
         // fill buffer
-        auto* mapped = static_cast< VkAccelerationStructureInstanceKHR* >(
-            instanceBuffer->GetMapped( frameIndex ) );
+        auto mapped =
+            instanceBuffer->GetMappedAs< VkAccelerationStructureInstanceKHR* >( frameIndex );
 
-        memcpy(
-            mapped, r.instances, r.instanceCount * sizeof( VkAccelerationStructureInstanceKHR ) );
+        memcpy( mapped,
+                allVkTlas.data(),
+                allVkTlas.size() * sizeof( VkAccelerationStructureInstanceKHR ) );
 
         instanceBuffer->CopyFromStaging( cmd, frameIndex );
     }
@@ -1232,7 +1035,7 @@ void RTGL1::ASManager::BuildTLAS( VkCommandBuffer          cmd,
                 .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR,
                 .arrayOfPointers = VK_FALSE,
                 .data = {
-                    .deviceAddress = r.instanceCount > 0 ? instanceBuffer->GetDeviceAddress() : 0,
+                    .deviceAddress = allVkTlas.empty() ? 0 : instanceBuffer->GetDeviceAddress() ,
                 },
             },
         },
@@ -1240,23 +1043,21 @@ void RTGL1::ASManager::BuildTLAS( VkCommandBuffer          cmd,
     };
 
     auto range = VkAccelerationStructureBuildRangeInfoKHR{
-        .primitiveCount = r.instanceCount,
+        .primitiveCount = static_cast< uint32_t >( allVkTlas.size() ),
     };
 
     // ASBuilder requires instGeom, range to be alive
     {
-        auto asBuilder = ASBuilder{ device, scratchBuffer };
-
         // get AS size and create buffer for AS
-        const auto buildSizes = asBuilder.GetTopBuildSizes( instGeom, r.instanceCount, false );
+        const auto buildSizes = ASBuilder::GetTopBuildSizes(
+            device, instGeom, static_cast< uint32_t >( allVkTlas.size() ), false );
 
         // if previous buffer's size is not enough
         pCurrentTLAS->RecreateIfNotValid( buildSizes, allocator );
 
-        assert( pCurrentTLAS->GetAS() != VK_NULL_HANDLE );
-        asBuilder.AddTLAS( pCurrentTLAS->GetAS(), &instGeom, &range, buildSizes, true, false );
-
-        asBuilder.BuildTopLevel( cmd );
+        assert( asBuilder->IsEmpty() );
+        asBuilder->AddTLAS( pCurrentTLAS->GetAS(), &instGeom, &range, buildSizes, true, false );
+        asBuilder->BuildTopLevel( cmd );
     }
 
 

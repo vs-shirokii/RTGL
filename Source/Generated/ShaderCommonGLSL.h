@@ -3,12 +3,8 @@
 #define MAX_STATIC_VERTEX_COUNT (1048576)
 #define MAX_DYNAMIC_VERTEX_COUNT (2097152)
 #define MAX_INDEXED_PRIMITIVE_COUNT (1048576)
-#define MAX_BOTTOM_LEVEL_GEOMETRIES_COUNT (4096)
-#define MAX_BOTTOM_LEVEL_GEOMETRIES_COUNT_POW (12)
-#define MAX_GEOMETRY_PRIMITIVE_COUNT (1048576)
-#define MAX_GEOMETRY_PRIMITIVE_COUNT_POW (20)
-#define LOWER_BOTTOM_LEVEL_GEOMETRIES_COUNT (256)
-#define MAX_TOP_LEVEL_INSTANCE_COUNT (45)
+#define MAX_INSTANCE_COUNT (65536)
+#define MAX_GEOM_INFO_COUNT (131072)
 #define BINDING_VERTEX_BUFFER_STATIC (0)
 #define BINDING_VERTEX_BUFFER_DYNAMIC (1)
 #define BINDING_INDEX_BUFFER_STATIC (2)
@@ -98,7 +94,7 @@
 #define GEOM_INST_FLAG_EXACT_NORMALS (1 << 19)
 #define GEOM_INST_FLAG_IGNORE_REFRACT_AFTER (1 << 20)
 #define GEOM_INST_FLAG_RESERVED_5 (1 << 21)
-#define GEOM_INST_FLAG_RESERVED_6 (1 << 22)
+#define GEOM_INST_FLAG_IS_DYNAMIC (1 << 22)
 #define GEOM_INST_FLAG_THIN_MEDIA (1 << 23)
 #define GEOM_INST_FLAG_REFRACT (1 << 24)
 #define GEOM_INST_FLAG_REFLECT (1 << 25)
@@ -291,9 +287,6 @@ struct ShGlobalUniform
     uint volumeLightSourceIndex;
     float volumeFallbackSrcExists;
     float volumeLightMult;
-    ivec4 instanceGeomInfoOffset[12];
-    ivec4 instanceGeomInfoOffsetPrev[12];
-    ivec4 instanceGeomCount[12];
     mat4 viewProjCubemap[6];
     mat4 skyCubemapRotationTransform;
 };
@@ -357,12 +350,6 @@ struct ShLightInCell
     float selected_targetPdf;
     float weightSum;
     uint __pad0;
-};
-
-struct ShVertPreprocessing
-{
-    uint tlasInstanceCount;
-    uint tlasInstanceIsDynamicBits[2];
 };
 
 struct ShIndirectDrawCommand

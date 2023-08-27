@@ -28,6 +28,7 @@
 namespace RTGL1
 {
 
+#if 0
 // Instances of this class are added to VertexCollector to
 // collect AS data separately for specific filter types.
 class VertexCollectorFilter
@@ -62,5 +63,7 @@ private:
     std::vector< VkAccelerationStructureGeometryKHR >       asGeometries;
     std::vector< VkAccelerationStructureBuildRangeInfoKHR > asBuildRangeInfos;
 };
+
+#endif
 
 }

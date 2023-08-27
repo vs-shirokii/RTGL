@@ -1,15 +1,15 @@
 // Copyright (c) 2021 Sultim Tsyrendashiev
-// 
+//
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
 // in the Software without restriction, including without limitation the rights
 // to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-// 
+//
 // The above copyright notice and this permission notice shall be included in all
 // copies or substantial portions of the Software.
-// 
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -22,38 +22,46 @@
 
 #define VERTEX_BUFFER_WRITEABLE
 #define DESC_SET_GLOBAL_UNIFORM 0
-#define DESC_SET_VERTEX_DATA 1
+#define DESC_SET_VERTEX_DATA    1
 #include "ShaderCommonGLSLFunc.h"
 
-layout(local_size_x = COMPUTE_VERT_PREPROC_GROUP_SIZE_X, local_size_y = 1, local_size_z = 1) in;
+layout( local_size_x = COMPUTE_VERT_PREPROC_GROUP_SIZE_X, local_size_y = 1, local_size_z = 1 ) in;
 
-layout (constant_id = 0) const uint preprocessMode = VERT_PREPROC_MODE_ONLY_DYNAMIC;
+layout( constant_id = 0 ) const uint preprocessMode = VERT_PREPROC_MODE_ONLY_DYNAMIC;
 
-layout(push_constant) uniform Push_BT
-{
-    ShVertPreprocessing push;
-};
+#define VERTEX_PREPROCESS_PARTIAL_DYNAMIC
+#include "VertexPreprocessPartial.inl"
+#undef VERTEX_PREPROCESS_PARTIAL_DYNAMIC
+
+#define VERTEX_PREPROCESS_PARTIAL_STATIC
+#include "VertexPreprocessPartial.inl"
+#undef VERTEX_PREPROCESS_PARTIAL_STATIC
 
 void main()
-{    
-    uint tlasInstanceIndex = gl_WorkGroupID.x;
-    bool isDynamic = (push.tlasInstanceIsDynamicBits[tlasInstanceIndex / 32] & (1 << tlasInstanceIndex)) != 0;
+{
+    const uint               tlasInstanceIndex = gl_WorkGroupID.x;
+    const ShGeometryInstance inst              = geometryInstances[ tlasInstanceIndex ];
 
+    const bool isDynamic = ( inst.flags & GEOM_INST_FLAG_IS_DYNAMIC ) != 0;
+    const bool isStatic  = !isDynamic;
 
-    // always process dynamic
-    if (isDynamic)
+    if( preprocessMode == VERT_PREPROC_MODE_ONLY_DYNAMIC )
     {
-        #define VERTEX_PREPROCESS_PARTIAL_DYNAMIC
-        #include "VertexPreprocessPartial.inl"
+        if( isDynamic )
+        {
+            convertForInstance_Dynamic(inst);
+        }
     }
-    /*else if (preprocessMode == VERT_PREPROC_MODE_DYNAMIC_AND_MOVABLE)
-    {       
-        #define VERTEX_PREPROCESS_PARTIAL_STATIC_MOVABLE
-        #include "VertexPreprocessPartial.inl"
-    }*/
-    else if (preprocessMode == VERT_PREPROC_MODE_ALL)
-    {       
-        #define VERTEX_PREPROCESS_PARTIAL_STATIC_ALL
-        #include "VertexPreprocessPartial.inl"
+    // else if( preprocessMode == VERT_PREPROC_MODE_DYNAMIC_AND_MOVABLE ) {}
+    else
+    {
+        if( isDynamic )
+        {
+            convertForInstance_Dynamic(inst);
+        }
+        else
+        {
+            convertForInstance_Static(inst);
+        }
     }
 }

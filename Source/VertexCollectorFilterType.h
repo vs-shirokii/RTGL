@@ -31,14 +31,15 @@ constexpr uint32_t VERTEX_COLLECTOR_FILTER_TYPE_BIT_OFFSET_CF = 0;
 constexpr uint32_t VERTEX_COLLECTOR_FILTER_TYPE_BIT_OFFSET_PT = 3;
 constexpr uint32_t VERTEX_COLLECTOR_FILTER_TYPE_BIT_OFFSET_PV = 6;
 
+// clang-format off
 enum class VertexCollectorFilterTypeFlagBits : uint32_t
 {
     NONE = 0,
 
     CF_STATIC_NON_MOVABLE         = 0b00000001 << VERTEX_COLLECTOR_FILTER_TYPE_BIT_OFFSET_CF,
-    CF_STATIC_MOVABLE             = 0b00000010 << VERTEX_COLLECTOR_FILTER_TYPE_BIT_OFFSET_CF,
+    CF_REPLACEMENT                = 0b00000010 << VERTEX_COLLECTOR_FILTER_TYPE_BIT_OFFSET_CF,
     CF_DYNAMIC                    = 0b00000100 << VERTEX_COLLECTOR_FILTER_TYPE_BIT_OFFSET_CF,
-    MASK_CHANGE_FREQUENCY_GROUP   = CF_STATIC_NON_MOVABLE | CF_STATIC_MOVABLE | CF_DYNAMIC,
+    MASK_CHANGE_FREQUENCY_GROUP   = CF_STATIC_NON_MOVABLE | CF_REPLACEMENT | CF_DYNAMIC,
 
     PT_OPAQUE                     = 0b00000001 << VERTEX_COLLECTOR_FILTER_TYPE_BIT_OFFSET_PT,
     PT_ALPHA_TESTED               = 0b00000010 << VERTEX_COLLECTOR_FILTER_TYPE_BIT_OFFSET_PT,
@@ -52,12 +53,13 @@ enum class VertexCollectorFilterTypeFlagBits : uint32_t
     PV_FIRST_PERSON_VIEWER        = 0b00010000 << VERTEX_COLLECTOR_FILTER_TYPE_BIT_OFFSET_PV,
     MASK_PRIMARY_VISIBILITY_GROUP = PV_WORLD_0 | PV_WORLD_1 | PV_WORLD_2 | PV_FIRST_PERSON | PV_FIRST_PERSON_VIEWER,
 };
+// clang-format on
 using VertexCollectorFilterTypeFlags = uint32_t;
 
 
 constexpr VertexCollectorFilterTypeFlagBits VertexCollectorFilterGroup_ChangeFrequency[] = {
     VertexCollectorFilterTypeFlagBits::CF_STATIC_NON_MOVABLE,
-    VertexCollectorFilterTypeFlagBits::CF_STATIC_MOVABLE,
+    VertexCollectorFilterTypeFlagBits::CF_REPLACEMENT,
     VertexCollectorFilterTypeFlagBits::CF_DYNAMIC,
 };
 
@@ -112,29 +114,12 @@ inline constexpr VertexCollectorFilterTypeFlags operator&( VertexCollectorFilter
     return VertexCollectorFilterTypeFlags( a ) & b;
 }
 
-void                           VertexCollectorFilterTypeFlags_Init();
-uint32_t                       VertexCollectorFilterTypeFlags_GetAllBottomLevelGeomsCount();
-uint32_t                       VertexCollectorFilterTypeFlags_GetID( VertexCollectorFilterTypeFlags flags );
-// Offset of the beginning of a group (which corresponds to the specified flags) in a global array of bottom level geometries
-uint32_t                       VertexCollectorFilterTypeFlags_GetOffsetInGlobalArray( VertexCollectorFilterTypeFlags flags );
-// Amount of bottom level geometries in a group with specified flags
-uint32_t                       VertexCollectorFilterTypeFlags_GetAmountInGlobalArray( VertexCollectorFilterTypeFlags flags );
-const char*                    VertexCollectorFilterTypeFlags_GetNameForBLAS( VertexCollectorFilterTypeFlags flags );
-VertexCollectorFilterTypeFlags VertexCollectorFilterTypeFlags_GetForGeometry( const RgMeshInfo &mesh, const RgMeshPrimitiveInfo& primitive, bool isStatic );
+const char* VertexCollectorFilterTypeFlags_GetNameForBLAS( VertexCollectorFilterTypeFlags flags );
 
-template< typename Lambda >
-auto VertexCollectorFilterTypeFlags_IterateOverFlags( Lambda lambda )
-{
-    for( auto cf : VertexCollectorFilterGroup_ChangeFrequency )
-    {
-        for( auto pt : VertexCollectorFilterGroup_PassThrough )
-        {
-            for( auto pm : VertexCollectorFilterGroup_PrimaryVisibility )
-            {
-                lambda( cf | pt | pm );
-            }
-        }
-    }
-}
+auto VertexCollectorFilterTypeFlags_GetForGeometry( const RgMeshInfo&          mesh,
+                                                    const RgMeshPrimitiveInfo& primitive,
+                                                    bool                       isStatic,
+                                                    bool                       isReplacement )
+    -> VertexCollectorFilterTypeFlags;
 
 }

@@ -27,15 +27,16 @@
 
 using namespace RTGL1;
 
-ASBuilder::ASBuilder( VkDevice _device, std::shared_ptr< ScratchBuffer > _commonScratchBuffer )
-    : device( _device ), scratchBuffer( std::move( _commonScratchBuffer ) )
+ASBuilder::ASBuilder( std::shared_ptr< ScratchBuffer > _commonScratchBuffer )
+    : scratchBuffer( std::move( _commonScratchBuffer ) )
 {
 }
 
-auto ASBuilder::GetBuildSizes( VkAccelerationStructureTypeKHR                  type,
+auto ASBuilder::GetBuildSizes( VkDevice                                              device,
+                               VkAccelerationStructureTypeKHR                        type,
                                std::span< const VkAccelerationStructureGeometryKHR > geometries,
                                std::span< const uint32_t > maxPrimitiveCountPerGeometry,
-                               bool fastTrace ) const -> VkAccelerationStructureBuildSizesInfoKHR
+                               bool fastTrace ) -> VkAccelerationStructureBuildSizesInfoKHR
 {
     assert( !geometries.empty() );
     assert( geometries.size() == maxPrimitiveCountPerGeometry.size() );
@@ -78,6 +79,8 @@ void ASBuilder::AddBLAS( VkAccelerationStructureKHR                             
                          bool                                                        update,
                          bool isBLASUpdateable )
 {
+    assert( as );
+
     // while building bottom level, top level must be not
     assert( topLBuildInfo.geomInfos.empty() && topLBuildInfo.rangeInfos.empty() );
 
@@ -145,6 +148,8 @@ void ASBuilder::AddTLAS( VkAccelerationStructureKHR                      as,
                          bool                                            fastTrace,
                          bool                                            update )
 {
+    assert( as );
+
     // while building top level, bottom level must be not
     assert( bottomLBuildInfo.geomInfos.empty() && bottomLBuildInfo.rangeInfos.empty() );
 
@@ -197,6 +202,9 @@ bool ASBuilder::BuildTopLevel( VkCommandBuffer cmd )
 
 bool ASBuilder::IsEmpty() const
 {
+    assert( bottomLBuildInfo.geomInfos.empty() == bottomLBuildInfo.rangeInfos.empty() );
+    assert( topLBuildInfo.geomInfos.empty() == topLBuildInfo.rangeInfos.empty() );
+
     return bottomLBuildInfo.geomInfos.empty() && bottomLBuildInfo.rangeInfos.empty() &&
            topLBuildInfo.geomInfos.empty() && topLBuildInfo.rangeInfos.empty();
 }

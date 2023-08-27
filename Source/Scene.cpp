@@ -85,7 +85,7 @@ void RTGL1::Scene::SubmitForFrame( VkCommandBuffer                         cmd,
 
 
     // prepare tlas infos, and fill uniform with info about that tlas
-    const auto [ prepare, push ] = asManager->PrepareForBuildingTLAS( frameIndex,
+    uint32_t instanceCount = asManager->PrepareForBuildingTLAS( frameIndex,
                                                                       *uniform->GetData(),
                                                                       uniformData_rayCullMaskWorld,
                                                                       allowGeometryWithSkyFlag,
@@ -97,10 +97,10 @@ void RTGL1::Scene::SubmitForFrame( VkCommandBuffer                         cmd,
 
 
     vertPreproc->Preprocess(
-        cmd, frameIndex, VERT_PREPROC_MODE_ONLY_DYNAMIC, *uniform, *asManager, push );
+        cmd, frameIndex, VERT_PREPROC_MODE_ONLY_DYNAMIC, *uniform, *asManager, instanceCount );
 
 
-    asManager->BuildTLAS( cmd, frameIndex, prepare );
+    asManager->BuildTLAS( cmd, frameIndex,  );
 }
 
 RTGL1::UploadResult RTGL1::Scene::UploadPrimitive( uint32_t                   frameIndex,
