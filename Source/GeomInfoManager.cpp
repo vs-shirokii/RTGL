@@ -416,27 +416,18 @@ void RTGL1::GeomInfoManager::WriteGeomInfo( uint32_t                       frame
     assert( src.baseVertexIndex % 3 == 0 );
     assert( src.baseIndexIndex % 3 == 0 );
 
-    // if static, copy to all staging buffers
-    const auto frames =
-        flags & VertexCollectorFilterTypeFlagBits::CF_DYNAMIC
-            ? std::make_pair( frameIndex, ( frameIndex + 1 ) % MAX_FRAMES_IN_FLIGHT )
-            : std::make_pair( 0, MAX_FRAMES_IN_FLIGHT );
+    assert( frameIndex < MAX_FRAMES_IN_FLIGHT );
 
-    for( uint32_t i : frames )
+    FillWithPrevFrameData( geomUniqueID, tlasInstanceID, src, frameIndex );
+
+    auto dstInfoArray = buffer->GetMappedAs< ShGeometryInstance* >( frameIndex );
     {
-        assert( i < MAX_FRAMES_IN_FLIGHT );
-
-        FillWithPrevFrameData( geomUniqueID, tlasInstanceID, src, i );
-
-        auto dstInfoArray = buffer->GetMappedAs< ShGeometryInstance* >( i );
-        {
-            memcpy( &dstInfoArray[ tlasInstanceID ], &src, sizeof( ShGeometryInstance ) );
-        }
-
-        mappedBufferRegionsCount;
-
-        WriteInfoForNextUsage( geomUniqueID, tlasInstanceID, src, frameIndex );
+        memcpy( &dstInfoArray[ tlasInstanceID ], &src, sizeof( ShGeometryInstance ) );
     }
+
+    mappedBufferRegionsCount;
+
+    WriteInfoForNextUsage( geomUniqueID, tlasInstanceID, src, frameIndex );
 }
 
 void RTGL1::GeomInfoManager::FillWithPrevFrameData( const PrimitiveUniqueID& geomUniqueID,
