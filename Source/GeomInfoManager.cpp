@@ -200,11 +200,16 @@ RTGL1::GeomInfoManager::GeomInfoManager( VkDevice                            _de
                        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                        "Match previous Geometry infos buffer" );
     matchPrevShadow = std::make_unique< MatchPrevIndexType[] >( MAX_GEOM_INFO_COUNT );
+
+    for( int i = 0; i < MAX_GEOM_INFO_COUNT; i++ )
+    {
+        matchPrevShadow[ i ] = MatchPrevInvalidValue;
+    }
 }
 
-bool RTGL1::GeomInfoManager::CopyFromStaging( VkCommandBuffer cmd,
-                                              uint32_t        frameIndex,
-                                              bool            insertBarrier )
+bool RTGL1::GeomInfoManager::CopyFromStaging( VkCommandBuffer    cmd,
+                                              uint32_t           frameIndex,
+                                              TlasIDToUniqueID&& tlas )
 {
     auto label = CmdLabel{ cmd, "Copying geom infos" };
 
@@ -216,201 +221,151 @@ bool RTGL1::GeomInfoManager::CopyFromStaging( VkCommandBuffer cmd,
             vmax = std::max( x, vmax );
         }
 
+        uint32_t first() const { return vmin; }
+        uint32_t count() const { return vmax - vmin; }
+        bool     valid() const { return count() > 0; }
+
         uint32_t vmin{ 0 };
         uint32_t vmax{ 0 };
     };
 
+
+    auto matchprev_range = MinMax{};
+    auto geominfo_range  = MinMax{};
+
+
+    auto findTlasInstanceIDInCurrentFrame =
+        []( const TlasIDToUniqueID&  cur,
+            const PrimitiveUniqueID& targetUniqueID ) -> std::optional< uint32_t > {
+        for( const auto& [ curTlasInstanceID, uniqueID ] : cur )
+        {
+            if( uniqueID == targetUniqueID )
+            {
+                return curTlasInstanceID;
+            }
+        }
+        return {};
+    };
+
+
+    auto prevIndexToCurIndexArr = static_cast< MatchPrevIndexType* >( matchPrevShadow.get() );
     {
-        // for static and dynamic ranges
-        MinMax                minmax[ 2 ];
-        VkBufferCopy          copyInfos[ 2 ];
-        VkBufferMemoryBarrier barriers[ 2 ];
-
+        for( const auto& [ prev, uniqueID ] : tlas_prev )
         {
-            for( auto& [ uniqueID, info ] : userUniqueIDToGeomFrameInfo[ frameIndex ] )
+            MatchPrevIndexType src;
             {
-                minmax[ 0 ].add( info.tlasInstanceID );
+                if( auto cur = findTlasInstanceIDInCurrentFrame( tlas, uniqueID ) )
+                {
+                    // save index to access ShGeometryInfo using a previous frame's TLAS Instance ID
+                    src = MatchPrevIndexType( *cur );
+                }
+                else
+                {
+                    // if existed in prev frame, but not in the current, invalidate
+                    src = MatchPrevInvalidValue;
+                }
             }
+
+            prevIndexToCurIndexArr[ prev ] = src;
+            matchprev_range.add( prev );
         }
+    }
 
-        uint32_t infoCount = 0;
-
-        // copy to staging
+    auto geomInfos = buffer->GetMappedAs< ShGeometryInstance* >( frameIndex );
+    {
+        for( const auto& [ tlasInstanceID, uniqueID ] : tlas )
         {
-            MatchPrevIndexType* dst = matchPrev->GetMappedAs< MatchPrevIndexType* >( frameIndex );
-            MatchPrevIndexType* src = matchPrevShadow.get();
-
-            memcpy( &dst[ elementsToCopy.elementsOffset ],
-                    &src[ elementsToCopy.elementsOffset ],
-                    elementsToCopy.elementsCount * sizeof( MatchPrevIndexType ) );
-        }
-
-        // copy from staging
-        copyInfos[ infoCount ] = {
-            .srcOffset = elementsToCopy.elementsOffset * sizeof( MatchPrevIndexType ),
-            .dstOffset = elementsToCopy.elementsOffset * sizeof( MatchPrevIndexType ),
-            .size      = elementsToCopy.elementsCount * sizeof( MatchPrevIndexType ),
-        };
-
-        barriers[ infoCount ] = VkBufferMemoryBarrier{
-            .sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-            .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
-            .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .buffer              = matchPrev->GetDeviceLocal(),
-            .offset              = copyInfos[ infoCount ].dstOffset,
-            .size                = copyInfos[ infoCount ].size,
-        };
-
-        infoCount++;
-
-        if( infoCount > 0 )
-        {
-            matchPrev->CopyFromStaging( cmd, frameIndex, copyInfos, infoCount );
-
-            if( insertBarrier )
+            const ShGeometryInstance* src;
             {
-                vkCmdPipelineBarrier( cmd,
-                                      VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
-                                          VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
-                                      0,
-                                      0,
-                                      nullptr,
-                                      infoCount,
-                                      barriers,
-                                      0,
-                                      nullptr );
+                auto found = curFrame_IdToInfo.find( uniqueID );
+                if( found != curFrame_IdToInfo.end() )
+                {
+                    static_assert(
+                        std::is_same_v< ShGeometryInstance, decltype( found->second ) > );
+                    src = &found->second;
+                }
+                else
+                {
+                    assert( 0 );
+                    debug::Error( "ShGeometryInstance was not registered for {}-{}",
+                                  uniqueID.objectId,
+                                  uniqueID.primitiveIndex );
+                    constexpr static auto null{ ShGeometryInstance{} };
+                    src = &null;
+                }
             }
+
+            memcpy( &geomInfos[ tlasInstanceID ], src, sizeof( ShGeometryInstance ) );
+            geominfo_range.add( tlasInstanceID );
         }
     }
 
 
+    tlas_prev = std::move( tlas );
+
+
+    if( matchprev_range.valid() )
     {
-        VkBufferCopy          copyInfos[ MAX_TOP_LEVEL_INSTANCE_COUNT ];
-        VkBufferMemoryBarrier barriers[ MAX_TOP_LEVEL_INSTANCE_COUNT ];
-
-        uint32_t infoCount = 0;
-
-        VertexCollectorFilterTypeFlags_IterateOverFlags(
-            [ & ]( VertexCollectorFilterTypeFlags flags ) {
-                //
-                const auto groupOffsetInBytes =
-                    VertexCollectorFilterTypeFlags_GetOffsetInGlobalArray( flags ) *
-                    sizeof( ShGeometryInstance );
-
-                rgl::byte_subspan toCopy = AccessGeometryInstanceGroup( frameIndex, flags )
-                                               .resolve_byte_subspan( groupOffsetInBytes );
-
-                if( toCopy.sizeInBytes > 0 )
-                {
-                    copyInfos[ infoCount ] = VkBufferCopy{
-
-                        .srcOffset = toCopy.offsetInBytes,
-                        .dstOffset = toCopy.offsetInBytes,
-                        .size      = toCopy.sizeInBytes,
-                    };
-
-                    barriers[ infoCount ] = VkBufferMemoryBarrier{
-                        .sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                        .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
-                        .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-                        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                        .buffer              = buffer->GetDeviceLocal(),
-                        .offset              = copyInfos[ infoCount ].dstOffset,
-                        .size                = copyInfos[ infoCount ].size,
-                    };
-
-                    infoCount++;
-                }
-            } );
-
-        if( infoCount == 0 )
+        // copy to staging
         {
-            return false;
+            auto dst = matchPrev->GetMappedAs< MatchPrevIndexType* >( frameIndex );
+            auto src = static_cast< MatchPrevIndexType* >( matchPrevShadow.get() );
+
+            memcpy( &dst[ matchprev_range.first() ],
+                    &src[ matchprev_range.first() ],
+                    matchprev_range.count() * sizeof( MatchPrevIndexType ) );
         }
 
-        buffer->CopyFromStaging( cmd, frameIndex, copyInfos, infoCount );
+        // copy from staging
+        auto vcopy = VkBufferCopy{
+            .srcOffset = matchprev_range.first() * sizeof( MatchPrevIndexType ),
+            .dstOffset = matchprev_range.first() * sizeof( MatchPrevIndexType ),
+            .size      = matchprev_range.count() * sizeof( MatchPrevIndexType ),
+        };
 
-        if( insertBarrier )
-        {
-            vkCmdPipelineBarrier( cmd,
-                                  VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                  VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
-                                      VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
-                                  0,
-                                  0,
-                                  nullptr,
-                                  infoCount,
-                                  barriers,
-                                  0,
-                                  nullptr );
-        }
+        // TODO: remove VkBufferMemoryBarrier from CopyFromStaging and add barrier here
+        matchPrev->CopyFromStaging( cmd, frameIndex, &vcopy, 1 );
+    }
+
+    if( geominfo_range.valid() )
+    {
+        // copy from staging
+        auto vcopy = VkBufferCopy{
+            .srcOffset = geominfo_range.first() * sizeof( MatchPrevIndexType ),
+            .dstOffset = geominfo_range.first() * sizeof( MatchPrevIndexType ),
+            .size      = geominfo_range.count() * sizeof( MatchPrevIndexType ),
+        };
+
+        // TODO: remove VkBufferMemoryBarrier from CopyFromStaging and add barrier here
+        buffer->CopyFromStaging( cmd, frameIndex, &vcopy, 1 );
     }
 
     return true;
 }
 
-void RTGL1::GeomInfoManager::ResetGroup(
-    rgl::unordered_map< PrimitiveUniqueID, GeomFrameInfo >& idToInfo,
-    const std::vector< PrimitiveUniqueID >&                 idsToClear )
-{
-    for( const auto& id : idsToClear )
-    {
-        auto iter = idToInfo.find( id );
-        if( iter == idToInfo.end() )
-        {
-            assert( 0 );
-            continue;
-        }
-
-        idToInfo.erase( iter );
-    }
-}
-
 void RTGL1::GeomInfoManager::ResetOnlyStatic()
 {
-    mappedBufferRegionsCount;
-
-    MatchPrevIndexType* prevIndexToCurIndexArr = matchPrevShadow.get();
-    for( auto& idToInfo : userUniqueIDToGeomFrameInfo )
+    for( const auto& idToErase : staticUniqueIds )
     {
-        ResetGroup( idToInfo, staticUniqueIds );
-    }
-    for( const auto& info_prev :
-         userUniqueIDToGeomFrameInfo[ Utils::PrevFrame( frameIndex ) ] | std::views::values )
-    {
-        prevIndexToCurIndexArr[ info_prev.tlasInstanceID ] = -1;
-    }
-    for( auto& idToInfo : userUniqueIDToGeomFrameInfo )
-    {
-        ResetGroup( idToInfo, staticUniqueIds );
+        curFrame_IdToInfo.erase( idToErase );
     }
     staticUniqueIds.clear();
 }
 
 void RTGL1::GeomInfoManager::PrepareForFrame( uint32_t frameIndex )
 {
-    mappedBufferRegionsCount;
-
     // reset only dynamic
-    MatchPrevIndexType* prevIndexToCurIndexArr = matchPrevShadow.get();
-    for( const auto& info_prev :
-         userUniqueIDToGeomFrameInfo[ Utils::PrevFrame( frameIndex ) ] | std::views::values )
+    for( const auto& idToErase : curFrame_dynamicUniqueIds )
     {
-        prevIndexToCurIndexArr[ info_prev.tlasInstanceID ] = -1;
+        curFrame_IdToInfo.erase( idToErase );
     }
-    ResetGroup( userUniqueIDToGeomFrameInfo[ frameIndex ], dynamicUniqueIds );
-    dynamicUniqueIds.clear();
+    curFrame_dynamicUniqueIds.clear();
 }
 
-void RTGL1::GeomInfoManager::WriteGeomInfo( uint32_t                       frameIndex,
-                                            const PrimitiveUniqueID&       geomUniqueID,
-                                            uint32_t                       tlasInstanceID,
-                                            VertexCollectorFilterTypeFlags flags,
-                                            ShGeometryInstance&            src )
+void RTGL1::GeomInfoManager::WriteGeomInfo( uint32_t                 frameIndex,
+                                            const PrimitiveUniqueID& geomUniqueID,
+                                            ShGeometryInstance&      src,
+                                            bool                     isStatic )
 {
     // must be aligned for per-triangle vertex attributes
     assert( src.baseVertexIndex % 3 == 0 );
@@ -418,77 +373,75 @@ void RTGL1::GeomInfoManager::WriteGeomInfo( uint32_t                       frame
 
     assert( frameIndex < MAX_FRAMES_IN_FLIGHT );
 
-    FillWithPrevFrameData( geomUniqueID, tlasInstanceID, src, frameIndex );
-
-    auto dstInfoArray = buffer->GetMappedAs< ShGeometryInstance* >( frameIndex );
     {
-        memcpy( &dstInfoArray[ tlasInstanceID ], &src, sizeof( ShGeometryInstance ) );
+        auto& dstIDs = isStatic ? staticUniqueIds : curFrame_dynamicUniqueIds;
+
+        auto [ iter, isnew ] = dstIDs.insert( geomUniqueID );
+        assert( !isnew );
     }
 
-    mappedBufferRegionsCount;
+    if( auto prev = FindPrevFrameData( geomUniqueID, src, frameIndex ) )
+    {
+        // copy data from previous frame to current ShGeometryInstance
+        src.prevBaseVertexIndex = prev->baseVertexIndex;
+        src.prevBaseIndexIndex  = prev->baseIndexIndex;
+        memcpy( src.prevModel, prev->model, sizeof( float ) * 16 );
+    }
+    else
+    {
+        // no prev
+        src.prevBaseVertexIndex = UINT32_MAX;
+    }
 
-    WriteInfoForNextUsage( geomUniqueID, tlasInstanceID, src, frameIndex );
+    // register
+    {
+        assert( !curFrame_IdToInfo.contains( geomUniqueID ) );
+        curFrame_IdToInfo[ geomUniqueID ] = src;
+    }
+
+    WritePrevForNextFrame( geomUniqueID, src, frameIndex );
 }
 
-void RTGL1::GeomInfoManager::FillWithPrevFrameData( const PrimitiveUniqueID& geomUniqueID,
-                                                    uint32_t                 tlasInstanceID,
-                                                    ShGeometryInstance&      dst,
-                                                    uint32_t                 frameIndex )
+auto RTGL1::GeomInfoManager::FindPrevFrameData( const PrimitiveUniqueID&  geomUniqueID,
+                                                const ShGeometryInstance& target,
+                                                uint32_t frameIndex ) const -> const PrevInfo*
 {
-    auto MarkNoPrevInfo = []( ShGeometryInstance& dst ) {
-        dst.prevBaseVertexIndex = UINT32_MAX;
-    };
-    assert( tlasInstanceID < MAX_GEOM_INFO_COUNT );
+    auto& idToInfo_prev = idToPrevInfo[ Utils::PrevFrame( frameIndex ) ];
 
-    auto& idToInfo_prev = userUniqueIDToGeomFrameInfo[ Utils::PrevFrame( frameIndex ) ];
-
+    // if geomUniqueId existed in prev frame
     auto iter = idToInfo_prev.find( geomUniqueID );
     if( iter == idToInfo_prev.end() )
     {
-        MarkNoPrevInfo( dst );
-        return;
+        return nullptr;
     }
     auto& prev = iter->second;
 
     // if counts are not the same
-    if( prev.vertexCount != dst.vertexCount || prev.indexCount != dst.indexCount )
+    if( prev.vertexCount != target.vertexCount || prev.indexCount != target.indexCount )
     {
-        MarkNoPrevInfo( dst );
-        return;
+        return nullptr;
     }
 
-    // copy data from previous frame to current ShGeometryInstance
-    {
-        dst.prevBaseVertexIndex = prev.baseVertexIndex;
-        dst.prevBaseIndexIndex  = prev.baseIndexIndex;
-        memcpy( dst.prevModel, prev.model, sizeof( float ) * 16 );
-    }
-
-    MatchPrevIndexType* prevIndexToCurIndexArr = matchPrevShadow.get();
-
-    // save index to access ShGeometryInfo using previous frame's global geom index
-    prevIndexToCurIndexArr[ prev.tlasInstanceID ] = MatchPrevIndexType( tlasInstanceID );
+    return &prev;
 }
 
 
-void RTGL1::GeomInfoManager::WriteInfoForNextUsage( const PrimitiveUniqueID&  geomUniqueID,
-                                                    uint32_t                  tlasInstanceID,
+void RTGL1::GeomInfoManager::WritePrevForNextFrame( const PrimitiveUniqueID&  geomUniqueID,
                                                     const ShGeometryInstance& src,
                                                     uint32_t                  frameIndex )
 {
-    auto& idToInfo_cur = userUniqueIDToGeomFrameInfo[ frameIndex ];
+    auto& idToInfo_cur = idToPrevInfo[ frameIndex ];
 
     // IDs must be unique
     assert( !idToInfo_cur.contains( geomUniqueID ) );
 
     auto& dst = idToInfo_cur[ geomUniqueID ];
     {
-        dst = GeomFrameInfo{
+        dst = PrevInfo{
             .baseVertexIndex = src.baseVertexIndex,
             .baseIndexIndex  = src.baseIndexIndex,
             .vertexCount     = src.vertexCount,
             .indexCount      = src.indexCount,
-            .tlasInstanceID  = tlasInstanceID,
         };
         static_assert( sizeof dst.model == sizeof( float ) * 16 );
         static_assert( sizeof src.model == sizeof( float ) * 16 );
@@ -508,5 +461,6 @@ VkBuffer RTGL1::GeomInfoManager::GetMatchPrevBuffer() const
 
 uint32_t RTGL1::GeomInfoManager::GetCount( uint32_t frameIndex ) const
 {
-    return static_cast< uint32_t >( userUniqueIDToGeomFrameInfo[ frameIndex ].size() );
+    assert( curFrame_IdToInfo.size() == staticUniqueIds.size() + curFrame_dynamicUniqueIds.size() );
+    return static_cast< uint32_t >( curFrame_IdToInfo.size() );
 }

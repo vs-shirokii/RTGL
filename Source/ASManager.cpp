@@ -625,11 +625,6 @@ void RTGL1::ASManager::SubmitStaticGeometry( StaticGeometryToken& token )
     assert( !asBuilder->IsEmpty() );
     asBuilder->BuildBottomLevel( cmd );
 
-    // submit geom info, in case if rgStartNewScene and rgSubmitStaticGeometries
-    // were out of rgStartFrame - rgDrawFrame, so static geominfo-s won't be
-    // erased on GeomInfoManager::PrepareForFrame
-    geomInfoMgr->CopyFromStaging( cmd, 0, false );
-
     // submit and wait
     cmdManager->Submit( cmd, staticCopyFence );
     Utils::WaitAndResetFence( device, staticCopyFence );
@@ -648,7 +643,7 @@ RTGL1::DynamicGeometryToken RTGL1::ASManager::BeginDynamicGeometry( VkCommandBuf
     // destroy dynamic instances from N-2
     allDynamicInstances[ frameIndex ].clear();
 
-    allInstancesInThisFrame.clear();
+    curFrame_objects.clear();
 
     assert( asBuilder->IsEmpty() );
     return DynamicGeometryToken( InitAsExisting );
@@ -726,85 +721,94 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
         return false;
     }
 
+    // make AS
+    {
+        // NOTE: tlasInstance is a unique_ptr, so pointers in asBuilder are valid until end of the
+        // frame
+        auto tlasInstance = std::unique_ptr< TlasInstance >{ new TlasInstance{
+            .uniqueID = uniqueID,
+            .flags    = geomFlags,
+            .blas     = BLASComponent{ device },
+            .geometry = *uploaded,
+        } };
+        {
+            const bool fastTrace = isStatic ? true : false;
 
-    const auto tlasInstanceId = static_cast< uint32_t >( allInstancesInThisFrame.size() );
+            // get AS size and create buffer for AS
+            const auto buildSizes =
+                ASBuilder::GetBottomBuildSizes( device,
+                                                tlasInstance->geometry.asGeometryInfo,
+                                                tlasInstance->geometry.asRange.primitiveCount,
+                                                fastTrace );
+            tlasInstance->blas.RecreateIfNotValid( buildSizes, allocator );
 
-    // NOTE: must be std::unique_ptr, so pointers in asBuilder are valid until end of the frame
-    auto tlasInstance = std::make_unique< TlasInstance >( TlasInstance{
-        .flags    = geomFlags,
-        .blas     = BLASComponent{ device },
-        .geometry = *uploaded,
-    } );
+            // add BLAS, all passed arrays must be alive until BuildBottomLevel() call
+            asBuilder->AddBLAS( tlasInstance->blas.GetAS(),
+                                { &tlasInstance->geometry.asGeometryInfo, 1 },
+                                { &tlasInstance->geometry.asRange, 1 },
+                                buildSizes,
+                                fastTrace,
+                                false,
+                                false );
+        }
 
-    const bool fastTrace = isStatic ? true : false;
+        dstInstances.push_back( std::move( tlasInstance ) );
+        curFrame_objects.push_back( Object{
+            .builtInstance = dstInstances.back().get(),
+            .transform     = mesh.transform,
+            .isStatic      = isStatic,
+        } );
+    }
 
-    // get AS size and create buffer for AS
-    const auto buildSizes =
-        ASBuilder::GetBottomBuildSizes( device,
-                                        tlasInstance->geometry.asGeometryInfo,
-                                        tlasInstance->geometry.asRange.primitiveCount,
-                                        fastTrace );
-    tlasInstance->blas.RecreateIfNotValid( buildSizes, allocator );
+    // make geom info
+    {
+        const auto pbrInfo       = pnext::find< RgMeshPrimitivePBREXT >( &primitive );
+        const auto layerTextures = textureManager.GetTexturesForLayers( primitive );
+        const auto layerColors   = textureManager.GetColorForLayers( primitive );
 
-    // add BLAS, all passed arrays must be alive until BuildBottomLevel() call
-    asBuilder->AddBLAS( tlasInstance->blas.GetAS(),
-                        { &tlasInstance->geometry.asGeometryInfo, 1 },
-                        { &tlasInstance->geometry.asRange, 1 },
-                        buildSizes,
-                        fastTrace,
-                        false,
-                        false );
+        auto geomInfo = ShGeometryInstance{
+            .model     = RG_MATRIX_TRANSPOSED( mesh.transform ),
+            .prevModel = { /* set in geomInfoManager */ },
 
-    const auto pbrInfo       = pnext::find< RgMeshPrimitivePBREXT >( &primitive );
-    const auto layerTextures = textureManager.GetTexturesForLayers( primitive );
-    const auto layerColors   = textureManager.GetColorForLayers( primitive );
+            .flags = GeomInfoManager::GetPrimitiveFlags( primitive ),
 
-    auto geomInfo = ShGeometryInstance{
-        .model     = RG_MATRIX_TRANSPOSED( mesh.transform ),
-        .prevModel = { /* set in geomInfoManager */ },
+            .texture_base = layerTextures[ 0 ].indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
+            .texture_base_ORM =
+                layerTextures[ 0 ].indices[ TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_INDEX ],
+            .texture_base_N = layerTextures[ 0 ].indices[ TEXTURE_NORMAL_INDEX ],
+            .texture_base_E = layerTextures[ 0 ].indices[ TEXTURE_EMISSIVE_INDEX ],
 
-        .flags = GeomInfoManager::GetPrimitiveFlags( primitive ),
+            .texture_layer1 = layerTextures[ 1 ].indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
+            .texture_layer2 = layerTextures[ 2 ].indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
+            .texture_layer3 = layerTextures[ 3 ].indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
 
-        .texture_base = layerTextures[ 0 ].indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
-        .texture_base_ORM =
-            layerTextures[ 0 ].indices[ TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_INDEX ],
-        .texture_base_N = layerTextures[ 0 ].indices[ TEXTURE_NORMAL_INDEX ],
-        .texture_base_E = layerTextures[ 0 ].indices[ TEXTURE_EMISSIVE_INDEX ],
+            .colorFactor_base   = layerColors[ 0 ],
+            .colorFactor_layer1 = layerColors[ 1 ],
+            .colorFactor_layer2 = layerColors[ 2 ],
+            .colorFactor_layer3 = layerColors[ 3 ],
 
-        .texture_layer1 = layerTextures[ 1 ].indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
-        .texture_layer2 = layerTextures[ 2 ].indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
-        .texture_layer3 = layerTextures[ 3 ].indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
+            .baseVertexIndex     = uploaded->firstVertex,
+            .baseIndexIndex      = uploaded->firstIndex ? *uploaded->firstIndex : UINT32_MAX,
+            .prevBaseVertexIndex = { /* set in geomInfoManager */ },
+            .prevBaseIndexIndex  = { /* set in geomInfoManager */ },
+            .vertexCount         = primitive.vertexCount,
+            .indexCount          = uploaded->firstIndex ? primitive.indexCount : UINT32_MAX,
 
-        .colorFactor_base   = layerColors[ 0 ],
-        .colorFactor_layer1 = layerColors[ 1 ],
-        .colorFactor_layer2 = layerColors[ 2 ],
-        .colorFactor_layer3 = layerColors[ 3 ],
+            .roughnessDefault = pbrInfo ? Utils::Saturate( pbrInfo->roughnessDefault ) : 1.0f,
+            .metallicDefault  = pbrInfo ? Utils::Saturate( pbrInfo->metallicDefault ) : 0.0f,
 
-        .baseVertexIndex     = uploaded->firstVertex,
-        .baseIndexIndex      = uploaded->firstIndex ? *uploaded->firstIndex : UINT32_MAX,
-        .prevBaseVertexIndex = { /* set in geomInfoManager */ },
-        .prevBaseIndexIndex  = { /* set in geomInfoManager */ },
-        .vertexCount         = primitive.vertexCount,
-        .indexCount          = uploaded->firstIndex ? primitive.indexCount : UINT32_MAX,
+            .emissiveMult = Utils::Saturate( primitive.emissive ),
 
-        .roughnessDefault = pbrInfo ? Utils::Saturate( pbrInfo->roughnessDefault ) : 1.0f,
-        .metallicDefault  = pbrInfo ? Utils::Saturate( pbrInfo->metallicDefault ) : 0.0f,
+            // values ignored if doesn't exist
+            .firstVertex_Layer1 = uploaded->firstVertex_Layer1,
+            .firstVertex_Layer2 = uploaded->firstVertex_Layer2,
+            .firstVertex_Layer3 = uploaded->firstVertex_Layer3,
+        };
 
-        .emissiveMult = Utils::Saturate( primitive.emissive ),
-
-        // values ignored if doesn't exist
-        .firstVertex_Layer1 = uploaded->firstVertex_Layer1,
-        .firstVertex_Layer2 = uploaded->firstVertex_Layer2,
-        .firstVertex_Layer3 = uploaded->firstVertex_Layer3,
-    };
-
-
-    // global geometry index -- for indexing in geom infos buffer
-    // local geometry index -- index of geometry in BLAS
-    geomInfoManager.WriteGeomInfo( frameIndex, uniqueID, tlasInstanceId, geomFlags, geomInfo );
-
-    dstInstances.push_back( std::move( tlasInstance ) );
-    allInstancesInThisFrame.emplace_back( mesh.transform, dstInstances.back().get() );
+        // global geometry index -- for indexing in geom infos buffer
+        // local geometry index -- index of geometry in BLAS
+        geomInfoManager.WriteGeomInfo( frameIndex, uniqueID, geomInfo, isStatic );
+    }
 
     return true;
 }
@@ -969,45 +973,54 @@ auto RTGL1::ASManager::MakeVkTLAS( const TlasInstance& tlasInstance,
     return instance;
 }
 
-auto RTGL1::ASManager::PrepareForBuildingTLAS( uint32_t         frameIndex,
-                                               ShGlobalUniform& uniformData,
-                                               uint32_t         uniformData_rayCullMaskWorld,
-                                               bool             allowGeometryWithSkyFlag,
-                                               bool             disableRTGeometry,
-                                               bool ) const
-    -> std::vector< VkAccelerationStructureInstanceKHR >
+
+auto RTGL1::ASManager::MakeTlasIDToUniqueID( bool disableRTGeometry ) -> TlasIDToUniqueID
 {
-    if( disableRTGeometry )
+    auto all = TlasIDToUniqueID{};
+    if( !disableRTGeometry )
     {
-        return {};
-    }
-
-    auto allVkTlas = std::vector< VkAccelerationStructureInstanceKHR >{};
-    allVkTlas.reserve( allInstancesInThisFrame.size() );
-
-    for( const auto& [ transform, tlasInstance ] : allInstancesInThisFrame )
-    {
-        auto vkTlas = MakeVkTLAS(
-            *tlasInstance, uniformData_rayCullMaskWorld, allowGeometryWithSkyFlag, transform );
-
-        if( !vkTlas )
+        all.reserve( curFrame_objects.size() );
+        for( const auto& obj : curFrame_objects )
         {
-            // must not happen
-            return {};
+            all.emplace_back( static_cast< uint32_t >( all.size() ), obj.builtInstance->uniqueID );
         }
-
-        allVkTlas.push_back( *vkTlas );
     }
-
-    return allVkTlas;
+    return all;
 }
 
-void RTGL1::ASManager::BuildTLAS(
-    VkCommandBuffer                                          cmd,
-    uint32_t                                                 frameIndex,
-    const std::vector< VkAccelerationStructureInstanceKHR >& allVkTlas )
+void RTGL1::ASManager::BuildTLAS( VkCommandBuffer cmd,
+                                  uint32_t        frameIndex,
+                                  uint32_t        uniformData_rayCullMaskWorld,
+                                  bool            allowGeometryWithSkyFlag,
+                                  bool            disableRTGeometry )
 {
-    CmdLabel label( cmd, "Building TLAS" );
+    auto label = CmdLabel{ cmd, "Building TLAS" };
+
+
+    auto allVkTlas = std::vector< VkAccelerationStructureInstanceKHR >{};
+    if( !disableRTGeometry )
+    {
+        allVkTlas.reserve( curFrame_objects.size() );
+        for( const auto& obj : curFrame_objects )
+        {
+            auto vkTlas = MakeVkTLAS( *obj.builtInstance,
+                                      uniformData_rayCullMaskWorld,
+                                      allowGeometryWithSkyFlag,
+                                      obj.transform );
+
+            if( !vkTlas )
+            {
+                debug::Error( "MakeVkTLAS has failed for UniqueID={}-{}",
+                              obj.builtInstance->uniqueID.objectId,
+                              obj.builtInstance->uniqueID.primitiveIndex );
+                allVkTlas.clear();
+                break;
+            }
+
+            allVkTlas.push_back( *vkTlas );
+        }
+    }
+    assert( MakeTlasIDToUniqueID( disableRTGeometry ).size() == allVkTlas.size() );
 
 
     if( !allVkTlas.empty() )
@@ -1022,9 +1035,6 @@ void RTGL1::ASManager::BuildTLAS(
 
         instanceBuffer->CopyFromStaging( cmd, frameIndex );
     }
-
-
-    TLASComponent* pCurrentTLAS = tlas[ frameIndex ].get();
 
 
     auto instGeom = VkAccelerationStructureGeometryKHR{
@@ -1046,17 +1056,18 @@ void RTGL1::ASManager::BuildTLAS(
         .primitiveCount = static_cast< uint32_t >( allVkTlas.size() ),
     };
 
-    // ASBuilder requires instGeom, range to be alive
+    TLASComponent* curTlas = tlas[ frameIndex ].get();
     {
         // get AS size and create buffer for AS
         const auto buildSizes = ASBuilder::GetTopBuildSizes(
             device, instGeom, static_cast< uint32_t >( allVkTlas.size() ), false );
 
         // if previous buffer's size is not enough
-        pCurrentTLAS->RecreateIfNotValid( buildSizes, allocator );
+        curTlas->RecreateIfNotValid( buildSizes, allocator );
 
+        // ASBuilder requires 'instGeom', 'range' to be alive
         assert( asBuilder->IsEmpty() );
-        asBuilder->AddTLAS( pCurrentTLAS->GetAS(), &instGeom, &range, buildSizes, true, false );
+        asBuilder->AddTLAS( curTlas->GetAS(), &instGeom, &range, buildSizes, true, false );
         asBuilder->BuildTopLevel( cmd );
     }
 

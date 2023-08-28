@@ -38,8 +38,6 @@ RTGL1::Scene::Scene( VkDevice                                _device,
                      bool                                    _enableTexCoordLayer2,
                      bool                                    _enableTexCoordLayer3 )
 {
-    VertexCollectorFilterTypeFlags_Init();
-
     geomInfoMgr = std::make_shared< GeomInfoManager >( _device, _allocator );
 
     asManager = std::make_shared< ASManager >( _device,
@@ -79,28 +77,20 @@ void RTGL1::Scene::SubmitForFrame( VkCommandBuffer                         cmd,
     // always submit dynamic geometry on the frame ending
     asManager->SubmitDynamicGeometry( makingDynamic, cmd, frameIndex );
 
+    // geom infos must be ready before vertex preprocessing
+    auto tlas     = asManager->MakeTlasIDToUniqueID( disableRTGeometry );
+    auto tlasSize = static_cast< uint32_t >( tlas.size() );
 
-    // copy geom and tri infos to device-local
-    geomInfoMgr->CopyFromStaging( cmd, frameIndex );
-
-
-    // prepare tlas infos, and fill uniform with info about that tlas
-    uint32_t instanceCount = asManager->PrepareForBuildingTLAS( frameIndex,
-                                                                      *uniform->GetData(),
-                                                                      uniformData_rayCullMaskWorld,
-                                                                      allowGeometryWithSkyFlag,
-                                                                      disableRTGeometry,
-                                                                      ignoreExternalGeometry );
-
-    // upload uniform data
-    uniform->Upload( cmd, frameIndex );
-
+    geomInfoMgr->CopyFromStaging( cmd, frameIndex, std::move( tlas ) );
 
     vertPreproc->Preprocess(
-        cmd, frameIndex, VERT_PREPROC_MODE_ONLY_DYNAMIC, *uniform, *asManager, instanceCount );
+        cmd, frameIndex, VERT_PREPROC_MODE_ONLY_DYNAMIC, *uniform, *asManager, tlasSize );
 
-
-    asManager->BuildTLAS( cmd, frameIndex,  );
+    asManager->BuildTLAS( cmd,
+                          frameIndex,
+                          uniformData_rayCullMaskWorld,
+                          allowGeometryWithSkyFlag,
+                          disableRTGeometry );
 }
 
 RTGL1::UploadResult RTGL1::Scene::UploadPrimitive( uint32_t                   frameIndex,

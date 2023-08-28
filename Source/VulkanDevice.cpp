@@ -165,14 +165,6 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
     }
 
     {
-        static_assert( sizeof( gu->instanceGeomInfoOffset ) ==
-                       sizeof( gu->instanceGeomInfoOffsetPrev ) );
-        memcpy( gu->instanceGeomInfoOffsetPrev,
-                gu->instanceGeomInfoOffset,
-                sizeof( gu->instanceGeomInfoOffset ) );
-    }
-
-    {
         gu->frameId   = frameId;
         gu->timeDelta = static_cast< float >(
             std::max< double >( currentFrameTime - previousFrameTime, 0.001 ) );
@@ -505,6 +497,8 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
 
     lightManager->SetLightstyles( pnext::get< RgDrawFrameIlluminationParams >( drawInfo ) );
     lightManager->SubmitForFrame( cmd, frameIndex );
+
+    uniform->Upload( cmd, frameIndex );
 
     // submit geometry and upload uniform after getting data from a scene
     scene->SubmitForFrame( cmd,

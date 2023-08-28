@@ -74,18 +74,12 @@ public:
                            GeomInfoManager&           geomInfoManager );
 
 
-    // Prepare data for building TLAS.
-    // Also fill uniform with current state.
-    auto PrepareForBuildingTLAS( uint32_t         frameIndex,
-                                 ShGlobalUniform& uniformData,
-                                 uint32_t         uniformData_rayCullMaskWorld,
-                                 bool             allowGeometryWithSkyFlag,
-                                 bool             disableRTGeometry,
-                                 bool             disableStaticGeometry ) const
-        -> std::vector< VkAccelerationStructureInstanceKHR >;
-    void BuildTLAS( VkCommandBuffer                                          cmd,
-                    uint32_t                                                 frameIndex,
-                    const std::vector< VkAccelerationStructureInstanceKHR >& allVkTlas );
+    auto MakeTlasIDToUniqueID( bool disableRTGeometry ) -> TlasIDToUniqueID;
+    void BuildTLAS( VkCommandBuffer cmd,
+                    uint32_t        frameIndex,
+                    uint32_t        uniformData_rayCullMaskWorld,
+                    bool            allowGeometryWithSkyFlag,
+                    bool            disableRTGeometry );
 
 
     // Copy current dynamic vertex and index data to
@@ -108,14 +102,17 @@ private:
     void UpdateBufferDescriptors( uint32_t frameIndex );
     void UpdateASDescriptors( uint32_t frameIndex );
 
+    // TODO: rename to BuiltAS
     struct TlasInstance
     {
+        // to index geom infos
+        PrimitiveUniqueID              uniqueID;
         VertexCollectorFilterTypeFlags flags;
         BLASComponent                  blas;
         VertexCollector::UploadResult  geometry;
     };
 
-    static auto MakeVkTLAS( const TlasInstance& blas,
+    static auto MakeVkTLAS( const TlasInstance& tlasInstance,
                             uint32_t            rayCullMaskWorld,
                             bool                allowGeometryWithSkyFlag,
                             const RgTransform&  transform )
@@ -143,12 +140,20 @@ private:
     std::shared_ptr< TextureManager >       textureMgr;
     std::shared_ptr< GeomInfoManager >      geomInfoMgr;
 
-    rgl::string_map< TlasInstance > meshNameToReplacement;
+    rgl::string_map< std::unique_ptr< TlasInstance > > meshNameToReplacement;
 
     std::vector< std::unique_ptr< TlasInstance > > allStaticInstances;
     std::vector< std::unique_ptr< TlasInstance > > allDynamicInstances[ MAX_FRAMES_IN_FLIGHT ];
 
-    std::vector< std::pair< RgTransform, TlasInstance* > > allInstancesInThisFrame;
+    // Exists only in the current frame
+    struct Object
+    {
+        // should be weak_ptr
+        TlasInstance* builtInstance;
+        RgTransform   transform;
+        bool          isStatic;
+    };
+    std::vector< Object > curFrame_objects;
 
     // top level AS
     std::unique_ptr< AutoBuffer >    instanceBuffer;

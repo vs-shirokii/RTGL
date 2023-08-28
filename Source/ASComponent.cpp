@@ -152,18 +152,3 @@ const char* RTGL1::TLASComponent::GetBufferDebugName() const
 {
     return "TLAS buffer";
 }
-
-void RTGL1::BLASComponent::SetGeometryCount( uint32_t geomCount )
-{
-    this->geomCount = geomCount;
-}
-
-bool RTGL1::BLASComponent::IsEmpty() const
-{
-    return geomCount == 0;
-}
-
-uint32_t RTGL1::BLASComponent::GetGeomCount() const
-{
-    return geomCount;
-}

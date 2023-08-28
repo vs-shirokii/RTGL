@@ -22,6 +22,7 @@
 
 #include "RgException.h"
 
+#if 0
 using namespace RTGL1;
 
 const std::vector< uint32_t >& VertexCollectorFilter::GetPrimitiveCounts() const
@@ -70,3 +71,5 @@ uint32_t VertexCollectorFilter::GetGeometryCount() const
 {
     return static_cast< uint32_t >( asGeometries.size() );
 }
+
+#endif

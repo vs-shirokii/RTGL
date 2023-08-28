@@ -533,8 +533,6 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
                 .pMeshName      = objectName.c_str(), // meshName.c_str(),
                 .transform      = transform,
                 .isExportable   = true,
-                .animationName  = nullptr,
-                .animationTime  = 0.0f,
             };
 
             // random permutation, as primitive upload order must not influence the final image

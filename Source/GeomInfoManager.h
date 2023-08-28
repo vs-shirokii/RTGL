@@ -58,14 +58,13 @@ public:
     // Save instance for copying into buffer and fill previous frame's data.
     // For dynamic geometry it should be called every frame,
     // and for static geometry -- only when whole static scene was changed.
-    void WriteGeomInfo( uint32_t                       frameIndex,
-                        const PrimitiveUniqueID&       geomUniqueID,
-                        uint32_t                       tlasInstanceID,
-                        VertexCollectorFilterTypeFlags flags,
-                        ShGeometryInstance&            src );
+    void WriteGeomInfo( uint32_t                 frameIndex,
+                        const PrimitiveUniqueID& geomUniqueID,
+                        ShGeometryInstance&      src,
+                        bool                     isStatic );
 
 
-    bool CopyFromStaging( VkCommandBuffer cmd, uint32_t frameIndex, bool insertBarrier = true );
+    bool CopyFromStaging( VkCommandBuffer cmd, uint32_t frameIndex, TlasIDToUniqueID&& tlas );
 
 
     VkBuffer GetBuffer() const;
@@ -84,31 +83,21 @@ public:
     using MatchPrevIndexType = int32_t;
 
 private:
-    struct GeomFrameInfo
+    struct PrevInfo
     {
         float    model[ 16 ];
         uint32_t baseVertexIndex;
         uint32_t baseIndexIndex;
         uint32_t vertexCount;
         uint32_t indexCount;
-        uint32_t tlasInstanceID;
     };
 
 private:
-    static void ResetGroup( rgl::unordered_map< PrimitiveUniqueID, GeomFrameInfo >& idToInfo,
-                            const std::vector< PrimitiveUniqueID >& idsToClear );
+    auto FindPrevFrameData( const PrimitiveUniqueID&  geomUniqueID,
+                            const ShGeometryInstance& target,
+                            uint32_t                  frameIndex ) const -> const PrevInfo*;
 
-    // Fill ShGeometryInstance with the data from previous frame
-    // Note: frameIndex is not used if geom is not dynamic
-    void FillWithPrevFrameData( const PrimitiveUniqueID& geomUniqueID,
-                                uint32_t                 tlasInstanceID,
-                                ShGeometryInstance&      dst,
-                                uint32_t                 frameIndex );
-
-    // Save data for the next frame
-    // Note: frameIndex is not used if geom is not dynamic
-    void WriteInfoForNextUsage( const PrimitiveUniqueID&  geomUniqueID,
-                                uint32_t                  tlasInstanceID,
+    void WritePrevForNextFrame( const PrimitiveUniqueID&  geomUniqueID,
                                 const ShGeometryInstance& src,
                                 uint32_t                  frameIndex );
 
@@ -124,11 +113,14 @@ private:
 
     // geometry's uniqueID to geom frame info,
     // used for getting info from previous frame
-    rgl::unordered_map< PrimitiveUniqueID, GeomFrameInfo >
-        userUniqueIDToGeomFrameInfo[ MAX_FRAMES_IN_FLIGHT ];
+    rgl::unordered_map< PrimitiveUniqueID, PrevInfo > idToPrevInfo[ MAX_FRAMES_IN_FLIGHT ];
 
-    std::vector< PrimitiveUniqueID > staticUniqueIds;
-    std::vector< PrimitiveUniqueID > dynamicUniqueIds;
+    rgl::unordered_set< PrimitiveUniqueID > staticUniqueIds;
+
+    rgl::unordered_map< PrimitiveUniqueID, ShGeometryInstance > curFrame_IdToInfo;
+    rgl::unordered_set< PrimitiveUniqueID >                     curFrame_dynamicUniqueIds;
+
+    TlasIDToUniqueID tlas_prev;
 };
 
 inline RgColor4DPacked32 PackEmissiveFactorAndStrength( RgColor4DPacked32 factor, float strength )

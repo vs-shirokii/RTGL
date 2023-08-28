@@ -41,6 +41,8 @@ struct PrimitiveUniqueID
     uint64_t primitiveIndex;
 };
 
+using TlasIDToUniqueID = std::vector< std::pair< uint32_t, PrimitiveUniqueID > >;
+
 }
 
 namespace std
