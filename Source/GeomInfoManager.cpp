@@ -377,7 +377,7 @@ void RTGL1::GeomInfoManager::WriteGeomInfo( uint32_t                 frameIndex,
         auto& dstIDs = isStatic ? staticUniqueIds : curFrame_dynamicUniqueIds;
 
         auto [ iter, isnew ] = dstIDs.insert( geomUniqueID );
-        assert( !isnew );
+        assert( isnew );
     }
 
     if( auto prev = FindPrevFrameData( geomUniqueID, src, frameIndex ) )

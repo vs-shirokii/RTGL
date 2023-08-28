@@ -91,25 +91,23 @@ vec4 getTextureSampleGrad(uint textureIndex, const vec2 texCoord, const vec2 dPd
 
 
 
-// instanceID is assumed to be < 256 (i.e. 8 bits ) and 
-// instanceCustomIndexEXT is 24 bits by Vulkan spec
 uint packInstanceIdAndCustomIndex(int instanceID, int instanceCustomIndexEXT)
 {
-    return (instanceID << 24) | instanceCustomIndexEXT;
+    return uint(instanceID << 4) | uint(instanceCustomIndexEXT & 0xF);
 }
 
 ivec2 unpackInstanceIdAndCustomIndex(uint instanceIdAndIndex)
 {
     return ivec2(
-        instanceIdAndIndex >> 24,
-        instanceIdAndIndex & 0xFFFFFF
+        int(instanceIdAndIndex >> 4),
+        int(instanceIdAndIndex & 0xF)
     );
 }
 
 void unpackInstanceIdAndCustomIndex(uint instanceIdAndIndex, out int instanceId, out int instanceCustomIndexEXT)
 {
-    instanceId = int(instanceIdAndIndex >> 24);
-    instanceCustomIndexEXT = int(instanceIdAndIndex & 0xFFFFFF);
+    instanceId = int(instanceIdAndIndex >> 4);
+    instanceCustomIndexEXT = int(instanceIdAndIndex & 0xF);
 }
 
 uint packGeometryAndPrimitiveIndex(int geometryIndex, int primitiveIndex)

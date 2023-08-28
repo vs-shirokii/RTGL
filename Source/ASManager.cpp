@@ -643,7 +643,7 @@ RTGL1::DynamicGeometryToken RTGL1::ASManager::BeginDynamicGeometry( VkCommandBuf
     // destroy dynamic instances from N-2
     allDynamicInstances[ frameIndex ].clear();
 
-    curFrame_objects.clear();
+    erase_if( curFrame_objects, []( const Object& o ) { return !o.isStatic; } );
 
     assert( asBuilder->IsEmpty() );
     return DynamicGeometryToken( InitAsExisting );
