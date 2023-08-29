@@ -78,8 +78,30 @@ RTGL1::ASManager::ASManager( VkDevice                                _device,
     {
         const uint32_t scratchOffsetAligment =
             _physDevice.GetASProperties().minAccelerationStructureScratchOffsetAlignment;
-        scratchBuffer = std::make_shared< ScratchBuffer >( allocator, scratchOffsetAligment );
-        asBuilder     = std::make_unique< ASBuilder >( scratchBuffer );
+
+        scratchBuffer = std::make_shared< ChunkedStackAllocator >(
+            allocator,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            scratchOffsetAligment,
+            "Scratch buffer" );
+
+        asBuilder = std::make_unique< ASBuilder >( scratchBuffer );
+    }
+
+    {
+        constexpr auto asAlignment = 256;
+        constexpr auto usage       = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
+                               VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+
+        allocStaticGeom = std::make_unique< ChunkedStackAllocator >(
+            allocator, usage, asAlignment, "BLAS common buffer for static" );
+
+        allocDynamicGeom = std::make_unique< ChunkedStackAllocator >(
+            allocator, usage, asAlignment, "BLAS common buffer for dynamic" );
+
+        allocTlas = std::make_unique< ChunkedStackAllocator >(
+            allocator, usage, asAlignment, "TLAS common buffer" );
     }
 
     {
@@ -603,6 +625,7 @@ RTGL1::StaticGeometryToken RTGL1::ASManager::BeginStaticGeometry()
 
     // destroy previous static
     allStaticInstances.clear();
+    allocStaticGeom->Reset();
 
     erase_if( curFrame_objects, []( const Object& o ) { return o.isStatic; } );
 
@@ -641,10 +664,12 @@ RTGL1::DynamicGeometryToken RTGL1::ASManager::BeginDynamicGeometry( VkCommandBuf
                                   Utils::GetPreviousByModulo( frameIndex, MAX_FRAMES_IN_FLIGHT ) );
 
     scratchBuffer->Reset();
+
     // dynamic vertices are refilled each frame
     collectorDynamic[ frameIndex ]->Reset();
     // destroy dynamic instances from N-2
     allDynamicInstances[ frameIndex ].clear();
+    allocDynamicGeom->Reset();
 
     erase_if( curFrame_objects, []( const Object& o ) { return !o.isStatic; } );
 
@@ -743,7 +768,8 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
                                                 tlasInstance->geometry.asGeometryInfo,
                                                 tlasInstance->geometry.asRange.primitiveCount,
                                                 fastTrace );
-            tlasInstance->blas.RecreateIfNotValid( buildSizes, allocator );
+            tlasInstance->blas.RecreateIfNotValid(
+                buildSizes, isStatic ? *allocStaticGeom : *allocDynamicGeom );
 
             // add BLAS, all passed arrays must be alive until BuildBottomLevel() call
             asBuilder->AddBLAS( tlasInstance->blas.GetAS(),
@@ -1066,7 +1092,7 @@ void RTGL1::ASManager::BuildTLAS( VkCommandBuffer cmd,
             device, instGeom, static_cast< uint32_t >( allVkTlas.size() ), false );
 
         // if previous buffer's size is not enough
-        curTlas->RecreateIfNotValid( buildSizes, allocator );
+        curTlas->RecreateIfNotValid( buildSizes, *allocTlas );
 
         // ASBuilder requires 'instGeom', 'range' to be alive
         assert( asBuilder->IsEmpty() );

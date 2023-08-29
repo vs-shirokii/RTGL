@@ -21,7 +21,7 @@
 #include "ASComponent.h"
 
 RTGL1::ASComponent::ASComponent( VkDevice _device, const char* _debugName )
-    : device{ _device }, as{ VK_NULL_HANDLE }, debugName{ _debugName }
+    : device{ _device }, as{ VK_NULL_HANDLE }, asSize{ 0 }, debugName{ _debugName }
 {
 }
 
@@ -37,97 +37,68 @@ RTGL1::TLASComponent::TLASComponent( VkDevice _device, const char* _debugName )
 
 RTGL1::ASComponent::~ASComponent()
 {
-    Destroy();
+    DestroyAS();
 }
 
-void RTGL1::ASComponent::CreateBuffer( const std::shared_ptr< MemoryAllocator >& allocator,
-                                       VkDeviceSize                              size )
-{
-    assert( !buffer.IsInitted() );
-
-    buffer.Init( *allocator,
-                 size,
-                 VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
-                     VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                 GetBufferDebugName() );
-}
-
-void RTGL1::ASComponent::Destroy()
-{
-    assert( device != VK_NULL_HANDLE );
-
-    buffer.Destroy();
-
-    if( as != VK_NULL_HANDLE )
-    {
-        svkDestroyAccelerationStructureKHR( device, as, nullptr );
-        as = VK_NULL_HANDLE;
-    }
-}
-
-void RTGL1::ASComponent::RecreateIfNotValid(
-    const VkAccelerationStructureBuildSizesInfoKHR& buildSizes,
-    const std::shared_ptr< MemoryAllocator >&       allocator )
-{
-    if( !IsValid( buildSizes ) )
-    {
-        // destroy
-        Destroy();
-
-        // create
-        CreateBuffer( allocator, buildSizes.accelerationStructureSize );
-        CreateAS( buildSizes.accelerationStructureSize );
-    }
-}
-
-void RTGL1::BLASComponent::CreateAS( VkDeviceSize size )
+auto RTGL1::ASComponent::CreateAS( VkBuffer buf, VkDeviceSize offset, VkDeviceSize size ) const
+    -> VkAccelerationStructureKHR
 {
     assert( device != VK_NULL_HANDLE );
 
     VkAccelerationStructureCreateInfoKHR info = {
         .sType  = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
-        .buffer = buffer.GetBuffer(),
+        .buffer = buf,
+        .offset = offset,
         .size   = size,
-        .type   = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
+        .type   = GetType(),
     };
+    assert( info.offset % 256 == 0 );
 
-    VkResult r = svkCreateAccelerationStructureKHR( device, &info, nullptr, &as );
+    VkAccelerationStructureKHR resultAS = nullptr;
+    VkResult r = svkCreateAccelerationStructureKHR( device, &info, nullptr, &resultAS );
     VK_CHECKERROR( r );
 
-    SET_DEBUG_NAME( device, as, VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR, debugName );
+    SET_DEBUG_NAME( device, resultAS, VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR, debugName );
+
+    return resultAS;
 }
 
-void RTGL1::TLASComponent::CreateAS( VkDeviceSize size )
+void RTGL1::ASComponent::DestroyAS()
 {
-    assert( device != VK_NULL_HANDLE );
-
-    VkAccelerationStructureCreateInfoKHR tlasInfo = {
-        .sType  = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR,
-        .buffer = buffer.GetBuffer(),
-        .size   = size,
-        .type   = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
-    };
-
-    VkResult r = svkCreateAccelerationStructureKHR( device, &tlasInfo, nullptr, &as );
-    VK_CHECKERROR( r );
-
-    SET_DEBUG_NAME( device, as, VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR, debugName );
+    if( as != VK_NULL_HANDLE )
+    {
+        svkDestroyAccelerationStructureKHR( device, as, nullptr );
+        as = VK_NULL_HANDLE;
+    }
+    asSize = 0;
 }
 
-bool RTGL1::ASComponent::IsValid( const VkAccelerationStructureBuildSizesInfoKHR& buildSizes ) const
+void RTGL1::ASComponent::RecreateIfNotValid(
+    const VkAccelerationStructureBuildSizesInfoKHR& buildSizes, ChunkedStackAllocator& allocator )
 {
-    return buffer.IsInitted() && buffer.GetSize() >= buildSizes.accelerationStructureSize;
+    if( !as || asSize < buildSizes.accelerationStructureSize )
+    {
+        // destroy
+        DestroyAS();
+
+        // get range in common buffer, and create
+        const auto allocation = allocator.Push( buildSizes.accelerationStructureSize );
+
+        as = CreateAS(
+            allocation.buffer, allocation.offsetInBuffer, buildSizes.accelerationStructureSize );
+        asSize = buildSizes.accelerationStructureSize;
+    }
 }
 
 VkAccelerationStructureKHR RTGL1::ASComponent::GetAS() const
 {
+    assert( as );
     return as;
 }
 
 VkDeviceAddress RTGL1::ASComponent::GetASAddress() const
 {
-    assert( buffer.IsInitted() );
+    assert( as );
     return GetASAddress( as );
 }
 
@@ -141,14 +112,4 @@ VkDeviceAddress RTGL1::ASComponent::GetASAddress( VkAccelerationStructureKHR as 
     addressInfo.accelerationStructure = as;
 
     return svkGetAccelerationStructureDeviceAddressKHR( device, &addressInfo );
-}
-
-const char* RTGL1::BLASComponent::GetBufferDebugName() const
-{
-    return "BLAS buffer";
-}
-
-const char* RTGL1::TLASComponent::GetBufferDebugName() const
-{
-    return "TLAS buffer";
 }

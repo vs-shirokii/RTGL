@@ -1,15 +1,15 @@
 // Copyright (c) 2020-2021 Sultim Tsyrendashiev
-// 
+//
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
 // in the Software without restriction, including without limitation the rights
 // to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-// 
+//
 // The above copyright notice and this permission notice shall be included in all
 // copies or substantial portions of the Software.
-// 
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -22,61 +22,95 @@
 
 #include <algorithm>
 
+#include "RgException.h"
 #include "Utils.h"
 
-using namespace RTGL1;
-
-constexpr VkDeviceSize SCRATCH_CHUNK_BUFFER_SIZE = (1 << 24);
-
-ScratchBuffer::ScratchBuffer(std::shared_ptr<MemoryAllocator> _allocator, uint32_t _alignment)
-:
-    allocator(_allocator),
-    alignment(_alignment)
+namespace
 {
-    AddChunk(SCRATCH_CHUNK_BUFFER_SIZE);
+constexpr VkDeviceSize InitialChunkBufferSize = 1 << 24;
 }
 
-VkDeviceAddress ScratchBuffer::GetScratchAddress(VkDeviceSize scratchSize)
+RTGL1::ChunkedStackAllocator::ChunkedStackAllocator( std::shared_ptr< MemoryAllocator >& _allocator,
+                                                     VkBufferUsageFlags                  _usage,
+                                                     VkDeviceSize                        _alignment,
+                                                     std::string_view _debugName )
+    : allocator{ _allocator }
+    , usage{ _usage }
+    , chunkAllocSize{ Utils::Align( InitialChunkBufferSize, _alignment ) }
+    , alignment{ _alignment }
+    , debugName{ _debugName }
 {
-    // the fastest way to always return an aligned address is simply to align all allocation sizes
-    const VkDeviceSize alignedSize = Utils::Align(scratchSize, (VkDeviceSize)alignment);
+}
 
-    // find chunk with appropriate size
-    for (auto &c : chunks)
+auto RTGL1::ChunkedStackAllocator::Push( VkDeviceSize size ) -> PushResult
+{
+    const VkDeviceSize alignedSize = Utils::Align( size, alignment );
+
+    // find fitting chunk
+    for( auto& c : chunks )
     {
-        if (alignedSize < c.buffer.GetSize() - c.currentOffset)
+        if( c.currentOffset + alignedSize < c.buffer.GetSize() )
         {
-            VkDeviceAddress address = c.buffer.GetAddress() + c.currentOffset;
+            const auto result = PushResult{
+                .address        = c.buffer.GetAddress() + c.currentOffset,
+                .buffer         = c.buffer.GetBuffer(),
+                .offsetInBuffer = c.currentOffset,
+            };
+
+            assert( result.offsetInBuffer % alignment == 0 );
+            assert( result.address % alignment == 0 );
 
             c.currentOffset += alignedSize;
-            return address;
+
+            return result;
         }
     }
 
     // couldn't find chunk, create new one
-    AddChunk(std::max(SCRATCH_CHUNK_BUFFER_SIZE, alignedSize));
-    return chunks.back().buffer.GetAddress();
+    return AllocateChunk( alignedSize );
 }
 
-void ScratchBuffer::Reset()
+void RTGL1::ChunkedStackAllocator::Reset()
 {
-    for (auto &c : chunks)
+    for( auto& c : chunks )
     {
         c.currentOffset = 0;
     }
 }
 
-void ScratchBuffer::AddChunk(VkDeviceSize size)
+auto RTGL1::ChunkedStackAllocator::AllocateChunk( VkDeviceSize size ) -> PushResult
 {
-    if (const auto allc = allocator.lock())
-    {
-        chunks.emplace_back();
-        auto &c = chunks.back();
+    const auto chunkSize = std::max( chunkAllocSize, Utils::Align( size, alignment ) );
 
-        c.buffer.Init(
-            *allc, size,
-            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            "Scratch buffer");
+    if( const auto alloc = allocator.lock() )
+    {
+        auto& c = chunks.emplace_back();
+        c.buffer.Init( *alloc,
+                       chunkSize,
+                       VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | usage,
+                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                       debugName.c_str() );
+
+        if( c.buffer.GetAddress() % alignment != 0 )
+        {
+            throw RgException( RG_RESULT_ERROR_MEMORY_ALIGNMENT,
+                               "Allocated VkBuffer's address was not aligned" );
+        }
+
+        const auto result = PushResult{
+            .address        = c.buffer.GetAddress(),
+            .buffer         = c.buffer.GetBuffer(),
+            .offsetInBuffer = 0,
+        };
+        assert( result.address % alignment == 0 );
+
+        // initial offset
+        c.currentOffset = 0;
+        c.currentOffset += Utils::Align( size, alignment );
+
+        return result;
     }
+
+    assert( 0 );
+    return {};
 }

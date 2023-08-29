@@ -24,7 +24,7 @@
 
 #include "Common.h"
 #include "Buffer.h"
-#include "VertexCollectorFilterType.h"
+#include "ScratchBuffer.h"
 
 namespace RTGL1
 {
@@ -37,36 +37,33 @@ protected:
 public:
     virtual ~ASComponent() = 0;
 
-    ASComponent( const ASComponent& other ) = delete;
-    ASComponent( ASComponent&& other ) noexcept = delete;
-    ASComponent& operator=( const ASComponent& other ) = delete;
+    ASComponent( const ASComponent& other )                = delete;
+    ASComponent( ASComponent&& other ) noexcept            = delete;
+    ASComponent& operator=( const ASComponent& other )     = delete;
     ASComponent& operator=( ASComponent&& other ) noexcept = delete;
 
-    void         RecreateIfNotValid( const VkAccelerationStructureBuildSizesInfoKHR& buildSizes,
-                                     const std::shared_ptr< MemoryAllocator >&       allocator );
+    void RecreateIfNotValid( const VkAccelerationStructureBuildSizesInfoKHR& buildSizes,
+                             ChunkedStackAllocator&                          allocator );
 
     VkAccelerationStructureKHR GetAS() const;
     VkDeviceAddress            GetASAddress() const;
 
-    bool IsValid( const VkAccelerationStructureBuildSizesInfoKHR& buildSizes ) const;
-
 protected:
-    virtual void        CreateAS( VkDeviceSize size ) = 0;
-    virtual const char* GetBufferDebugName() const    = 0;
+    virtual VkAccelerationStructureTypeKHR GetType() const = 0;
 
 private:
-    void CreateBuffer( const std::shared_ptr< MemoryAllocator >& allocator, VkDeviceSize size );
-    void Destroy();
+    [[nodiscard]] auto CreateAS( VkBuffer buf, VkDeviceSize offset, VkDeviceSize size ) const
+        -> VkAccelerationStructureKHR;
+    void DestroyAS();
 
     VkDeviceAddress GetASAddress( VkAccelerationStructureKHR as ) const;
 
 protected:
     VkDevice                   device;
-
-    Buffer                     buffer;
     VkAccelerationStructureKHR as;
+    VkDeviceSize               asSize;
 
-    const char*                debugName;
+    const char* debugName;
 };
 
 
@@ -76,8 +73,10 @@ public:
     explicit BLASComponent( VkDevice device, const char* debugName = nullptr );
 
 protected:
-    void        CreateAS( VkDeviceSize size ) override;
-    const char* GetBufferDebugName() const override;
+    VkAccelerationStructureTypeKHR GetType() const override
+    {
+        return VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+    }
 };
 
 
@@ -87,8 +86,10 @@ public:
     explicit TLASComponent( VkDevice device, const char* debugName = nullptr );
 
 protected:
-    void        CreateAS( VkDeviceSize size ) override;
-    const char* GetBufferDebugName() const override;
+    VkAccelerationStructureTypeKHR GetType() const override
+    {
+        return VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+    }
 };
 
 }

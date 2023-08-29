@@ -20,7 +20,23 @@
 
 #include "Buffer.h"
 
+#include <numeric>
+
 using namespace RTGL1;
+
+namespace
+{
+VkDeviceSize LCM( VkDeviceSize a, VkDeviceSize b )
+{
+    return ( a * b ) / std::gcd( a, b );
+}
+
+VkDeviceSize findCommonAlignment( VkDeviceSize align_0, VkDeviceSize align_1 )
+{
+    return LCM( align_0, align_1 );
+}
+
+}
 
 Buffer::Buffer()
     : device( VK_NULL_HANDLE )

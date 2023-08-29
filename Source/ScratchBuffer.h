@@ -27,34 +27,52 @@
 namespace RTGL1
 {
 
-class ScratchBuffer
+// Each chunk is a buffer that acts like a stack.
+// This class is a list of such chunks.
+// All returned addresses are guaranteed to be valid until reset.
+class ChunkedStackAllocator
 {
 public:
-    explicit ScratchBuffer( std::shared_ptr< MemoryAllocator > allocator, uint32_t alignment = 1 );
-    ~ScratchBuffer() = default;
+    explicit ChunkedStackAllocator( std::shared_ptr< MemoryAllocator >& allocator,
+                                    VkBufferUsageFlags                  usage,
+                                    VkDeviceSize                        alignment,
+                                    std::string_view                    debugName );
+    ~ChunkedStackAllocator() = default;
 
-    ScratchBuffer( const ScratchBuffer& other )     = delete;
-    ScratchBuffer( ScratchBuffer&& other ) noexcept = delete;
-    ScratchBuffer&  operator=( const ScratchBuffer& other ) = delete;
-    ScratchBuffer&  operator=( ScratchBuffer&& other ) noexcept = delete;
+    ChunkedStackAllocator( const ChunkedStackAllocator& other )                = delete;
+    ChunkedStackAllocator( ChunkedStackAllocator&& other ) noexcept            = delete;
+    ChunkedStackAllocator& operator=( const ChunkedStackAllocator& other )     = delete;
+    ChunkedStackAllocator& operator=( ChunkedStackAllocator&& other ) noexcept = delete;
 
-    // get scratch buffer address
-    VkDeviceAddress GetScratchAddress( VkDeviceSize scratchSize );
-    void            Reset();
+    struct PushResult
+    {
+        VkDeviceAddress address;
+        VkBuffer        buffer;
+        VkDeviceSize    offsetInBuffer;
+    };
+
+    auto Push( VkDeviceSize size ) -> PushResult;
+    void Reset();
 
 private:
-    void AddChunk( VkDeviceSize size );
+    auto AllocateChunk( VkDeviceSize size ) -> PushResult;
 
 private:
     struct ChunkBuffer
     {
-        Buffer   buffer;
-        uint32_t currentOffset = 0;
+        Buffer       buffer{};
+        VkDeviceSize currentOffset{ 0 };
     };
 
     std::weak_ptr< MemoryAllocator > allocator;
     std::list< ChunkBuffer >         chunks;
-    uint32_t                         alignment = 1;
+
+    VkBufferUsageFlags usage;
+
+    const VkDeviceSize chunkAllocSize;
+    const VkDeviceSize alignment;
+
+    std::string debugName;
 };
 
 }

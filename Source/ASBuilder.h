@@ -32,7 +32,7 @@ namespace RTGL1
 class ASBuilder
 {
 public:
-    explicit ASBuilder( std::shared_ptr< ScratchBuffer > commonScratchBuffer );
+    explicit ASBuilder( std::shared_ptr< ChunkedStackAllocator > commonScratchBuffer );
     ~ASBuilder() = default;
 
     ASBuilder( const ASBuilder& other )                = delete;
@@ -103,7 +103,7 @@ private:
                                bool fastTrace ) -> VkAccelerationStructureBuildSizesInfoKHR;
 
 private:
-    std::shared_ptr< ScratchBuffer > scratchBuffer;
+    std::shared_ptr< ChunkedStackAllocator > scratchBuffer;
 
     struct BuildInfo
     {

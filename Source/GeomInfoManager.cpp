@@ -217,16 +217,16 @@ bool RTGL1::GeomInfoManager::CopyFromStaging( VkCommandBuffer    cmd,
     {
         void add( uint32_t x )
         {
-            vmin = std::min( x, vmin );
-            vmax = std::max( x, vmax );
+            vbegin = std::min( x, vbegin );
+            vend   = std::max( x + 1, vend );
         }
 
-        uint32_t first() const { return vmin; }
-        uint32_t count() const { return vmax - vmin; }
+        uint32_t first() const { return vbegin; }
+        uint32_t count() const { return vend - vbegin; }
         bool     valid() const { return count() > 0; }
 
-        uint32_t vmin{ 0 };
-        uint32_t vmax{ 0 };
+        uint32_t vbegin{ 0 };
+        uint32_t vend{ 0 };
     };
 
 

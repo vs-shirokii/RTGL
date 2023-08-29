@@ -27,7 +27,7 @@
 
 using namespace RTGL1;
 
-ASBuilder::ASBuilder( std::shared_ptr< ScratchBuffer > _commonScratchBuffer )
+ASBuilder::ASBuilder( std::shared_ptr< ChunkedStackAllocator > _commonScratchBuffer )
     : scratchBuffer( std::move( _commonScratchBuffer ) )
 {
 }
@@ -111,7 +111,7 @@ void ASBuilder::AddBLAS( VkAccelerationStructureKHR                             
         .pGeometries              = geometries.data(),
         .ppGeometries             = nullptr,
         .scratchData = {
-            .deviceAddress = scratchBuffer->GetScratchAddress( scratchSize ),
+            .deviceAddress = scratchBuffer->Push( scratchSize ).address,
         },
     };
 
@@ -171,7 +171,7 @@ void ASBuilder::AddTLAS( VkAccelerationStructureKHR                      as,
         .pGeometries              = instance,
         .ppGeometries             = nullptr,
         .scratchData = {
-            .deviceAddress = scratchBuffer->GetScratchAddress( scratchSize ),
+            .deviceAddress = scratchBuffer->Push( scratchSize ).address,
         },
     };
 

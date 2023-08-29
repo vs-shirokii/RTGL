@@ -133,14 +133,18 @@ private:
     Buffer                             previousDynamicIndices;
 
     // building
-    std::shared_ptr< ScratchBuffer > scratchBuffer;
-    std::unique_ptr< ASBuilder >     asBuilder;
+    std::shared_ptr< ChunkedStackAllocator > scratchBuffer;
+    std::unique_ptr< ASBuilder >             asBuilder;
 
     std::shared_ptr< CommandBufferManager > cmdManager;
     std::shared_ptr< TextureManager >       textureMgr;
     std::shared_ptr< GeomInfoManager >      geomInfoMgr;
 
     rgl::string_map< std::unique_ptr< TlasInstance > > meshNameToReplacement;
+
+    std::unique_ptr< ChunkedStackAllocator > allocTlas;
+    std::unique_ptr< ChunkedStackAllocator > allocStaticGeom;
+    std::unique_ptr< ChunkedStackAllocator > allocDynamicGeom;
 
     std::vector< std::unique_ptr< TlasInstance > > allStaticInstances;
     std::vector< std::unique_ptr< TlasInstance > > allDynamicInstances[ MAX_FRAMES_IN_FLIGHT ];

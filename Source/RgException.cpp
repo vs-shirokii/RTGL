@@ -75,6 +75,7 @@ const char* RTGL1::RgException::GetRgResultName( RgResult r )
         case RG_RESULT_ALREADY_INITIALIZED: return "RG_RESULT_ALREADY_INITIALIZED";
         case RG_RESULT_INTERNAL_ERROR: return "RG_RESULT_INTERNAL_ERROR";
         case RG_RESULT_WRONG_STRUCTURE_TYPE: return "RG_RESULT_WRONG_STRUCTURE_TYPE";
+        case RG_RESULT_ERROR_MEMORY_ALIGNMENT: return "RG_RESULT_ERROR_MEMORY_ALIGNMENT";
         default: assert( 0 ); return "Unknown RgResult";
     }
 }
