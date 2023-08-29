@@ -604,6 +604,9 @@ RTGL1::StaticGeometryToken RTGL1::ASManager::BeginStaticGeometry()
     // destroy previous static
     allStaticInstances.clear();
 
+    erase_if( curFrame_objects, []( const Object& o ) { return o.isStatic; } );
+
+    assert( asBuilder->IsEmpty() );
     return StaticGeometryToken( InitAsExisting );
 }
 
@@ -843,9 +846,9 @@ auto RTGL1::ASManager::MakeVkTLAS( const TlasInstance& tlasInstance,
 
     auto rgToVkTransform = []( const RgTransform& t ) {
         return VkTransformMatrixKHR{ {
-            { t.matrix[ 0 ][ 0 ], t.matrix[ 1 ][ 0 ], t.matrix[ 2 ][ 0 ], t.matrix[ 3 ][ 0 ] },
-            { t.matrix[ 0 ][ 1 ], t.matrix[ 1 ][ 1 ], t.matrix[ 2 ][ 1 ], t.matrix[ 3 ][ 1 ] },
-            { t.matrix[ 0 ][ 2 ], t.matrix[ 1 ][ 2 ], t.matrix[ 2 ][ 2 ], t.matrix[ 3 ][ 2 ] },
+            { t.matrix[ 0 ][ 0 ], t.matrix[ 0 ][ 1 ], t.matrix[ 0 ][ 2 ], t.matrix[ 0 ][ 3 ] },
+            { t.matrix[ 1 ][ 0 ], t.matrix[ 1 ][ 1 ], t.matrix[ 1 ][ 2 ], t.matrix[ 1 ][ 3 ] },
+            { t.matrix[ 2 ][ 0 ], t.matrix[ 2 ][ 1 ], t.matrix[ 2 ][ 2 ], t.matrix[ 2 ][ 3 ] },
         } };
     };
 
@@ -974,7 +977,7 @@ auto RTGL1::ASManager::MakeVkTLAS( const TlasInstance& tlasInstance,
 }
 
 
-auto RTGL1::ASManager::MakeTlasIDToUniqueID( bool disableRTGeometry ) -> TlasIDToUniqueID
+auto RTGL1::ASManager::MakeTlasIDToUniqueID( bool disableRTGeometry ) const -> TlasIDToUniqueID
 {
     auto all = TlasIDToUniqueID{};
     if( !disableRTGeometry )

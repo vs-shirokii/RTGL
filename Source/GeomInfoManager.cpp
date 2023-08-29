@@ -331,9 +331,9 @@ bool RTGL1::GeomInfoManager::CopyFromStaging( VkCommandBuffer    cmd,
     {
         // copy from staging
         auto vcopy = VkBufferCopy{
-            .srcOffset = geominfo_range.first() * sizeof( MatchPrevIndexType ),
-            .dstOffset = geominfo_range.first() * sizeof( MatchPrevIndexType ),
-            .size      = geominfo_range.count() * sizeof( MatchPrevIndexType ),
+            .srcOffset = geominfo_range.first() * sizeof( ShGeometryInstance ),
+            .dstOffset = geominfo_range.first() * sizeof( ShGeometryInstance ),
+            .size      = geominfo_range.count() * sizeof( ShGeometryInstance ),
         };
 
         // TODO: remove VkBufferMemoryBarrier from CopyFromStaging and add barrier here
@@ -358,6 +358,8 @@ void RTGL1::GeomInfoManager::PrepareForFrame( uint32_t frameIndex )
     for( const auto& idToErase : curFrame_dynamicUniqueIds )
     {
         curFrame_IdToInfo.erase( idToErase );
+        // clear history at N-2
+        idToPrevInfo[ frameIndex ].erase( idToErase );
     }
     curFrame_dynamicUniqueIds.clear();
 }

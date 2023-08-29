@@ -74,7 +74,7 @@ public:
                            GeomInfoManager&           geomInfoManager );
 
 
-    auto MakeTlasIDToUniqueID( bool disableRTGeometry ) -> TlasIDToUniqueID;
+    auto MakeTlasIDToUniqueID( bool disableRTGeometry ) const -> TlasIDToUniqueID;
     void BuildTLAS( VkCommandBuffer cmd,
                     uint32_t        frameIndex,
                     uint32_t        uniformData_rayCullMaskWorld,
