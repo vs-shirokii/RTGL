@@ -69,7 +69,7 @@ public:
                            const RgMeshInfo&          mesh,
                            const RgMeshPrimitiveInfo& primitive,
                            const PrimitiveUniqueID&   uniqueID,
-                           bool                       isStatic,
+                           const bool                 isStatic,
                            const TextureManager&      textureManager,
                            GeomInfoManager&           geomInfoManager );
 

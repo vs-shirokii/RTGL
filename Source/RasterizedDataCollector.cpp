@@ -224,7 +224,7 @@ void RTGL1::RasterizedDataCollector::AddPrimitive( uint32_t                   fr
 
     PushInfo( rasterType ) = {
         .transform = transform,
-        .flags     = GeomInfoManager::GetPrimitiveFlags( info ),
+        .flags     = GeomInfoManager::GetPrimitiveFlags( info, false ),
 
         .texture_base     = textures[ 0 ].indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
         .texture_base_ORM = textures[ 0 ].indices[ TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_INDEX ],

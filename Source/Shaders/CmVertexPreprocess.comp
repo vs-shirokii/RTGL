@@ -43,7 +43,6 @@ void main()
     const ShGeometryInstance inst              = geometryInstances[ tlasInstanceIndex ];
 
     const bool isDynamic = ( inst.flags & GEOM_INST_FLAG_IS_DYNAMIC ) != 0;
-    const bool isStatic  = !isDynamic;
 
     if( preprocessMode == VERT_PREPROC_MODE_ONLY_DYNAMIC )
     {

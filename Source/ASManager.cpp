@@ -681,7 +681,7 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
                                          const RgMeshInfo&          mesh,
                                          const RgMeshPrimitiveInfo& primitive,
                                          const PrimitiveUniqueID&   uniqueID,
-                                         bool                       isStatic,
+                                         const bool                 isStatic,
                                          const TextureManager&      textureManager,
                                          GeomInfoManager&           geomInfoManager )
 {
@@ -799,7 +799,7 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
             .model     = RG_MATRIX_TRANSPOSED( mesh.transform ),
             .prevModel = { /* set in geomInfoManager */ },
 
-            .flags = GeomInfoManager::GetPrimitiveFlags( primitive ),
+            .flags = GeomInfoManager::GetPrimitiveFlags( primitive, !isStatic ),
 
             .texture_base = layerTextures[ 0 ].indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
             .texture_base_ORM =
@@ -896,13 +896,6 @@ auto RTGL1::ASManager::MakeVkTLAS( const TlasInstance& tlasInstance,
     };
 
     const auto filter = tlasInstance.flags;
-
-
-    if( filter & FT::CF_DYNAMIC )
-    {
-        // for choosing buffers with dynamic data
-        instance.instanceCustomIndex = INSTANCE_CUSTOM_INDEX_FLAG_DYNAMIC;
-    }
 
 
     if( filter & FT::PV_FIRST_PERSON )

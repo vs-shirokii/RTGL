@@ -273,11 +273,10 @@ CONST = {
     "BINDING_VOLUMETRIC_SAMPLER_PREV"           : 2,
     "BINDING_VOLUMETRIC_ILLUMINATION"           : 3,
     "BINDING_VOLUMETRIC_ILLUMINATION_SAMPLER"   : 4,
-    
-    "INSTANCE_CUSTOM_INDEX_FLAG_DYNAMIC"                : BIT( 0 ),
-    "INSTANCE_CUSTOM_INDEX_FLAG_FIRST_PERSON"           : BIT( 1 ),
-    "INSTANCE_CUSTOM_INDEX_FLAG_FIRST_PERSON_VIEWER"    : BIT( 2 ),
-    "INSTANCE_CUSTOM_INDEX_FLAG_SKY"                    : BIT( 3 ),
+
+    "INSTANCE_CUSTOM_INDEX_FLAG_FIRST_PERSON"           : BIT( 0 ),
+    "INSTANCE_CUSTOM_INDEX_FLAG_FIRST_PERSON_VIEWER"    : BIT( 1 ),
+    "INSTANCE_CUSTOM_INDEX_FLAG_SKY"                    : BIT( 2 ),
 
     "INSTANCE_MASK_WORLD_0"                 : BIT( 0 ),
     "INSTANCE_MASK_WORLD_1"                 : BIT( 1 ),
@@ -330,7 +329,7 @@ CONST = {
     "GEOM_INST_FLAG_EXACT_NORMALS"          : BIT( 19 ),
     "GEOM_INST_FLAG_IGNORE_REFRACT_AFTER"   : BIT( 20 ),
     "GEOM_INST_FLAG_RESERVED_5"             : BIT( 21 ),
-    "GEOM_INST_FLAG_IS_DYNAMIC"             : BIT( 22 ),
+    "GEOM_INST_FLAG_RESERVED_6"             : BIT( 22 ),
     "GEOM_INST_FLAG_THIN_MEDIA"             : BIT( 23 ),
     "GEOM_INST_FLAG_REFRACT"                : BIT( 24 ),
     "GEOM_INST_FLAG_REFLECT"                : BIT( 25 ),
@@ -339,7 +338,7 @@ CONST = {
     "GEOM_INST_FLAG_MEDIA_TYPE_GLASS"       : BIT( 28 ),
     "GEOM_INST_FLAG_GENERATE_NORMALS"       : BIT( 29 ),
     "GEOM_INST_FLAG_INVERTED_NORMALS"       : BIT( 30 ),
-    "GEOM_INST_FLAG_IS_MOVABLE"             : BIT( 31 ),
+    "GEOM_INST_FLAG_IS_DYNAMIC"             : BIT( 31 ),
 
     "SKY_TYPE_COLOR"                        : 0,
     "SKY_TYPE_CUBEMAP"                      : 1,

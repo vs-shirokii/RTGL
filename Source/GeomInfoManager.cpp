@@ -109,7 +109,7 @@ const RgFloat2D* RTGL1::GeomInfoManager::AccessLayerTexCoords( const RgMeshPrimi
     return nullptr;
 }
 
-uint32_t RTGL1::GeomInfoManager::GetPrimitiveFlags( const RgMeshPrimitiveInfo& info )
+uint32_t RTGL1::GeomInfoManager::GetPrimitiveFlags( const RgMeshPrimitiveInfo& info, bool isDynamicVertexData )
 {
     uint32_t f = 0;
 
@@ -180,6 +180,11 @@ uint32_t RTGL1::GeomInfoManager::GetPrimitiveFlags( const RgMeshPrimitiveInfo& i
     if( info.flags & RG_MESH_PRIMITIVE_THIN_MEDIA )
     {
         f |= GEOM_INST_FLAG_THIN_MEDIA;
+    }
+
+    if( isDynamicVertexData )
+    {
+        f |= GEOM_INST_FLAG_IS_DYNAMIC;
     }
 
     return f;

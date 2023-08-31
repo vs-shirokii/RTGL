@@ -311,7 +311,7 @@ ShTriangle getTriangle(int instanceID, int instanceCustomIndex, int localGeometr
 
     const ShGeometryInstance inst = geometryInstances[instanceID];
 
-    const bool isDynamic = (instanceCustomIndex & INSTANCE_CUSTOM_INDEX_FLAG_DYNAMIC) == INSTANCE_CUSTOM_INDEX_FLAG_DYNAMIC;
+    const bool isDynamic = ( ( inst.flags & GEOM_INST_FLAG_IS_DYNAMIC ) != 0 );
 
     if (isDynamic)
     {
@@ -427,12 +427,10 @@ ShTriangle getTriangle(int instanceID, int instanceCustomIndex, int localGeometr
         tr.positions[1] = (inst.model * prevLocalPos[1]).xyz;
         tr.positions[2] = (inst.model * prevLocalPos[2]).xyz;
         
-        const bool isMovable = (inst.flags & GEOM_INST_FLAG_IS_MOVABLE) != 0;
         const bool hasPrevInfo = inst.prevBaseVertexIndex != UINT32_MAX;
 
-        // movable     -- use prev model matrix if exist
-        // non-movable -- use current model matrix
-        if (isMovable && hasPrevInfo)
+        // use prev model matrix if exist
+        if (hasPrevInfo)
         {
             // static geoms' local positions are constant, 
             // only model matrices are changing
@@ -488,13 +486,13 @@ ShTriangle getTriangle(int instanceID, int instanceCustomIndex, int localGeometr
     return tr;
 }
 
-mat3 getOnlyCurPositions(int globalGeometryIndex, int instanceCustomIndex, int primitiveId)
+mat3 getOnlyCurPositions(int globalGeometryIndex, int primitiveId)
 {
     mat3 positions;
 
     const ShGeometryInstance inst = geometryInstances[globalGeometryIndex];
 
-    const bool isDynamic = (instanceCustomIndex & INSTANCE_CUSTOM_INDEX_FLAG_DYNAMIC) == INSTANCE_CUSTOM_INDEX_FLAG_DYNAMIC;
+    const bool isDynamic = ( ( inst.flags & GEOM_INST_FLAG_IS_DYNAMIC ) != 0 );
 
     if (isDynamic)
     {
@@ -518,13 +516,13 @@ mat3 getOnlyCurPositions(int globalGeometryIndex, int instanceCustomIndex, int p
     return positions;
 }
 
-mat3 getOnlyPrevPositions(int globalGeometryIndex, int instanceCustomIndex, int primitiveId)
+mat3 getOnlyPrevPositions(int globalGeometryIndex, int primitiveId)
 {
     mat3 prevPositions;
 
     const ShGeometryInstance inst = geometryInstances[globalGeometryIndex];
 
-    const bool isDynamic = (instanceCustomIndex & INSTANCE_CUSTOM_INDEX_FLAG_DYNAMIC) == INSTANCE_CUSTOM_INDEX_FLAG_DYNAMIC;
+    const bool isDynamic = ( ( inst.flags & GEOM_INST_FLAG_IS_DYNAMIC ) != 0 );
 
     if (isDynamic)
     {
@@ -573,12 +571,11 @@ mat3 getOnlyPrevPositions(int globalGeometryIndex, int instanceCustomIndex, int 
             vec4(getStaticVerticesPositions(vertIndices[2]), 1.0),
         };
 
-        const bool isMovable = (inst.flags & GEOM_INST_FLAG_IS_MOVABLE) != 0;
         const bool hasPrevInfo = inst.prevBaseVertexIndex != UINT32_MAX;
 
         // movable     -- use prev model matrix if exist
         // non-movable -- use current model matrix
-        if (isMovable && hasPrevInfo)
+        if (hasPrevInfo)
         {
             // static geoms' local positions are constant, 
             // only model matrices are changing
@@ -638,7 +635,7 @@ bool unpackPrevVisibilityBuffer(const vec4 v, out vec3 prevPos)
         return false;
     }
 
-    const mat3 prevVerts = getOnlyCurPositions(curFrameGlobalGeomIndex, instCustomIndex, primIndex);
+    const mat3 prevVerts = getOnlyCurPositions(curFrameGlobalGeomIndex, primIndex);
     const vec3 baryCoords = vec3(1.0 - v[2] - v[3], v[2], v[3]);
 
     prevPos = prevVerts * baryCoords;
