@@ -48,13 +48,19 @@ void main()
     uint count = sz.x  / push.stripWidthInPixels;
     uint strip = pix.x / push.stripWidthInPixels;
 
-    float rnd = effect_getRandomSample(ivec2(0, 0), push.startFrameId);
+    float rnd  = effect_getRandomSample( ivec2( 0, 0 ), push.startFrameId );
+    float rnd2 = effect_getRandomSample( ivec2( 0, strip + 1 ), push.startFrameId );
+
+    rnd2 = rnd2 * 2 - 1;
+    rnd2 = 0.15 * rnd2;
 
     float x = strip / float(count) + rnd * 10;
-  
-    const float maxDiff = 0.1f;
-    float wave = maxDiff * sin(20 * x) * sin(10 * x) * sin(100 * x) + maxDiff;
-    
+
+    const float maxDiff = 0.1;
+
+    float rndSin = sin( 20 * x ) * sin( 10 * x ) * sin( 100 * x );
+    float wave   = maxDiff * ( rnd2 + 1.0 + rndSin );
+
     float progress = 
         max(globalUniform.time - push.beginTime, 0.0) / 
         max(push.endTime       - push.beginTime, 0.001);
