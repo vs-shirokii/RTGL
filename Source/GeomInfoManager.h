@@ -116,9 +116,9 @@ private:
     rgl::unordered_map< PrimitiveUniqueID, PrevInfo > idToPrevInfo[ MAX_FRAMES_IN_FLIGHT ];
 
     rgl::unordered_set< PrimitiveUniqueID > staticUniqueIds;
+    rgl::unordered_set< PrimitiveUniqueID > dynamicUniqueIds[ MAX_FRAMES_IN_FLIGHT ];
 
     rgl::unordered_map< PrimitiveUniqueID, ShGeometryInstance > curFrame_IdToInfo;
-    rgl::unordered_set< PrimitiveUniqueID >                     curFrame_dynamicUniqueIds;
 
     TlasIDToUniqueID tlas_prev;
 };

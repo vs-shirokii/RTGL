@@ -355,13 +355,18 @@ void RTGL1::GeomInfoManager::ResetOnlyStatic()
 void RTGL1::GeomInfoManager::PrepareForFrame( uint32_t frameIndex )
 {
     // reset only dynamic
-    for( const auto& idToErase : curFrame_dynamicUniqueIds )
+    for( const auto& idToErase : dynamicUniqueIds[ Utils::PrevFrame( frameIndex ) ] )
     {
         curFrame_IdToInfo.erase( idToErase );
-        // clear history at N-2
+    }
+    assert( curFrame_IdToInfo.size() == staticUniqueIds.size() );
+
+    // clear history at N-2
+    for( const auto& idToErase : dynamicUniqueIds[ frameIndex ] )
+    {
         idToPrevInfo[ frameIndex ].erase( idToErase );
     }
-    curFrame_dynamicUniqueIds.clear();
+    dynamicUniqueIds[ frameIndex ].clear();
 }
 
 void RTGL1::GeomInfoManager::WriteGeomInfo( uint32_t                 frameIndex,
@@ -376,7 +381,7 @@ void RTGL1::GeomInfoManager::WriteGeomInfo( uint32_t                 frameIndex,
     assert( frameIndex < MAX_FRAMES_IN_FLIGHT );
 
     {
-        auto& dstIDs = isStatic ? staticUniqueIds : curFrame_dynamicUniqueIds;
+        auto& dstIDs = isStatic ? staticUniqueIds : dynamicUniqueIds[ frameIndex ];
 
         auto [ iter, isnew ] = dstIDs.insert( geomUniqueID );
         assert( isnew );
@@ -463,6 +468,7 @@ VkBuffer RTGL1::GeomInfoManager::GetMatchPrevBuffer() const
 
 uint32_t RTGL1::GeomInfoManager::GetCount( uint32_t frameIndex ) const
 {
-    assert( curFrame_IdToInfo.size() == staticUniqueIds.size() + curFrame_dynamicUniqueIds.size() );
+    assert( curFrame_IdToInfo.size() ==
+            staticUniqueIds.size() + dynamicUniqueIds[ frameIndex ].size() );
     return static_cast< uint32_t >( curFrame_IdToInfo.size() );
 }
