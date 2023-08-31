@@ -64,7 +64,7 @@ public:
                         bool                     isStatic );
 
 
-    bool CopyFromStaging( VkCommandBuffer cmd, uint32_t frameIndex, TlasIDToUniqueID&& tlas );
+    bool CopyFromStaging( VkCommandBuffer cmd, uint32_t frameIndex, UniqueIDToTlasID&& tlas );
 
 
     VkBuffer GetBuffer() const;
@@ -120,7 +120,7 @@ private:
 
     rgl::unordered_map< PrimitiveUniqueID, ShGeometryInstance > curFrame_IdToInfo;
 
-    TlasIDToUniqueID tlas_prev;
+    UniqueIDToTlasID tlas_prev;
 };
 
 inline RgColor4DPacked32 PackEmissiveFactorAndStrength( RgColor4DPacked32 factor, float strength )

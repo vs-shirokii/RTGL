@@ -996,15 +996,15 @@ auto RTGL1::ASManager::MakeVkTLAS( const TlasInstance& tlasInstance,
 }
 
 
-auto RTGL1::ASManager::MakeTlasIDToUniqueID( bool disableRTGeometry ) const -> TlasIDToUniqueID
+auto RTGL1::ASManager::MakeTlasIDToUniqueID( bool disableRTGeometry ) const -> UniqueIDToTlasID
 {
-    auto all = TlasIDToUniqueID{};
+    auto all = UniqueIDToTlasID{};
     if( !disableRTGeometry )
     {
         all.reserve( curFrame_objects.size() );
-        for( const auto& obj : curFrame_objects )
+        for( uint32_t i = 0; i < curFrame_objects.size(); i++ )
         {
-            all.emplace_back( static_cast< uint32_t >( all.size() ), obj.builtInstance->uniqueID );
+            all[ curFrame_objects[ i ].builtInstance->uniqueID ] = i;
         }
     }
     return all;

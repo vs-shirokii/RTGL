@@ -214,7 +214,7 @@ RTGL1::GeomInfoManager::GeomInfoManager( VkDevice                            _de
 
 bool RTGL1::GeomInfoManager::CopyFromStaging( VkCommandBuffer    cmd,
                                               uint32_t           frameIndex,
-                                              TlasIDToUniqueID&& tlas )
+                                              UniqueIDToTlasID&& tlas )
 {
     auto label = CmdLabel{ cmd, "Copying geom infos" };
 
@@ -239,30 +239,17 @@ bool RTGL1::GeomInfoManager::CopyFromStaging( VkCommandBuffer    cmd,
     auto geominfo_range  = MinMax{};
 
 
-    auto findTlasInstanceIDInCurrentFrame =
-        []( const TlasIDToUniqueID&  cur,
-            const PrimitiveUniqueID& targetUniqueID ) -> std::optional< uint32_t > {
-        for( const auto& [ curTlasInstanceID, uniqueID ] : cur )
-        {
-            if( uniqueID == targetUniqueID )
-            {
-                return curTlasInstanceID;
-            }
-        }
-        return {};
-    };
-
-
     auto prevIndexToCurIndexArr = static_cast< MatchPrevIndexType* >( matchPrevShadow.get() );
     {
-        for( const auto& [ prev, uniqueID ] : tlas_prev )
+        for( const auto& [ uniqueID, prev ] : tlas_prev )
         {
             MatchPrevIndexType src;
             {
-                if( auto cur = findTlasInstanceIDInCurrentFrame( tlas, uniqueID ) )
+                auto foundCurrentIdOfPrev = tlas.find( uniqueID );
+                if( foundCurrentIdOfPrev != tlas.end() )
                 {
                     // save index to access ShGeometryInfo using a previous frame's TLAS Instance ID
-                    src = MatchPrevIndexType( *cur );
+                    src = MatchPrevIndexType( foundCurrentIdOfPrev->second );
                 }
                 else
                 {
@@ -278,7 +265,7 @@ bool RTGL1::GeomInfoManager::CopyFromStaging( VkCommandBuffer    cmd,
 
     auto geomInfos = buffer->GetMappedAs< ShGeometryInstance* >( frameIndex );
     {
-        for( const auto& [ tlasInstanceID, uniqueID ] : tlas )
+        for( const auto& [ uniqueID, tlasInstanceID ] : tlas )
         {
             const ShGeometryInstance* src;
             {

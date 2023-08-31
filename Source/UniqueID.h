@@ -24,7 +24,6 @@
 
 namespace RTGL1
 {
-
 struct PrimitiveUniqueID
 {
     PrimitiveUniqueID( const RgMeshInfo& mesh, const RgMeshPrimitiveInfo& primitive )
@@ -40,9 +39,6 @@ struct PrimitiveUniqueID
     uint64_t objectId;
     uint64_t primitiveIndex;
 };
-
-using TlasIDToUniqueID = std::vector< std::pair< uint32_t, PrimitiveUniqueID > >;
-
 }
 
 namespace std
@@ -50,6 +46,8 @@ namespace std
 template<>
 struct hash< RTGL1::PrimitiveUniqueID >
 {
+    using is_avalanching = void; // mark class as high quality avalanching hash
+
     size_t operator()( const RTGL1::PrimitiveUniqueID& id ) const noexcept
     {
         static auto hashCombine = []( size_t seed, size_t v ) {
@@ -65,4 +63,9 @@ struct hash< RTGL1::PrimitiveUniqueID >
         return h;
     }
 };
+}
+
+namespace RTGL1
+{
+using UniqueIDToTlasID = rgl::unordered_map< PrimitiveUniqueID, uint32_t >;
 }
