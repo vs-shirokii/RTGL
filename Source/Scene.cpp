@@ -102,7 +102,7 @@ void RTGL1::Scene::SubmitForFrame( VkCommandBuffer                         cmd,
     asManager->SubmitDynamicGeometry( makingDynamic, cmd, frameIndex );
 
     // geom infos must be ready before vertex preprocessing
-    auto tlas     = asManager->MakeTlasIDToUniqueID( disableRTGeometry );
+    auto tlas     = asManager->MakeUniqueIDToTlasID( disableRTGeometry );
     auto tlasSize = static_cast< uint32_t >( tlas.size() );
 
     geomInfoMgr->CopyFromStaging( cmd, frameIndex, std::move( tlas ) );
@@ -195,9 +195,11 @@ RTGL1::UploadResult RTGL1::Scene::UploadPrimitive( VkCommandBuffer            cm
         // can be pushed multiple times, avoid that
         if( !alreadyReplacedUniqueObjectIDs.contains( mesh.uniqueObjectID ) )
         {
-            constexpr char animFrameName[] = "frame_0";
+            auto animFrame = replacement->models.size() == 1
+                                 ? &replacement->models.values().at( 0 ).second
+                                 : find_p( replacement->models, "frame_0" );
 
-            if( auto animFrame = find_p( replacement->models, animFrameName ) )
+            if( animFrame )
             {
                 for( uint32_t i = 0; i < animFrame->primitives.size(); i++ )
                 {

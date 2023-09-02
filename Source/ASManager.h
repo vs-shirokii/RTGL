@@ -75,7 +75,7 @@ public:
                            GeomInfoManager&           geomInfoManager );
 
 
-    auto MakeTlasIDToUniqueID( bool disableRTGeometry ) const -> UniqueIDToTlasID;
+    auto MakeUniqueIDToTlasID( bool disableRTGeometry ) const -> UniqueIDToTlasID;
     void BuildTLAS( VkCommandBuffer cmd,
                     uint32_t        frameIndex,
                     uint32_t        uniformData_rayCullMaskWorld,
@@ -106,8 +106,6 @@ private:
     // TODO: rename to BuiltAS
     struct TlasInstance
     {
-        // to index geom infos
-        PrimitiveUniqueID              uniqueID;
         VertexCollectorFilterTypeFlags flags;
         BLASComponent                  blas;
         VertexCollector::UploadResult  geometry;
@@ -154,9 +152,10 @@ private:
     struct Object
     {
         // should be weak_ptr
-        TlasInstance* builtInstance;
-        RgTransform   transform;
-        bool          isStatic;
+        TlasInstance*     builtInstance;
+        PrimitiveUniqueID uniqueID;
+        RgTransform       transform;
+        bool              isStatic;
     };
     std::vector< Object > curFrame_objects;
 

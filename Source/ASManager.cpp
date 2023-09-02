@@ -747,7 +747,6 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
         // NOTE: dedicated allocation, so pointers in asBuilder
         //       are valid until end of the frame
         auto newlyBuilt = new TlasInstance{
-            .uniqueID = uniqueID,
             .flags    = geomFlags,
             .blas     = BLASComponent{ device },
             .geometry = *uploadedData,
@@ -799,6 +798,7 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
     // register the built instance as an instance in this frame
     curFrame_objects.push_back( Object{
         .builtInstance = builtInstance.get(),
+        .uniqueID      = uniqueID,
         .transform     = mesh.transform,
         .isStatic      = isStatic,
     } );
@@ -1012,7 +1012,7 @@ auto RTGL1::ASManager::MakeVkTLAS( const TlasInstance& tlasInstance,
 }
 
 
-auto RTGL1::ASManager::MakeTlasIDToUniqueID( bool disableRTGeometry ) const -> UniqueIDToTlasID
+auto RTGL1::ASManager::MakeUniqueIDToTlasID( bool disableRTGeometry ) const -> UniqueIDToTlasID
 {
     auto all = UniqueIDToTlasID{};
     if( !disableRTGeometry )
@@ -1020,7 +1020,7 @@ auto RTGL1::ASManager::MakeTlasIDToUniqueID( bool disableRTGeometry ) const -> U
         all.reserve( curFrame_objects.size() );
         for( uint32_t i = 0; i < curFrame_objects.size(); i++ )
         {
-            all[ curFrame_objects[ i ].builtInstance->uniqueID ] = i;
+            all[ curFrame_objects[ i ].uniqueID ] = i;
         }
     }
     return all;
@@ -1048,9 +1048,9 @@ void RTGL1::ASManager::BuildTLAS( VkCommandBuffer cmd,
 
             if( !vkTlas )
             {
-                debug::Error( "MakeVkTLAS has failed for UniqueID={}-{}",
-                              obj.builtInstance->uniqueID.objectId,
-                              obj.builtInstance->uniqueID.primitiveIndex );
+                debug::Error( "MakeVkTLAS has failed for UniqueID {}-{}",
+                              obj.uniqueID.objectId,
+                              obj.uniqueID.primitiveIndex );
                 allVkTlas.clear();
                 break;
             }
@@ -1058,7 +1058,7 @@ void RTGL1::ASManager::BuildTLAS( VkCommandBuffer cmd,
             allVkTlas.push_back( *vkTlas );
         }
     }
-    assert( MakeTlasIDToUniqueID( disableRTGeometry ).size() == allVkTlas.size() );
+    assert( MakeUniqueIDToTlasID( disableRTGeometry ).size() == allVkTlas.size() );
 
 
     if( !allVkTlas.empty() )
