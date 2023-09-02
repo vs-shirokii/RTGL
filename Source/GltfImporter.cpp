@@ -885,6 +885,17 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
                             srcNode->name );
         }
 
+        if( result.models.contains( srcNode->name ) )
+        {
+            debug::Warning( "{}: Multiple nodes with the same name: {} (a child node of {}). "
+                            "Ignoring duplicates",
+                            gltfPath,
+                            srcNode->name,
+                            mainNode->name );
+            continue;
+        }
+
+
         const auto primitiveExtra = json_parser::ReadStringAs< PrimitiveExtraInfo >(
             Utils::SafeCstr( srcNode->extras.data ) );
 
