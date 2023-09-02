@@ -339,7 +339,6 @@ bool RTGL1::Scene::InsertPrimitiveInfo( const PrimitiveUniqueID&   uniqueID,
     debug::Warning( "Mesh primitive ({}) with ID ({}->{}): "
                     "Trying to upload but a primitive with the same ID already exists",
                     Utils::SafeCstr( mesh.pMeshName ),
-                    Utils::SafeCstr( primitive.pPrimitiveNameInMesh ),
                     mesh.uniqueObjectID,
                     primitive.primitiveIndexInMesh );
     return false;

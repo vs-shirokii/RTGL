@@ -171,7 +171,6 @@ struct DeepCopyOfPrimitive
         static_assert( std::is_trivially_copyable_v< decltype( pIndices )::value_type > );
 
         // deep copy
-        pPrimitiveNameInMesh = Utils::SafeCstr( c.pPrimitiveNameInMesh );
         pTextureName         = Utils::SafeCstr( c.pTextureName );
         pVertices.assign( fromVertices.begin(), fromVertices.end() );
         pIndices.assign( fromIndices.begin(), fromIndices.end() );
@@ -186,7 +185,6 @@ struct DeepCopyOfPrimitive
         , extTextureLayers( other.extTextureLayers )
         , extPbr( other.extPbr )
         , extAttachedLight( other.extAttachedLight )
-        , pPrimitiveNameInMesh( std::move( other.pPrimitiveNameInMesh ) )
         , pTextureName( std::move( other.pTextureName ) )
         , pVertices( std::move( other.pVertices ) )
         , pIndices( std::move( other.pIndices ) )
@@ -201,8 +199,7 @@ struct DeepCopyOfPrimitive
     {
         assert( other.info.vertexCount == other.pVertices.size() );
         assert( other.info.indexCount == other.pIndices.size() );
-
-        this->pPrimitiveNameInMesh = std::move( other.pPrimitiveNameInMesh );
+        
         this->pTextureName         = std::move( other.pTextureName );
         this->pVertices            = std::move( other.pVertices );
         this->pIndices             = std::move( other.pIndices );
@@ -231,8 +228,7 @@ struct DeepCopyOfPrimitive
     }
 
     std::span< const uint32_t > Indices() const { return { pIndices.begin(), pIndices.end() }; }
-
-    std::string_view PrimitiveNameInMesh() const { return pPrimitiveNameInMesh; }
+    
     std::string_view MaterialName() const { return pTextureName; }
 
     RgFloat4D Color() const { return Utils::UnpackColor4DPacked32( info.color ); }
@@ -258,7 +254,6 @@ struct DeepCopyOfPrimitive
 private:
     static void FixupPointers( DeepCopyOfPrimitive& inout )
     {
-        inout.info.pPrimitiveNameInMesh = inout.pPrimitiveNameInMesh.data();
         inout.info.pTextureName         = inout.pTextureName.data();
         inout.info.pVertices            = inout.pVertices.data();
         inout.info.pIndices             = inout.pIndices.data();
@@ -290,7 +285,6 @@ private:
     std::optional< RgMeshPrimitiveAttachedLightEXT > extAttachedLight;
 
     // to maintain lifetimes
-    std::string                      pPrimitiveNameInMesh;
     std::string                      pTextureName;
     std::vector< RgPrimitiveVertex > pVertices;
     std::vector< uint32_t >          pIndices;
@@ -1358,11 +1352,10 @@ bool PrepareFolder( const std::filesystem::path& gltfPath )
 void RTGL1::GltfExporter::AddPrimitive( const RgMeshInfo&          mesh,
                                         const RgMeshPrimitiveInfo& primitive )
 {
-    if( Utils::IsCstrEmpty( mesh.pMeshName ) ||
-        Utils::IsCstrEmpty( primitive.pPrimitiveNameInMesh ) )
+    if( Utils::IsCstrEmpty( mesh.pMeshName ) )
     {
-        debug::Warning( "Exporter requires mesh primitives to have pMeshName and "
-                        "pPrimitiveNameInMesh specified. Ignoring primitive with ID: {} - {}",
+        debug::Warning( "Exporter requires mesh primitives to specify pMeshName. "
+                        "Ignoring primitive with ID: {} - {}",
                         mesh.uniqueObjectID,
                         primitive.primitiveIndexInMesh );
         return;
@@ -1371,9 +1364,8 @@ void RTGL1::GltfExporter::AddPrimitive( const RgMeshInfo&          mesh,
     if( primitive.indexCount == 0 || primitive.pIndices == nullptr )
     {
         debug::Warning( "Exporter doesn't support primitives without index buffer: "
-                        "{} - {} (with ID: {} - {})",
+                        "{} (with ID: {} - {})",
                         mesh.pMeshName,
-                        primitive.pPrimitiveNameInMesh,
                         mesh.uniqueObjectID,
                         primitive.primitiveIndexInMesh );
         return;

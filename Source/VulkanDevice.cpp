@@ -1022,7 +1022,6 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
                     .objectId       = mesh->uniqueObjectID,
                     .meshName       = Utils::SafeCstr( mesh->pMeshName ),
                     .primitiveIndex = prim.primitiveIndexInMesh,
-                    .primitiveName  = Utils::SafeCstr( prim.pPrimitiveNameInMesh ),
                     .textureName    = Utils::SafeCstr( prim.pTextureName ),
                 } );
                 break;
@@ -1033,7 +1032,6 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
                     .objectId       = mesh->uniqueObjectID,
                     .meshName       = Utils::SafeCstr( mesh->pMeshName ),
                     .primitiveIndex = prim.primitiveIndexInMesh,
-                    .primitiveName  = Utils::SafeCstr( prim.pPrimitiveNameInMesh ),
                     .textureName    = Utils::SafeCstr( prim.pTextureName ),
                 } );
                 break;
@@ -1044,7 +1042,6 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
                     .objectId       = 0,
                     .meshName       = {},
                     .primitiveIndex = prim.primitiveIndexInMesh,
-                    .primitiveName  = Utils::SafeCstr( prim.pPrimitiveNameInMesh ),
                     .textureName    = Utils::SafeCstr( prim.pTextureName ),
                 } );
                 break;

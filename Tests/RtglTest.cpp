@@ -544,7 +544,6 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
                     .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
                     .pNext                = nullptr,
                     .flags                = 0,
-                    .pPrimitiveNameInMesh = srcPrim.texture.c_str(),
                     .primitiveIndexInMesh = srcPrim.indexInMesh,
                     .pVertices            = srcPrim.vertices.data(),
                     .vertexCount          = uint32_t( srcPrim.vertices.size() ),

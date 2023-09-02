@@ -448,7 +448,6 @@ typedef struct RgMeshPrimitiveInfo
     RgStructureType             sType;
     void*                       pNext;
     RgMeshPrimitiveFlags        flags;
-    const char*                 pPrimitiveNameInMesh;
     uint32_t                    primitiveIndexInMesh;
     const RgPrimitiveVertex*    pVertices;
     uint32_t                    vertexCount;

@@ -126,7 +126,6 @@ inline auto MakeMeshPrimitiveInfoAndProcess(
         .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
         .pNext                = nullptr,
         .flags                = primitive.flags,
-        .pPrimitiveNameInMesh = nullptr,
         .primitiveIndexInMesh = index,
         .pVertices            = primitive.vertices.data(),
         .vertexCount          = static_cast< uint32_t >( primitive.vertices.size() ),
