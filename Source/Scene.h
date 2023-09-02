@@ -77,7 +77,7 @@ public:
 
     UploadResult UploadLight( uint32_t         frameIndex,
                               const LightCopy& light,
-                              LightManager*    lightManager,
+                              LightManager&    lightManager,
                               bool             isStatic );
 
     void SubmitStaticLights( uint32_t          frameIndex,
@@ -89,7 +89,8 @@ public:
                    uint32_t                  frameIndex,
                    const GltfImporter&       staticScene,
                    TextureManager&           textureManager,
-                   const TextureMetaManager& textureMeta );
+                   const TextureMetaManager& textureMeta,
+                   LightManager&             lightManager );
 
     const std::shared_ptr< ASManager >&           GetASManager();
     const std::shared_ptr< VertexPreprocessing >& GetVertexPreprocessing();
@@ -146,7 +147,8 @@ public:
                            uint32_t            frameIndex,
                            Scene&              scene,
                            TextureManager&     textureManager,
-                           TextureMetaManager& textureMetaManager );
+                           TextureMetaManager& textureMetaManager,
+                           LightManager&       lightManager );
     void TryExport( TextureManager& textureManager );
 
     void RequestReimport();

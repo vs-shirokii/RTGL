@@ -136,7 +136,7 @@ RTGL1::UploadResult RTGL1::Scene::UploadPrimitive( uint32_t                   fr
 
 RTGL1::UploadResult RTGL1::Scene::UploadLight( uint32_t         frameIndex,
                                                const LightCopy& light,
-                                               LightManager*    lightManager,
+                                               LightManager&    lightManager,
                                                bool             isStatic )
 {
     bool isExportable = light.base.isExportable;
@@ -162,8 +162,7 @@ RTGL1::UploadResult RTGL1::Scene::UploadLight( uint32_t         frameIndex,
             // adding static to light manager is done separately in SubmitStaticLights
             if( !isStatic )
             {
-                assert( lightManager );
-                lightManager->Add( frameIndex, light );
+                lightManager.Add( frameIndex, light );
             }
         },
         light.extension );
@@ -277,7 +276,8 @@ void RTGL1::Scene::NewScene( VkCommandBuffer           cmd,
                              uint32_t                  frameIndex,
                              const GltfImporter&       staticScene,
                              TextureManager&           textureManager,
-                             const TextureMetaManager& textureMeta )
+                             const TextureMetaManager& textureMeta,
+                             LightManager&             lightManager )
 {
     staticUniqueIDs.clear();
     staticMeshNames.clear();
@@ -290,7 +290,35 @@ void RTGL1::Scene::NewScene( VkCommandBuffer           cmd,
 
     if( staticScene )
     {
-        staticScene.UploadToScene( cmd, frameIndex, *this, textureManager, textureMeta );
+        const auto sceneFile =
+            staticScene.ParseFile( cmd, frameIndex, textureManager, textureMeta );
+
+        for( const auto& [ name, m ] : sceneFile.models )
+        {
+            const auto mesh = MakeMeshInfoFrom( name.c_str(), m );
+
+            for( uint32_t i = 0; i < m.primitives.size(); i++ )
+            {
+                MakeMeshPrimitiveInfoAndProcess(
+                    m.primitives[ i ],
+                    i, //
+                    [ & ]( const RgMeshPrimitiveInfo& prim ) {
+                        this->UploadPrimitive( frameIndex, mesh, prim, textureManager, true );
+                    } );
+            }
+        }
+
+        for( const auto& l : sceneFile.lights )
+        {
+            this->UploadLight( frameIndex, l, lightManager, true );
+        }
+
+        if( sceneFile.lights.empty() )
+        {
+            debug::Warning( "Haven't found any lights in {}: "
+                            "Original exportable lights will be used",
+                            staticScene.FilePath() );
+        }
     }
     else
     {
@@ -381,7 +409,8 @@ void RTGL1::SceneImportExport::CheckForNewScene( std::string_view    mapName,
                                                  uint32_t            frameIndex,
                                                  Scene&              scene,
                                                  TextureManager&     textureManager,
-                                                 TextureMetaManager& textureMeta )
+                                                 TextureMetaManager& textureMeta,
+                                                 LightManager&       lightManager )
 {
     if( currentMap != mapName || reimportRequested )
     {
@@ -397,7 +426,8 @@ void RTGL1::SceneImportExport::CheckForNewScene( std::string_view    mapName,
             auto staticScene = GltfImporter(
                 MakeGltfPath( GetImportMapName() ), MakeWorldTransform(), GetWorldScale() );
 
-            scene.NewScene( cmd, frameIndex, staticScene, textureManager, textureMeta );
+            scene.NewScene(
+                cmd, frameIndex, staticScene, textureManager, textureMeta, lightManager );
         }
         debug::Verbose( "New scene is ready" );
     }

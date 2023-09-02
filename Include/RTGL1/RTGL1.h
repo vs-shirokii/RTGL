@@ -473,7 +473,10 @@ typedef struct RgMeshInfo
     const char*                 pMeshName;
     RgTransform                 transform;
     // Set to true, if an object can be exported.
+    // If RG_MESH_INFO_EXPORT_AS_SEPARATE_FILE is set, a separate 3D model file
+    // will be found. If not set, a scene name is used.
     RgBool32                    isExportable;
+    float                       animationTime;
 } RgMeshInfo;
 
 RGAPI RgResult RGCONV rgUploadMeshPrimitive( RgInstance                 instance,

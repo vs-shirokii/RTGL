@@ -21,6 +21,8 @@
 #pragma once
 
 #include "Common.h"
+#include "Containers.h"
+#include "DrawFrameInfo.h"
 
 #include <filesystem>
 
@@ -36,6 +38,34 @@ class TextureManager;
 class TextureMetaManager;
 class LightManager;
 
+struct WholeModelFile
+{
+    struct RawModelData
+    {
+        struct RawPrimitiveData
+        {
+            std::vector< RgPrimitiveVertex >                 vertices;
+            std::vector< uint32_t >                          indices;
+            RgMeshPrimitiveFlags                             flags;
+            std::string                                      textureName;
+            RgColor4DPacked32                                color;
+            float                                            emissive;
+            std::optional< RgMeshPrimitiveAttachedLightEXT > attachedLight;
+            std::optional< RgMeshPrimitivePBREXT >           pbr;
+            std::optional< RgMeshPrimitivePortalEXT >        portal;
+        };
+
+        uint64_t                        uniqueObjectID{ 0 };
+        RgTransform                     meshTransform{};
+        std::vector< RawPrimitiveData > primitives{};
+        std::vector< LightCopy >        localLights{};
+    };
+
+    rgl::string_map< RawModelData > models{};
+    std::vector< LightCopy >        lights{};
+};
+
+
 class GltfImporter
 {
 public:
@@ -49,13 +79,14 @@ public:
     GltfImporter& operator=( const GltfImporter& other )     = delete;
     GltfImporter& operator=( GltfImporter&& other ) noexcept = delete;
 
-    void UploadToScene( VkCommandBuffer           cmd,
-                        uint32_t                  frameIndex,
-                        Scene&                    scene,
-                        TextureManager&           textureManager,
-                        const TextureMetaManager& textureMeta ) const;
+    [[nodiscard]] auto ParseFile( VkCommandBuffer           cmd,
+                                  uint32_t                  frameIndex,
+                                  TextureManager&           textureManager,
+                                  const TextureMetaManager& textureMeta ) const -> WholeModelFile;
 
     explicit operator bool() const;
+
+    [[nodiscard]] auto FilePath() const { return std::string_view{ gltfPath }; }
 
 private:
     cgltf_data*           data;
@@ -63,5 +94,72 @@ private:
     std::filesystem::path gltfFolder;
     float                 oneGameUnitInMeters;
 };
+
+}
+
+
+namespace RTGL1
+{
+
+inline auto MakeMeshInfoFrom( const char* name, const WholeModelFile::RawModelData& model )
+    -> RgMeshInfo
+{
+    return RgMeshInfo{
+        .sType          = RG_STRUCTURE_TYPE_MESH_INFO,
+        .pNext          = nullptr,
+        .flags          = 0,
+        .uniqueObjectID = model.uniqueObjectID,
+        .pMeshName      = name,
+        .transform      = model.meshTransform,
+        .isExportable   = false,
+        .animationTime  = 0,
+    };
+}
+
+template< typename Func >
+inline auto MakeMeshPrimitiveInfoAndProcess(
+    const WholeModelFile::RawModelData::RawPrimitiveData& primitive,
+    uint32_t                                              index,
+    Func&&                                                funcToProcessPrimitive )
+
+{
+    auto dstPrim = RgMeshPrimitiveInfo{
+        .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
+        .pNext                = nullptr,
+        .flags                = primitive.flags,
+        .pPrimitiveNameInMesh = nullptr,
+        .primitiveIndexInMesh = index,
+        .pVertices            = primitive.vertices.data(),
+        .vertexCount          = static_cast< uint32_t >( primitive.vertices.size() ),
+        .pIndices             = primitive.indices.data(),
+        .indexCount           = static_cast< uint32_t >( primitive.indices.size() ),
+        .pTextureName         = primitive.textureName.c_str(),
+        .textureFrame         = 0,
+        .color                = primitive.color,
+        .emissive             = primitive.emissive,
+    };
+
+    auto tryLink =
+        []< typename T >( RgMeshPrimitiveInfo& base, const std::optional< T >& src, T& dst ) {
+            if( src )
+            {
+                dst = *src;
+                assert( dst.sType == detail::TypeToStructureType< T > );
+
+                dst.pNext  = base.pNext;
+                base.pNext = &dst;
+            }
+        };
+
+    auto dstAttachedLight = RgMeshPrimitiveAttachedLightEXT{};
+    auto dstPbr           = RgMeshPrimitivePBREXT{};
+    auto dstPortal        = RgMeshPrimitivePortalEXT{};
+
+    tryLink( dstPrim, primitive.attachedLight, dstAttachedLight );
+    tryLink( dstPrim, primitive.pbr, dstPbr );
+    tryLink( dstPrim, primitive.portal, dstPortal );
+
+    funcToProcessPrimitive( dstPrim );
+}
 
 }

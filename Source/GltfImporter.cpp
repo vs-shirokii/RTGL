@@ -22,8 +22,11 @@
 
 #include "Const.h"
 #include "DrawFrameInfo.h"
+#include "JsonParser.h"
 #include "Matrix.h"
-#include "Scene.h"
+#include "SamplerManager.h"
+#include "TextureManager.h"
+#include "TextureMeta.h"
 #include "Utils.h"
 
 #include "Generated/ShaderCommonC.h"
@@ -31,6 +34,7 @@
 #include "cgltf/cgltf.h"
 
 #include <format>
+#include <span>
 
 namespace RTGL1
 {
@@ -634,6 +638,111 @@ namespace
         };
     }
 
+    auto ParseNodeAsLight( const cgltf_node& node, uint64_t uniqueId, float oneGameUnitInMeters )
+        -> std::optional< LightCopy >
+    {
+        constexpr auto candelaToLuminousFlux = []( float lumensPerSteradian ) {
+            // to lumens
+            return lumensPerSteradian * ( 4 * float( Utils::M_PI ) );
+        };
+
+        auto makeExtras = []( const char* extradata ) {
+            return json_parser::ReadStringAs< RgLightAdditionalEXT >(
+                Utils::SafeCstr( extradata ) );
+        };
+
+        RgTransform tr = MakeRgTransformFromGltfNode( node );
+
+        RgFloat3D position = {
+            tr.matrix[ 0 ][ 3 ],
+            tr.matrix[ 1 ][ 3 ],
+            tr.matrix[ 2 ][ 3 ],
+        };
+
+        RgFloat3D direction = {
+            -tr.matrix[ 0 ][ 2 ],
+            -tr.matrix[ 1 ][ 2 ],
+            -tr.matrix[ 2 ][ 2 ],
+        };
+
+        RgColor4DPacked32 packedColor =
+            Utils::PackColorFromFloat( RG_ACCESS_VEC3( node.light->color ), 1.0f );
+
+        switch( node.light->type )
+        {
+            case cgltf_light_type_directional: {
+                return LightCopy{
+                    .base =
+                        RgLightInfo{
+                            .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
+                            .pNext        = nullptr,
+                            .uniqueID     = uniqueId,
+                            .isExportable = true,
+                        },
+                    .extension =
+                        RgLightDirectionalEXT{
+                            .sType                  = RG_STRUCTURE_TYPE_LIGHT_DIRECTIONAL_EXT,
+                            .pNext                  = nullptr,
+                            .color                  = packedColor,
+                            .intensity              = node.light->intensity, // already in lm/m^2
+                            .direction              = direction,
+                            .angularDiameterDegrees = 0.5f,
+                        },
+                    .additional = makeExtras( node.light->extras.data ),
+                };
+            }
+            case cgltf_light_type_point: {
+                return LightCopy{
+                    .base =
+                        RgLightInfo{
+                            .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
+                            .pNext        = nullptr,
+                            .uniqueID     = uniqueId,
+                            .isExportable = true,
+                        },
+                    .extension =
+                        RgLightSphericalEXT{
+                            .sType = RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT,
+                            .pNext = nullptr,
+                            .color = packedColor,
+                            .intensity =
+                                candelaToLuminousFlux( node.light->intensity ), // from lm/sr to lm
+                            .position = position,
+                            .radius   = 0.05f / oneGameUnitInMeters,
+                        },
+                    .additional = makeExtras( node.light->extras.data ),
+                };
+            }
+            case cgltf_light_type_spot: {
+                return LightCopy{
+                    .base =
+                        RgLightInfo{
+                            .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
+                            .pNext        = nullptr,
+                            .uniqueID     = uniqueId,
+                            .isExportable = true,
+                        },
+                    .extension =
+                        RgLightSpotEXT{
+                            .sType = RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT,
+                            .pNext = nullptr,
+                            .color = packedColor,
+                            .intensity =
+                                candelaToLuminousFlux( node.light->intensity ), // from lm/sr to lm
+                            .position   = position,
+                            .direction  = direction,
+                            .radius     = 0.05f / oneGameUnitInMeters,
+                            .angleOuter = node.light->spot_outer_cone_angle,
+                            .angleInner = node.light->spot_inner_cone_angle,
+                        },
+                    .additional = makeExtras( node.light->extras.data ),
+                };
+            }
+            case cgltf_light_type_invalid:
+            case cgltf_light_type_max_enum: return {};
+            default: assert( 0 ); return {};
+        }
+    }
 }
 }
 
@@ -725,16 +834,15 @@ RTGL1::GltfImporter::~GltfImporter()
     cgltf_free( data );
 }
 
-void RTGL1::GltfImporter::UploadToScene( VkCommandBuffer           cmd,
-                                         uint32_t                  frameIndex,
-                                         Scene&                    scene,
-                                         TextureManager&           textureManager,
-                                         const TextureMetaManager& textureMeta ) const
+auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmd,
+                                     uint32_t                  frameIndex,
+                                     TextureManager&           textureManager,
+                                     const TextureMetaManager& textureMeta ) const -> WholeModelFile
 {
     cgltf_node* mainNode = FindMainRootNode( data );
     if( !mainNode )
     {
-        return;
+        return {};
     }
 
     if( mainNode->mesh || mainNode->light )
@@ -743,6 +851,8 @@ void RTGL1::GltfImporter::UploadToScene( VkCommandBuffer           cmd,
                         gltfPath,
                         mainNode->name );
     }
+
+    auto result = WholeModelFile{};
 
     // meshes
     for( cgltf_node* srcNode : std::span( mainNode->children, mainNode->children_count ) )
@@ -767,17 +877,21 @@ void RTGL1::GltfImporter::UploadToScene( VkCommandBuffer           cmd,
                             mainNode->name,
                             srcNode->name );
         }
-        
-        auto primitiveExtra = json_parser::ReadStringAs< PrimitiveExtraInfo >(
+
+        const auto primitiveExtra = json_parser::ReadStringAs< PrimitiveExtraInfo >(
             Utils::SafeCstr( srcNode->extras.data ) );
-        
-        RgMeshInfo dstMesh = {
-            .sType          = RG_STRUCTURE_TYPE_MESH_INFO,
-            .flags          = 0,
-            .uniqueObjectID = std::hash< std::string_view >{}( srcNode->name ),
-            .pMeshName      = srcNode->name,
-            .transform      = MakeRgTransformFromGltfNode( *srcNode ),
-        };
+
+        const auto [ iter, isNew ] = result.models.emplace(
+            srcNode->name,
+            WholeModelFile::RawModelData{
+                .uniqueObjectID = std::hash< std::string_view >{}( srcNode->name ),
+                .meshTransform  = MakeRgTransformFromGltfNode( *srcNode ),
+                .primitives     = {},
+                .localLights    = {},
+            } );
+
+        assert( isNew );
+        auto& result_dstModel = iter->second;
 
         for( uint32_t i = 0; i < srcNode->mesh->primitives_count; i++ )
         {
@@ -821,14 +935,12 @@ void RTGL1::GltfImporter::UploadToScene( VkCommandBuffer           cmd,
             auto matinfo = UploadTextures(
                 cmd, frameIndex, srcPrim.material, textureManager, gltfFolder, gltfPath );
 
-            auto primname = std::to_string( i );
-            
-            RgMeshPrimitiveInfo dstPrim = {
+            auto dstPrim = RgMeshPrimitiveInfo{
                 .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
                 .pNext                = nullptr,
                 .flags                = dstFlags,
-                .pPrimitiveNameInMesh = primname.c_str(),
-                .primitiveIndexInMesh = uint32_t( i ),
+                .pPrimitiveNameInMesh = nullptr,
+                .primitiveIndexInMesh = UINT32_MAX,
                 .pVertices            = vertices.data(),
                 .vertexCount          = uint32_t( vertices.size() ),
                 .pIndices             = indices.empty() ? nullptr : indices.data(),
@@ -843,71 +955,67 @@ void RTGL1::GltfImporter::UploadToScene( VkCommandBuffer           cmd,
             auto extAttachedLight = std::optional< RgMeshPrimitiveAttachedLightEXT >{};
             auto extPbr           = std::optional< RgMeshPrimitivePBREXT >{};
 
-            textureMeta.Modify( dstPrim, extAttachedLight, extPbr, true );
-            
-            // pbr info from gltf has higher priority, so overwrite
-            extPbr = RgMeshPrimitivePBREXT{
-                .sType            = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_PBR_EXT,
-                .pNext            = nullptr,
-                .metallicDefault  = matinfo.metallicFactor,
-                .roughnessDefault = matinfo.roughnessFactor,
-            };
+            // use texture meta as fallback
+            {
+                textureMeta.Modify( dstPrim, extAttachedLight, extPbr, true );
+            }
 
-            auto tryLink = []< typename T >( RgMeshPrimitiveInfo& base,
-                                             std::optional< T >&  target ) {
-                static_assert( detail::AreLinkable< T, RgMeshPrimitiveInfo > );
-                if( target )
+            // gltf info has a higher priority, so overwrite
+            {
+                extPbr = RgMeshPrimitivePBREXT{
+                    .sType            = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_PBR_EXT,
+                    .pNext            = nullptr,
+                    .metallicDefault  = matinfo.metallicFactor,
+                    .roughnessDefault = matinfo.roughnessFactor,
+                };
+
+                if( primitiveExtra.isGlass )
                 {
-                    target.value().pNext = base.pNext;
-                    base.pNext           = &target.value();
+                    dstPrim.flags |= RG_MESH_PRIMITIVE_GLASS;
                 }
-            };
-            tryLink( dstPrim, extAttachedLight );
-            tryLink( dstPrim, extPbr );
 
+                if( primitiveExtra.isMirror )
+                {
+                    dstPrim.flags |= RG_MESH_PRIMITIVE_MIRROR;
+                }
 
-            if( primitiveExtra.isGlass )
-            {
-                dstPrim.flags |= RG_MESH_PRIMITIVE_GLASS;
+                if( primitiveExtra.isWater )
+                {
+                    dstPrim.flags |= RG_MESH_PRIMITIVE_WATER;
+                }
+
+                if( primitiveExtra.isSkyVisibility )
+                {
+                    dstPrim.flags |= RG_MESH_PRIMITIVE_SKY_VISIBILITY;
+                }
+
+                if( primitiveExtra.isAcid )
+                {
+                    dstPrim.flags |= RG_MESH_PRIMITIVE_ACID;
+                }
+
+                if( primitiveExtra.isThinMedia )
+                {
+                    dstPrim.flags |= RG_MESH_PRIMITIVE_THIN_MEDIA;
+                }
             }
 
-            if( primitiveExtra.isMirror )
-            {
-                dstPrim.flags |= RG_MESH_PRIMITIVE_MIRROR;
-            }
 
-            if( primitiveExtra.isWater )
-            {
-                dstPrim.flags |= RG_MESH_PRIMITIVE_WATER;
-            }
-
-            if( primitiveExtra.isSkyVisibility )
-            {
-                dstPrim.flags |= RG_MESH_PRIMITIVE_SKY_VISIBILITY;
-            }
-
-            if( primitiveExtra.isAcid )
-            {
-                dstPrim.flags |= RG_MESH_PRIMITIVE_ACID;
-            }
-
-            if( primitiveExtra.isThinMedia )
-            {
-                dstPrim.flags |= RG_MESH_PRIMITIVE_THIN_MEDIA;
-            }
-
-            auto r = scene.UploadPrimitive( frameIndex, dstMesh, dstPrim, textureManager, true );
-
-
-            if( !( r == UploadResult::Static || r == UploadResult::ExportableStatic ) )
-            {
-                assert( 0 );
-            }
+            result_dstModel.primitives.push_back( WholeModelFile::RawModelData::RawPrimitiveData{
+                .vertices      = std::move( vertices ),
+                .indices       = std::move( indices ),
+                .flags         = dstPrim.flags,
+                .textureName   = Utils::SafeCstr( dstPrim.pTextureName ),
+                .color         = dstPrim.color,
+                .emissive      = dstPrim.emissive,
+                .attachedLight = extAttachedLight,
+                .pbr           = extPbr,
+                .portal        = {},
+            } );
         }
     }
 
-    bool     foundLight = false;
-    uint64_t counter    = 0;
+    uint64_t counter = 0;
 
     // lights
     for( cgltf_node* srcNode : std::span( mainNode->children, mainNode->children_count ) )
@@ -925,127 +1033,17 @@ void RTGL1::GltfImporter::UploadToScene( VkCommandBuffer           cmd,
                             srcNode->name );
         }
 
-        constexpr auto candelaToLuminousFlux = []( float lumensPerSteradian ) {
-            // to lumens
-            return lumensPerSteradian * ( 4 * float( Utils::M_PI ) );
-        };
-
-        auto makeExtras = []( const char* extradata ) {
-            return json_parser::ReadStringAs< RgLightAdditionalEXT >( Utils::SafeCstr( extradata ) );
-        };
-
-        RgTransform tr = MakeRgTransformFromGltfNode( *srcNode );
-
-        RgFloat3D position = {
-            tr.matrix[ 0 ][ 3 ],
-            tr.matrix[ 1 ][ 3 ],
-            tr.matrix[ 2 ][ 3 ],
-        };
-
-        RgFloat3D direction = {
-            -tr.matrix[ 0 ][ 2 ],
-            -tr.matrix[ 1 ][ 2 ],
-            -tr.matrix[ 2 ][ 2 ],
-        };
-
-        RgColor4DPacked32 packedColor =
-            Utils::PackColorFromFloat( RG_ACCESS_VEC3( srcNode->light->color ), 1.0f );
-
         // TODO: change id
         uint64_t uniqueId = UINT64_MAX - counter;
         counter++;
 
-        switch( srcNode->light->type )
+        if( auto l = ParseNodeAsLight( *srcNode, uniqueId, oneGameUnitInMeters ) )
         {
-            case cgltf_light_type_directional: {
-                auto l = LightCopy{
-                    .base =
-                        RgLightInfo{
-                            .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
-                            .pNext        = nullptr,
-                            .uniqueID     = uniqueId,
-                            .isExportable = true,
-                        },
-                    .extension =
-                        RgLightDirectionalEXT{
-                            .sType     = RG_STRUCTURE_TYPE_LIGHT_DIRECTIONAL_EXT,
-                            .pNext     = nullptr,
-                            .color     = packedColor,
-                            .intensity = srcNode->light->intensity, // already in lm/m^2
-                            .direction = direction,
-                            .angularDiameterDegrees = 0.5f,
-                        },
-                    .additional = makeExtras( srcNode->light->extras.data ),
-                };
-                scene.UploadLight( frameIndex, l, nullptr, true );
-                foundLight = true;
-                break;
-            }
-            case cgltf_light_type_point: {
-                auto l = LightCopy{
-                    .base =
-                        RgLightInfo{
-                            .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
-                            .pNext        = nullptr,
-                            .uniqueID     = uniqueId,
-                            .isExportable = true,
-                        },
-                    .extension =
-                        RgLightSphericalEXT{
-                            .sType     = RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT,
-                            .pNext     = nullptr,
-                            .color     = packedColor,
-                            .intensity = candelaToLuminousFlux(
-                                srcNode->light->intensity ), // from lm/sr to lm
-                            .position = position,
-                            .radius   = 0.05f / oneGameUnitInMeters,
-                        },
-                    .additional = makeExtras( srcNode->light->extras.data ),
-                };
-                scene.UploadLight( frameIndex, l, nullptr, true );
-                foundLight = true;
-                break;
-            }
-            case cgltf_light_type_spot: {
-                auto l = LightCopy{
-                    .base =
-                        RgLightInfo{
-                            .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
-                            .pNext        = nullptr,
-                            .uniqueID     = uniqueId,
-                            .isExportable = true,
-                        },
-                    .extension =
-                        RgLightSpotEXT{
-                            .sType     = RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT,
-                            .pNext     = nullptr,
-                            .color     = packedColor,
-                            .intensity = candelaToLuminousFlux(
-                                srcNode->light->intensity ), // from lm/sr to lm
-                            .position   = position,
-                            .direction  = direction,
-                            .radius     = 0.05f / oneGameUnitInMeters,
-                            .angleOuter = srcNode->light->spot_outer_cone_angle,
-                            .angleInner = srcNode->light->spot_inner_cone_angle,
-                        },
-                    .additional = makeExtras( srcNode->light->extras.data ),
-                };
-                scene.UploadLight( frameIndex, l, nullptr, true );
-                foundLight = true;
-                break;
-            }
-            case cgltf_light_type_invalid:
-            case cgltf_light_type_max_enum:
-            default: break;
+            result.lights.push_back( *l );
         }
     }
 
-    if( !foundLight )
-    {
-        debug::Warning( "Haven't found any lights in {}: "
-                        "Original exportable lights will be used",
-                        gltfPath );
-    }
+    return result;
 }
 
 RTGL1::GltfImporter::operator bool() const

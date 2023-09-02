@@ -127,7 +127,8 @@ VkCommandBuffer RTGL1::VulkanDevice::BeginFrame( const RgStartFrameInfo& info )
                                              frameIndex,
                                              *scene,
                                              *textureManager,
-                                             *textureMetaManager );
+                                             *textureMetaManager,
+                                             *lightManager );
         scene->SubmitStaticLights(
             frameIndex,
             *lightManager,
@@ -1174,7 +1175,6 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
             modified_attachedLight->intensity = Utils::IntensityFromNonMetric(
                 modified_attachedLight->intensity, sceneImportExport->GetWorldScale() );
 #endif
-
             // insert
             modified_attachedLight.value().pNext = modified.pNext;
             modified.pNext                       = &modified_attachedLight.value();
@@ -1414,7 +1414,7 @@ void RTGL1::VulkanDevice::UploadLight( const RgLightInfo* pInfo )
                 light.extension );
 
     UploadResult r =
-        scene->UploadLight( currentFrameState.GetFrameIndex(), light, lightManager.get(), false );
+        scene->UploadLight( currentFrameState.GetFrameIndex(), light, *lightManager, false );
 
     if( auto e = sceneImportExport->TryGetExporter() )
     {
