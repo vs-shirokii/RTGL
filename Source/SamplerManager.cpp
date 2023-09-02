@@ -341,8 +341,6 @@ std::pair< RgSamplerAddressMode, RgSamplerAddressMode > RTGL1::SamplerManager::A
     return r;
 }
 
-RTGL1::SamplerManager::Handle::Handle() : internalIndex( 0 ), hasDynamicSamplerFilter( false ) {}
-
 RTGL1::SamplerManager::Handle::Handle( RgSamplerFilter      filter,
                                        RgSamplerAddressMode addressModeU,
                                        RgSamplerAddressMode addressModeV )

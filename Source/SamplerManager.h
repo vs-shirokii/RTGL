@@ -38,7 +38,7 @@ public:
         friend class SamplerManager;
 
     public:
-        explicit Handle();
+        explicit Handle() = default;
         explicit Handle( RgSamplerFilter      filter,
                          RgSamplerAddressMode addressModeU,
                          RgSamplerAddressMode addressModeV );
@@ -51,8 +51,8 @@ public:
         bool SetIfHasDynamicSamplerFilter( RgSamplerFilter newDynamicSamplerFilter );
 
     private:
-        uint32_t internalIndex;
-        bool     hasDynamicSamplerFilter;
+        uint32_t internalIndex{ 0 };
+        bool     hasDynamicSamplerFilter{ false };
     };
 
 public:
