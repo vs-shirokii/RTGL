@@ -646,9 +646,7 @@ void RTGL1::VulkanDevice::Dev_Draw() const
             }
 
             ImGui::Text( "Import path: %s",
-                         sceneImportExport->MakeGltfPath( sceneImportExport->GetImportMapName() )
-                             .string()
-                             .c_str() );
+                         sceneImportExport->dev_GetSceneImportGltfPath().c_str() );
             ImGui::BeginDisabled( !dev.importName.enable );
             {
                 ImGui::InputText(
@@ -672,9 +670,7 @@ void RTGL1::VulkanDevice::Dev_Draw() const
             ImGui::PopStyleColor( 3 );
 
             ImGui::Text( "Export path: %s",
-                         sceneImportExport->MakeGltfPath( sceneImportExport->GetExportMapName() )
-                             .string()
-                             .c_str() );
+                         sceneImportExport->dev_GetSceneExportGltfPath().c_str() );
             ImGui::BeginDisabled( !dev.exportName.enable );
             {
                 ImGui::InputText(

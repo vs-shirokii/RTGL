@@ -53,7 +53,8 @@ public:
                     const ShaderManager&                    shaderManager,
                     bool                                    enableTexCoordLayer1,
                     bool                                    enableTexCoordLayer2,
-                    bool                                    enableTexCoordLayer3 );
+                    bool                                    enableTexCoordLayer3,
+                    std::filesystem::path                   replacementsFolder );
     ~Scene() = default;
 
     Scene( const Scene& other )                = delete;
@@ -69,10 +70,12 @@ public:
                          bool                                    allowGeometryWithSkyFlag,
                          bool                                    disableRTGeometry );
 
-    UploadResult UploadPrimitive( uint32_t                   frameIndex,
+    UploadResult UploadPrimitive( VkCommandBuffer            cmdForTextures,
+                                  uint32_t                   frameIndex,
                                   const RgMeshInfo&          mesh,
                                   const RgMeshPrimitiveInfo& primitive,
-                                  const TextureManager&      textureManager,
+                                  TextureManager&            textureManager,
+                                  const TextureMetaManager&  textureMeta,
                                   bool                       isStatic );
 
     UploadResult UploadLight( uint32_t         frameIndex,
@@ -99,8 +102,8 @@ public:
         const RgDrawFrameIlluminationParams& params ) const;
 
 private:
-    bool StaticMeshExists( const RgMeshInfo& mesh ) const;
-    bool StaticLightExists( const LightCopy& light ) const;
+    [[nodiscard]] bool StaticMeshExists( const RgMeshInfo& mesh ) const;
+    [[nodiscard]] bool StaticLightExists( const LightCopy& light ) const;
 
     bool InsertPrimitiveInfo( const PrimitiveUniqueID&   uniqueID,
                               bool                       isStatic,
@@ -116,9 +119,14 @@ private:
 
     // Dynamic indices are cleared every frame
     rgl::unordered_set< PrimitiveUniqueID > dynamicUniqueIDs;
+    rgl::unordered_set< uint64_t >          alreadyReplacedUniqueObjectIDs;
+
     rgl::unordered_set< PrimitiveUniqueID > staticUniqueIDs;
-    rgl::unordered_set< std::string >       staticMeshNames;
+    rgl::string_set                         staticMeshNames;
     std::vector< LightCopy >                staticLights;
+
+    std::filesystem::path             replacementsFolder;
+    rgl::string_map< WholeModelFile > replacements;
 
     StaticGeometryToken  makingStatic{};
     DynamicGeometryToken makingDynamic{};
@@ -149,7 +157,7 @@ public:
                            TextureManager&     textureManager,
                            TextureMetaManager& textureMetaManager,
                            LightManager&       lightManager );
-    void TryExport( TextureManager& textureManager );
+    void TryExport( const TextureManager& textureManager );
 
     void RequestReimport();
     void OnFileChanged( FileType type, const std::filesystem::path& filepath ) override;
@@ -164,8 +172,7 @@ public:
     const RgFloat3D& GetWorldForward() const;
     float            GetWorldScale() const;
 
-    std::filesystem::path MakeGltfPath( std::string_view mapName );
-    RgTransform           MakeWorldTransform() const;
+    auto MakeWorldTransform() const -> RgTransform;
 
 private:
     std::filesystem::path scenesFolder;
@@ -213,6 +220,9 @@ public:
             }
         } worldTransform;
     } dev;
+
+    auto dev_GetSceneImportGltfPath() -> std::string;
+    auto dev_GetSceneExportGltfPath() -> std::string;
 };
 
 }

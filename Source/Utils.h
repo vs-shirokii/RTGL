@@ -389,6 +389,20 @@ uint32_t Utils::GetWorkGroupCountT( T1 size, T2 groupSize )
                               static_cast< uint32_t >( groupSize ) );
 }
 
+template< typename M, typename T = typename M::value_type::first_type >
+auto find_p( const M& m, const std::string_view key )
+{
+    using ResultType = const typename M::value_type::second_type*;
+
+    auto found = m.find( key );
+    if( found != m.end() )
+    {
+        static_assert( std::is_same_v< ResultType, decltype( &found->second ) > );
+        return &found->second;
+    }
+    return static_cast< ResultType >( nullptr );
+}
+
 namespace ext
 {
     // https://en.cppreference.com/w/cpp/utility/variant/visit

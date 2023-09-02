@@ -60,6 +60,7 @@ constexpr std::string_view TEXTURES_FOLDER           = "mat";
 constexpr std::string_view TEXTURES_FOLDER_DEV       = "mat_dev";
 constexpr std::string_view TEXTURES_FOLDER_ORIGINALS = "mat_src";
 constexpr std::string_view SCENES_FOLDER             = "scenes";
+constexpr std::string_view REPLACEMENTS_FOLDER       = "replace";
 constexpr std::string_view SHADERS_FOLDER            = "shaders";
 constexpr std::string_view DATABASE_FOLDER           = "data";
 

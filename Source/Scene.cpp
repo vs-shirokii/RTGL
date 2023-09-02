@@ -28,6 +28,20 @@
 
 #include "Generated/ShaderCommonC.h"
 
+namespace
+{
+auto MakeGltfPath( const std::filesystem::path& base, std::string_view meshName )
+    -> std::filesystem::path
+{
+    auto exportName = std::string( meshName );
+
+    std::ranges::replace( exportName, '\\', '_' );
+    std::ranges::replace( exportName, '/', '_' );
+
+    return base / exportName / ( exportName + ".gltf" );
+}
+}
+
 RTGL1::Scene::Scene( VkDevice                                _device,
                      const PhysicalDevice&                   _physDevice,
                      std::shared_ptr< MemoryAllocator >&     _allocator,
@@ -36,7 +50,9 @@ RTGL1::Scene::Scene( VkDevice                                _device,
                      const ShaderManager&                    _shaderManager,
                      bool                                    _enableTexCoordLayer1,
                      bool                                    _enableTexCoordLayer2,
-                     bool                                    _enableTexCoordLayer3 )
+                     bool                                    _enableTexCoordLayer3,
+                     std::filesystem::path                   _replacementsFolder )
+    : replacementsFolder{ std::move( _replacementsFolder ) }
 {
     geomInfoMgr = std::make_shared< GeomInfoManager >( _device, _allocator );
 
@@ -65,6 +81,7 @@ void RTGL1::Scene::PrepareForFrame( VkCommandBuffer cmd,
 
     makingDynamic = asManager->BeginDynamicGeometry( cmd, frameIndex );
     dynamicUniqueIDs.clear();
+    alreadyReplacedUniqueObjectIDs.clear();
 }
 
 void RTGL1::Scene::SubmitForFrame( VkCommandBuffer                         cmd,
@@ -93,26 +110,52 @@ void RTGL1::Scene::SubmitForFrame( VkCommandBuffer                         cmd,
                           disableRTGeometry );
 }
 
-RTGL1::UploadResult RTGL1::Scene::UploadPrimitive( uint32_t                   frameIndex,
+RTGL1::UploadResult RTGL1::Scene::UploadPrimitive( VkCommandBuffer            cmdForTextures,
+                                                   uint32_t                   frameIndex,
                                                    const RgMeshInfo&          mesh,
                                                    const RgMeshPrimitiveInfo& primitive,
-                                                   const TextureManager&      textureManager,
+                                                   TextureManager&            textureManager,
+                                                   const TextureMetaManager&  textureMeta,
                                                    bool                       isStatic )
 {
-    auto uniqueID = PrimitiveUniqueID{ mesh, primitive };
+    const auto uniqueID = PrimitiveUniqueID{ mesh, primitive };
 
-    if( !isStatic )
+    auto replacement = static_cast< const WholeModelFile* >( nullptr );
+
+    if( !ignoreExternalGeometry )
     {
-        if( !ignoreExternalGeometry )
+        if( !isStatic && mesh.isExportable && !Utils::IsCstrEmpty( mesh.pMeshName ) )
         {
-            if( mesh.isExportable )
+            // if dynamic-exportable was already uploaded
+            // (i.e. found a matching mesh inside a static scene)
+            // otherwise, continue as dynamic
+            if( StaticMeshExists( mesh ) )
             {
-                // if dynamic-exportable was already uploaded
-                // (i.e. found a matching mesh inside a static scene)
-                // otherwise, continue as dynamic
-                if( StaticMeshExists( mesh ) )
+                return UploadResult::ExportableStatic;
+            }
+
+            if( mesh.flags & RG_MESH_INFO_EXPORT_AS_SEPARATE_FILE )
+            {
+                replacement = find_p( replacements, mesh.pMeshName );
+
+                if( !replacement )
                 {
-                    return UploadResult::ExportableStatic;
+                    auto tryParse = [ & ]( std::string_view meshName ) {
+                        if( auto i = GltfImporter{ MakeGltfPath( replacementsFolder, meshName ),
+                                                   RG_TRANSFORM_IDENTITY,
+                                                   1.0f } )
+                        {
+                            return i.ParseFile(
+                                cmdForTextures, frameIndex, textureManager, textureMeta );
+                        }
+                        return WholeModelFile{};
+                    };
+
+                    auto [ iter, isNew ] =
+                        replacements.emplace( mesh.pMeshName, tryParse( mesh.pMeshName ) );
+                    assert( isNew );
+
+                    replacement = &iter->second;
                 }
             }
         }
@@ -123,10 +166,61 @@ RTGL1::UploadResult RTGL1::Scene::UploadPrimitive( uint32_t                   fr
         return UploadResult::Fail;
     }
 
-    if( !asManager->AddMeshPrimitive(
-            frameIndex, mesh, primitive, uniqueID, isStatic, textureManager, *geomInfoMgr ) )
+    if( !replacement )
     {
-        return UploadResult::Fail;
+        if( !asManager->AddMeshPrimitive( frameIndex,
+                                          mesh,
+                                          primitive,
+                                          uniqueID,
+                                          isStatic,
+                                          false,
+                                          textureManager,
+                                          *geomInfoMgr ) )
+        {
+            return UploadResult::Fail;
+        }
+    }
+    else
+    {
+        assert( !isStatic );
+
+        // primitives that correspond to one mesh instance
+        // can be pushed multiple times, avoid that
+        if( !alreadyReplacedUniqueObjectIDs.contains( mesh.uniqueObjectID ) )
+        {
+            constexpr char animFrameName[] = "frame_0";
+
+            if( auto animFrame = find_p( replacement->models, animFrameName ) )
+            {
+                for( uint32_t i = 0; i < animFrame->primitives.size(); i++ )
+                {
+                    auto r = MakeMeshPrimitiveInfoAndProcess(
+                        ( animFrame->primitives )[ i ],
+                        i, //
+                        [ & ]( const RgMeshPrimitiveInfo& replacementPrim ) {
+                            if( !asManager->AddMeshPrimitive(
+                                    frameIndex,
+                                    mesh,
+                                    replacementPrim,
+                                    PrimitiveUniqueID{ mesh, replacementPrim },
+                                    false,
+                                    replacement,
+                                    textureManager,
+                                    *geomInfoMgr ) )
+                            {
+                                return UploadResult::Fail;
+                            }
+                            return UploadResult::ExportableDynamic;
+                        } );
+                    assert( r != UploadResult::Fail );
+                }
+            }
+
+            alreadyReplacedUniqueObjectIDs.insert( mesh.uniqueObjectID );
+        }
+
+        assert( mesh.isExportable );
+        return UploadResult::ExportableDynamic;
     }
 
     return isStatic
@@ -282,6 +376,7 @@ void RTGL1::Scene::NewScene( VkCommandBuffer           cmd,
     staticUniqueIDs.clear();
     staticMeshNames.clear();
     staticLights.clear();
+    replacements.clear();
 
     textureManager.FreeAllImportedMaterials( frameIndex );
 
@@ -303,7 +398,8 @@ void RTGL1::Scene::NewScene( VkCommandBuffer           cmd,
                     m.primitives[ i ],
                     i, //
                     [ & ]( const RgMeshPrimitiveInfo& prim ) {
-                        this->UploadPrimitive( frameIndex, mesh, prim, textureManager, true );
+                        this->UploadPrimitive(
+                            cmd, frameIndex, mesh, prim, textureManager, textureMeta, true );
                     } );
             }
         }
@@ -365,14 +461,16 @@ std::optional< uint64_t > RTGL1::Scene::TryGetVolumetricLight(
 
 bool RTGL1::Scene::StaticMeshExists( const RgMeshInfo& mesh ) const
 {
-    if( Utils::IsCstrEmpty( mesh.pMeshName ) )
+    if( !Utils::IsCstrEmpty( mesh.pMeshName ) )
     {
-        return false;
+        // TODO: actually, need to consider RgMeshInfo::uniqueObjectID,
+        // as there might be different instances of the same mesh
+        if( staticMeshNames.contains( mesh.pMeshName ) )
+        {
+            return true;
+        }
     }
-
-    // TODO: actually, need to consider RgMeshInfo::uniqueObjectID,
-    // as there might be different instances of the same mesh
-    return staticMeshNames.contains( std::string( mesh.pMeshName ) );
+    return false;
 }
 
 bool RTGL1::Scene::StaticLightExists( const LightCopy& light ) const
@@ -382,7 +480,6 @@ bool RTGL1::Scene::StaticLightExists( const LightCopy& light ) const
     // TODO: compare ID-s?
     return !staticLights.empty();
 }
-
 
 RTGL1::SceneImportExport::SceneImportExport( std::filesystem::path _scenesFolder,
                                              const RgFloat3D&      _worldUp,
@@ -423,8 +520,9 @@ void RTGL1::SceneImportExport::CheckForNewScene( std::string_view    mapName,
         textureMeta.RereadFromFiles( GetImportMapName() );
 
         {
-            auto staticScene = GltfImporter(
-                MakeGltfPath( GetImportMapName() ), MakeWorldTransform(), GetWorldScale() );
+            auto staticScene = GltfImporter{ MakeGltfPath( scenesFolder, GetImportMapName() ),
+                                             MakeWorldTransform(),
+                                             GetWorldScale() };
 
             scene.NewScene(
                 cmd, frameIndex, staticScene, textureManager, textureMeta, lightManager );
@@ -433,11 +531,11 @@ void RTGL1::SceneImportExport::CheckForNewScene( std::string_view    mapName,
     }
 }
 
-void RTGL1::SceneImportExport::TryExport( TextureManager& textureManager )
+void RTGL1::SceneImportExport::TryExport( const TextureManager& textureManager )
 {
     if( exporter )
     {
-        exporter->ExportToFiles( MakeGltfPath( GetExportMapName() ), textureManager );
+        exporter->ExportToFiles( MakeGltfPath( scenesFolder, GetExportMapName() ), textureManager );
         exporter.reset();
     }
 }
@@ -449,7 +547,7 @@ void RTGL1::SceneImportExport::RequestReimport()
 
 void RTGL1::SceneImportExport::OnFileChanged( FileType type, const std::filesystem::path& filepath )
 {
-    if( type == FileType::GLTF && filepath == MakeGltfPath( GetImportMapName() ) )
+    if( type == FileType::GLTF && filepath == MakeGltfPath( scenesFolder, GetImportMapName() ) )
     {
         debug::Info( "Hot-reloading GLTF..." );
         RequestReimport();
@@ -494,10 +592,30 @@ float RTGL1::SceneImportExport::GetWorldScale() const
     return worldScale;
 }
 
-RgTransform RTGL1::SceneImportExport::MakeWorldTransform() const
+auto RTGL1::SceneImportExport::MakeWorldTransform() const -> RgTransform
 {
     return Utils::MakeTransform(
         Utils::Normalize( GetWorldUp() ), Utils::Normalize( GetWorldForward() ), GetWorldScale() );
+}
+
+namespace
+{
+auto SanitizePathToShow( const std::filesystem::path& p )
+{
+    auto s = p.string();
+    std::ranges::replace( s, '\\', '/' );
+    return s;
+}
+}
+
+auto RTGL1::SceneImportExport::dev_GetSceneImportGltfPath() -> std::string
+{
+    return SanitizePathToShow( MakeGltfPath( scenesFolder, GetImportMapName() ) );
+}
+
+auto RTGL1::SceneImportExport::dev_GetSceneExportGltfPath() -> std::string
+{
+    return SanitizePathToShow( MakeGltfPath( scenesFolder, GetExportMapName() ) );
 }
 
 std::string_view RTGL1::SceneImportExport::GetImportMapName() const
@@ -520,16 +638,6 @@ std::string_view RTGL1::SceneImportExport::GetExportMapName() const
     }
 
     return currentMap;
-}
-
-std::filesystem::path RTGL1::SceneImportExport::MakeGltfPath( std::string_view mapName )
-{
-    auto exportName = std::string( mapName );
-
-    std::ranges::replace( exportName, '\\', '_' );
-    std::ranges::replace( exportName, '/', '_' );
-
-    return scenesFolder / exportName / ( exportName + ".gltf" );
 }
 
 void RTGL1::SceneImportExport::RequestExport()

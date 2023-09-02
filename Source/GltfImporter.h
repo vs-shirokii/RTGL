@@ -79,7 +79,7 @@ public:
     GltfImporter& operator=( const GltfImporter& other )     = delete;
     GltfImporter& operator=( GltfImporter&& other ) noexcept = delete;
 
-    [[nodiscard]] auto ParseFile( VkCommandBuffer           cmd,
+    [[nodiscard]] auto ParseFile( VkCommandBuffer           cmdForTextures,
                                   uint32_t                  frameIndex,
                                   TextureManager&           textureManager,
                                   const TextureMetaManager& textureMeta ) const -> WholeModelFile;
@@ -120,8 +120,7 @@ template< typename Func >
 inline auto MakeMeshPrimitiveInfoAndProcess(
     const WholeModelFile::RawModelData::RawPrimitiveData& primitive,
     uint32_t                                              index,
-    Func&&                                                funcToProcessPrimitive )
-
+    Func&& funcToProcessPrimitive ) -> std::invoke_result_t< Func, const RgMeshPrimitiveInfo& >
 {
     auto dstPrim = RgMeshPrimitiveInfo{
         .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
@@ -159,7 +158,7 @@ inline auto MakeMeshPrimitiveInfoAndProcess(
     tryLink( dstPrim, primitive.pbr, dstPbr );
     tryLink( dstPrim, primitive.portal, dstPortal );
 
-    funcToProcessPrimitive( dstPrim );
+    return funcToProcessPrimitive( dstPrim );
 }
 
 }

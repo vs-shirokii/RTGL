@@ -1072,8 +1072,14 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
         }
         else
         {
-            UploadResult r = scene->UploadPrimitive(
-                currentFrameState.GetFrameIndex(), mesh, prim, *textureManager, false );
+            UploadResult r =
+                scene->UploadPrimitive( currentFrameState.GetCmdBufferForMaterials( cmdManager ),
+                                        currentFrameState.GetFrameIndex(),
+                                        mesh,
+                                        prim,
+                                        *textureManager,
+                                        *textureMetaManager,
+                                        false );
 
             logDebugStat( Devmode::DebugPrimMode::RayTraced, &mesh, prim, r );
 

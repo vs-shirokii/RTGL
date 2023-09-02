@@ -834,7 +834,7 @@ RTGL1::GltfImporter::~GltfImporter()
     cgltf_free( data );
 }
 
-auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmd,
+auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
                                      uint32_t                  frameIndex,
                                      TextureManager&           textureManager,
                                      const TextureMetaManager& textureMeta ) const -> WholeModelFile
@@ -851,6 +851,13 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmd,
                         gltfPath,
                         mainNode->name );
     }
+
+
+    auto hashCombine = []< typename T >( size_t seed, const T& v ) {
+        return seed ^ ( std::hash< T >{}( v ) + 0x9e3779b9 + ( seed << 6 ) + ( seed >> 2 ) );
+    };
+    auto fileNameHash = hashCombine( 0, gltfPath );
+
 
     auto result = WholeModelFile{};
 
@@ -881,14 +888,14 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmd,
         const auto primitiveExtra = json_parser::ReadStringAs< PrimitiveExtraInfo >(
             Utils::SafeCstr( srcNode->extras.data ) );
 
-        const auto [ iter, isNew ] = result.models.emplace(
-            srcNode->name,
-            WholeModelFile::RawModelData{
-                .uniqueObjectID = std::hash< std::string_view >{}( srcNode->name ),
-                .meshTransform  = MakeRgTransformFromGltfNode( *srcNode ),
-                .primitives     = {},
-                .localLights    = {},
-            } );
+        const auto [ iter, isNew ] =
+            result.models.emplace( srcNode->name,
+                                   WholeModelFile::RawModelData{
+                                       .uniqueObjectID = hashCombine( fileNameHash, srcNode->name ),
+                                       .meshTransform  = MakeRgTransformFromGltfNode( *srcNode ),
+                                       .primitives     = {},
+                                       .localLights    = {},
+                                   } );
 
         assert( isNew );
         auto& result_dstModel = iter->second;
@@ -932,8 +939,12 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmd,
             }
 
 
-            auto matinfo = UploadTextures(
-                cmd, frameIndex, srcPrim.material, textureManager, gltfFolder, gltfPath );
+            auto matinfo = UploadTextures( cmdForTextures,
+                                           frameIndex,
+                                           srcPrim.material,
+                                           textureManager,
+                                           gltfFolder,
+                                           gltfPath );
 
             auto dstPrim = RgMeshPrimitiveInfo{
                 .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,

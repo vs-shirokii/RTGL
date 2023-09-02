@@ -624,7 +624,8 @@ RTGL1::StaticGeometryToken RTGL1::ASManager::BeginStaticGeometry()
     vkDeviceWaitIdle( device );
 
     // destroy previous static
-    allStaticInstances.clear();
+    builtStaticInstances.clear();
+    builtReplacements.clear();
     allocStaticGeom->Reset();
 
     erase_if( curFrame_objects, []( const Object& o ) { return o.isStatic; } );
@@ -638,7 +639,7 @@ void RTGL1::ASManager::SubmitStaticGeometry( StaticGeometryToken& token )
     assert( token );
     token = {};
 
-    if( allStaticInstances.empty() )
+    if( builtStaticInstances.empty() )
     {
         return;
     }
@@ -668,7 +669,7 @@ RTGL1::DynamicGeometryToken RTGL1::ASManager::BeginDynamicGeometry( VkCommandBuf
     // dynamic vertices are refilled each frame
     collectorDynamic[ frameIndex ]->Reset();
     // destroy dynamic instances from N-2
-    allDynamicInstances[ frameIndex ].clear();
+    builtDynamicInstances[ frameIndex ].clear();
     allocDynamicGeom->Reset();
 
     erase_if( curFrame_objects, []( const Object& o ) { return !o.isStatic; } );
@@ -682,6 +683,7 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
                                          const RgMeshPrimitiveInfo& primitive,
                                          const PrimitiveUniqueID&   uniqueID,
                                          const bool                 isStatic,
+                                         const bool                 isReplacement,
                                          const TextureManager&      textureManager,
                                          GeomInfoManager&           geomInfoManager )
 {
@@ -691,39 +693,12 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
         return false;
     }
 
-    bool isReplacement = false;
-    if( !isStatic )
-    {
-        if( !Utils::IsCstrEmpty( mesh.pMeshName ) )
-        {
-            if( mesh.flags & RG_MESH_INFO_EXPORT_AS_SEPARATE_FILE )
-            {
-                auto foundReplacement = meshNameToReplacement.find( mesh.pMeshName );
-                if( foundReplacement != meshNameToReplacement.end() )
-                {
-                    isReplacement = true;
-                }
-            }
-        }
-    }
-
-    /*if( disableStaticGeometry )
-    {
-        if( !isDynamic )
-        {
-            continue;
-        }
-    }*/
 
     const auto geomFlags =
         VertexCollectorFilterTypeFlags_GetForGeometry( mesh, primitive, isStatic, isReplacement );
 
-    auto& dstInstances = isStatic ? allStaticInstances : allDynamicInstances[ frameIndex ];
-    auto& dstCollector = isStatic ? collectorStatic : collectorDynamic[ frameIndex ];
-
-
     // if exceeds a limit of geometries in a group with specified geomFlags
-    if( dstInstances.size() >= MAX_INSTANCE_COUNT )
+    if( curFrame_objects.size() >= MAX_INSTANCE_COUNT )
     {
         using FT = VertexCollectorFilterTypeFlagBits;
         debug::Error( "Too many geometries in a group ({}-{}-{}). Limit is {}",
@@ -735,59 +710,98 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
     }
 
 
-    auto uploaded = std::optional< VertexCollector::UploadResult >{};
-    if( !isReplacement )
+    auto builtInstance = std::shared_ptr< TlasInstance >{};
+
+    if( isReplacement )
     {
-        uploaded = dstCollector->Upload( geomFlags, mesh, primitive );
-    }
-    else
-    {
+        assert( mesh.pMeshName );
+        if( auto replacePrims = find_p( builtReplacements, mesh.pMeshName ) )
+        {
+            // TODO: primitiveIndex must be sequential for now,
+            //       do a mapping "primitiveIndex<->builtInstance" instead of vector
+            if( uniqueID.primitiveIndex < replacePrims->size() )
+            {
+                builtInstance = ( *replacePrims )[ uniqueID.primitiveIndex ];
+            }
+            else
+            {
+                assert( 0 );
+            }
+        }
     }
 
-    if( !uploaded )
+    // if AS doesn't exist, create it
+    if( !builtInstance )
     {
-        return false;
-    }
+        auto& dstCollector = isReplacement ? collectorReplacements
+                             : isStatic    ? collectorStatic
+                                           : collectorDynamic[ frameIndex ];
 
-    // make AS
-    {
-        // NOTE: tlasInstance is a unique_ptr, so pointers in asBuilder are valid until end of the
-        // frame
-        auto tlasInstance = std::unique_ptr< TlasInstance >{ new TlasInstance{
+        auto uploadedData = dstCollector->Upload( geomFlags, mesh, primitive );
+        if( !uploadedData )
+        {
+            return false;
+        }
+
+
+        // NOTE: dedicated allocation, so pointers in asBuilder
+        //       are valid until end of the frame
+        auto newlyBuilt = new TlasInstance{
             .uniqueID = uniqueID,
             .flags    = geomFlags,
             .blas     = BLASComponent{ device },
-            .geometry = *uploaded,
-        } };
+            .geometry = *uploadedData,
+        };
         {
-            const bool fastTrace = isStatic ? true : false;
+            const bool fastTrace = isStatic || isReplacement ? true : false;
 
             // get AS size and create buffer for AS
             const auto buildSizes =
                 ASBuilder::GetBottomBuildSizes( device,
-                                                tlasInstance->geometry.asGeometryInfo,
-                                                tlasInstance->geometry.asRange.primitiveCount,
+                                                newlyBuilt->geometry.asGeometryInfo,
+                                                newlyBuilt->geometry.asRange.primitiveCount,
                                                 fastTrace );
-            tlasInstance->blas.RecreateIfNotValid(
-                buildSizes, isStatic ? *allocStaticGeom : *allocDynamicGeom );
+            newlyBuilt->blas.RecreateIfNotValid(
+                buildSizes, isStatic || isReplacement ? *allocStaticGeom : *allocDynamicGeom );
 
             // add BLAS, all passed arrays must be alive until BuildBottomLevel() call
-            asBuilder->AddBLAS( tlasInstance->blas.GetAS(),
-                                { &tlasInstance->geometry.asGeometryInfo, 1 },
-                                { &tlasInstance->geometry.asRange, 1 },
+            asBuilder->AddBLAS( newlyBuilt->blas.GetAS(),
+                                { &newlyBuilt->geometry.asGeometryInfo, 1 },
+                                { &newlyBuilt->geometry.asRange, 1 },
                                 buildSizes,
                                 fastTrace,
                                 false,
                                 false );
         }
 
-        dstInstances.push_back( std::move( tlasInstance ) );
-        curFrame_objects.push_back( Object{
-            .builtInstance = dstInstances.back().get(),
-            .transform     = mesh.transform,
-            .isStatic      = isStatic,
-        } );
+
+        builtInstance = std::shared_ptr< TlasInstance >{ newlyBuilt };
+
+        // save a built instance to a corresponding storage
+        if( isReplacement )
+        {
+            // look at the TODO note above
+            assert( builtReplacements[ mesh.pMeshName ].size() == uniqueID.primitiveIndex );
+
+            builtReplacements[ mesh.pMeshName ].push_back( builtInstance );
+        }
+        else if( isStatic )
+        {
+            builtStaticInstances.push_back( builtInstance );
+        }
+        else
+        {
+            builtDynamicInstances[ frameIndex ].push_back( builtInstance );
+        }
     }
+
+
+    // register the built instance as an instance in this frame
+    curFrame_objects.push_back( Object{
+        .builtInstance = builtInstance.get(),
+        .transform     = mesh.transform,
+        .isStatic      = isStatic,
+    } );
 
     // make geom info
     {
@@ -816,12 +830,14 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
             .colorFactor_layer2 = layerColors[ 2 ],
             .colorFactor_layer3 = layerColors[ 3 ],
 
-            .baseVertexIndex     = uploaded->firstVertex,
-            .baseIndexIndex      = uploaded->firstIndex ? *uploaded->firstIndex : UINT32_MAX,
+            .baseVertexIndex     = builtInstance->geometry.firstVertex,
+            .baseIndexIndex      = builtInstance->geometry.firstIndex
+                                       ? *builtInstance->geometry.firstIndex
+                                       : UINT32_MAX,
             .prevBaseVertexIndex = { /* set in geomInfoManager */ },
             .prevBaseIndexIndex  = { /* set in geomInfoManager */ },
             .vertexCount         = primitive.vertexCount,
-            .indexCount          = uploaded->firstIndex ? primitive.indexCount : UINT32_MAX,
+            .indexCount = builtInstance->geometry.firstIndex ? primitive.indexCount : UINT32_MAX,
 
             .roughnessDefault = pbrInfo ? Utils::Saturate( pbrInfo->roughnessDefault ) : 1.0f,
             .metallicDefault  = pbrInfo ? Utils::Saturate( pbrInfo->metallicDefault ) : 0.0f,
@@ -829,9 +845,9 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
             .emissiveMult = Utils::Saturate( primitive.emissive ),
 
             // values ignored if doesn't exist
-            .firstVertex_Layer1 = uploaded->firstVertex_Layer1,
-            .firstVertex_Layer2 = uploaded->firstVertex_Layer2,
-            .firstVertex_Layer3 = uploaded->firstVertex_Layer3,
+            .firstVertex_Layer1 = builtInstance->geometry.firstVertex_Layer1,
+            .firstVertex_Layer2 = builtInstance->geometry.firstVertex_Layer2,
+            .firstVertex_Layer3 = builtInstance->geometry.firstVertex_Layer3,
         };
 
         // global geometry index -- for indexing in geom infos buffer
