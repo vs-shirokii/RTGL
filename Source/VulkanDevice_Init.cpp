@@ -316,9 +316,10 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
         ovrdFolder / REPLACEMENTS_FOLDER);
 
     sceneImportExport = std::make_shared< SceneImportExport >(
-        ovrdFolder / SCENES_FOLDER, 
-        info->worldUp, 
-        info->worldForward, 
+        ovrdFolder / SCENES_FOLDER,
+        ovrdFolder / REPLACEMENTS_FOLDER,
+        info->worldUp,
+        info->worldForward,
         info->worldScale );
 
     tonemapping = std::make_shared< Tonemapping >(

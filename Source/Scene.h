@@ -139,6 +139,7 @@ class SceneImportExport : public IFileDependency
 {
 public:
     SceneImportExport( std::filesystem::path _scenesFolder,
+                       std::filesystem::path _replacementsFolder,
                        const RgFloat3D&      _worldUp,
                        const RgFloat3D&      _worldForward,
                        const float&          _worldScale );
@@ -163,7 +164,7 @@ public:
     void OnFileChanged( FileType type, const std::filesystem::path& filepath ) override;
 
     void          RequestExport();
-    GltfExporter* TryGetExporter();
+    GltfExporter* TryGetExporter( const char* customExportFileName );
 
     std::string_view GetImportMapName() const;
     std::string_view GetExportMapName() const;
@@ -176,11 +177,12 @@ public:
 
 private:
     std::filesystem::path scenesFolder;
+    std::filesystem::path replacementsFolder;
 
     bool reimportRequested{ false };
 
-    bool                            exportRequested{ false };
-    std::unique_ptr< GltfExporter > exporter{};
+    bool exportRequested{ false };
+    rgl::unordered_map< std::filesystem::path, std::unique_ptr< GltfExporter > > exporters{};
 
     std::string currentMap{};
     RgFloat3D   worldUp;

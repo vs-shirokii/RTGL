@@ -40,6 +40,13 @@ auto MakeGltfPath( const std::filesystem::path& base, std::string_view meshName 
 
     return base / exportName / ( exportName + ".gltf" );
 }
+
+auto SanitizePathToShow( const std::filesystem::path& p )
+{
+    auto s = p.string();
+    std::ranges::replace( s, '\\', '/' );
+    return s;
+}
 }
 
 RTGL1::Scene::Scene( VkDevice                                _device,
@@ -166,7 +173,7 @@ RTGL1::UploadResult RTGL1::Scene::UploadPrimitive( VkCommandBuffer            cm
         return UploadResult::Fail;
     }
 
-    if( !replacement )
+    if( !replacement || replacement->models.empty() )
     {
         if( !asManager->AddMeshPrimitive( frameIndex,
                                           mesh,
@@ -329,7 +336,7 @@ bool RTGL1::Scene::InsertPrimitiveInfo( const PrimitiveUniqueID&   uniqueID,
         }
     }
 
-    debug::Warning( "Mesh primitive ({}->{}) with ID ({}->{}): "
+    debug::Warning( "Mesh primitive ({}) with ID ({}->{}): "
                     "Trying to upload but a primitive with the same ID already exists",
                     Utils::SafeCstr( mesh.pMeshName ),
                     Utils::SafeCstr( primitive.pPrimitiveNameInMesh ),
@@ -482,10 +489,12 @@ bool RTGL1::Scene::StaticLightExists( const LightCopy& light ) const
 }
 
 RTGL1::SceneImportExport::SceneImportExport( std::filesystem::path _scenesFolder,
+                                             std::filesystem::path _replacementsFolder,
                                              const RgFloat3D&      _worldUp,
                                              const RgFloat3D&      _worldForward,
                                              const float&          _worldScale )
     : scenesFolder( std::move( _scenesFolder ) )
+    , replacementsFolder( std::move( _replacementsFolder ) )
     , worldUp( Utils::SafeNormalize( _worldUp, { 0, 1, 0 } ) )
     , worldForward( Utils::SafeNormalize( _worldForward, { 0, 0, 1 } ) )
     , worldScale( std::max( 0.0f, _worldScale ) )
@@ -496,9 +505,11 @@ void RTGL1::SceneImportExport::PrepareForFrame()
 {
     if( exportRequested )
     {
-        exporter        = std::make_unique< GltfExporter >( MakeWorldTransform(), GetWorldScale() );
-        exportRequested = false;
+        exporters.emplace(
+            MakeGltfPath( scenesFolder, GetExportMapName() ).string(),
+            std::make_unique< GltfExporter >( MakeWorldTransform(), GetWorldScale() ) );
     }
+    exportRequested = false;
 }
 
 void RTGL1::SceneImportExport::CheckForNewScene( std::string_view    mapName,
@@ -533,11 +544,11 @@ void RTGL1::SceneImportExport::CheckForNewScene( std::string_view    mapName,
 
 void RTGL1::SceneImportExport::TryExport( const TextureManager& textureManager )
 {
-    if( exporter )
+    for( auto& [ path, e ] : exporters )
     {
-        exporter->ExportToFiles( MakeGltfPath( scenesFolder, GetExportMapName() ), textureManager );
-        exporter.reset();
+        e->ExportToFiles( path, textureManager );
     }
+    exporters.clear();
 }
 
 void RTGL1::SceneImportExport::RequestReimport()
@@ -547,16 +558,46 @@ void RTGL1::SceneImportExport::RequestReimport()
 
 void RTGL1::SceneImportExport::OnFileChanged( FileType type, const std::filesystem::path& filepath )
 {
-    if( type == FileType::GLTF && filepath == MakeGltfPath( scenesFolder, GetImportMapName() ) )
+    if( type == FileType::GLTF )
     {
-        debug::Info( "Hot-reloading GLTF..." );
-        RequestReimport();
+        if( filepath == MakeGltfPath( scenesFolder, GetImportMapName() ) )
+        {
+            debug::Info( "Hot-reloading GLTF..." );
+            RequestReimport();
+        }
+        else if( filepath.string().contains( REPLACEMENTS_FOLDER ) )
+        {
+            debug::Info( "Hot-reloading GLTF..." );
+            debug::Info( "Triggered by: {}", SanitizePathToShow( filepath ) );
+            RequestReimport();
+        }
     }
 }
 
-RTGL1::GltfExporter* RTGL1::SceneImportExport::TryGetExporter()
+RTGL1::GltfExporter* RTGL1::SceneImportExport::TryGetExporter( const char* customExportFileName )
 {
-    return exporter.get();
+    if( exporters.empty() )
+    {
+        return nullptr;
+    }
+
+    if( !Utils::IsCstrEmpty( customExportFileName ) )
+    {
+        if( auto e = find_p( exporters, customExportFileName ) )
+        {
+            return e->get();
+        }
+        else
+        {
+            auto [ iter, isNew ] = exporters.emplace(
+                MakeGltfPath( replacementsFolder, customExportFileName ),
+                std::make_unique< GltfExporter >( MakeWorldTransform(), GetWorldScale() ) );
+
+            return iter->second.get();
+        }
+    }
+
+    return exporters.at( MakeGltfPath( scenesFolder, GetExportMapName() ).string() ).get();
 }
 
 const RgFloat3D& RTGL1::SceneImportExport::GetWorldUp() const
@@ -596,16 +637,6 @@ auto RTGL1::SceneImportExport::MakeWorldTransform() const -> RgTransform
 {
     return Utils::MakeTransform(
         Utils::Normalize( GetWorldUp() ), Utils::Normalize( GetWorldForward() ), GetWorldScale() );
-}
-
-namespace
-{
-auto SanitizePathToShow( const std::filesystem::path& p )
-{
-    auto s = p.string();
-    std::ranges::replace( s, '\\', '/' );
-    return s;
-}
 }
 
 auto RTGL1::SceneImportExport::dev_GetSceneImportGltfPath() -> std::string
