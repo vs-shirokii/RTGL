@@ -86,7 +86,6 @@ namespace detail
     template<> constexpr auto TypeToStructureType< RgLightPolygonalEXT                  > = RG_STRUCTURE_TYPE_LIGHT_POLYGONAL_EXT                  ;
     template<> constexpr auto TypeToStructureType< RgLightSpotEXT                       > = RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT                       ;
     template<> constexpr auto TypeToStructureType< RgOriginalTextureInfo                > = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_INFO                ;
-    template<> constexpr auto TypeToStructureType< RgOriginalCubemapInfo                > = RG_STRUCTURE_TYPE_ORIGINAL_CUBEMAP_INFO                ;
     template<> constexpr auto TypeToStructureType< RgStartFrameInfo                     > = RG_STRUCTURE_TYPE_START_FRAME_INFO                     ;
     template<> constexpr auto TypeToStructureType< RgDrawFrameInfo                      > = RG_STRUCTURE_TYPE_DRAW_FRAME_INFO                      ;
     template<> constexpr auto TypeToStructureType< RgCameraInfo                         > = RG_STRUCTURE_TYPE_CAMERA_INFO                          ;
@@ -128,7 +127,6 @@ namespace detail
     static_assert( CheckMembers< RgLightPolygonalEXT >() );
     static_assert( CheckMembers< RgLightSpotEXT >() );
     static_assert( CheckMembers< RgOriginalTextureInfo >() );
-    static_assert( CheckMembers< RgOriginalCubemapInfo >() );
     static_assert( CheckMembers< RgStartFrameInfo >() );
     static_assert( CheckMembers< RgDrawFrameInfo >() );
     static_assert( CheckMembers< RgCameraInfo >() );

@@ -36,6 +36,24 @@
 namespace RTGL1
 {
 
+
+// Was in the main API
+typedef struct RgOriginalCubemapInfo
+{
+    RgStructureType sType;
+    void*           pNext;
+    const char*     pTextureName;
+    // R8G8B8A8 pixel data. Each must be (sideSize * sideSize * 4) bytes.
+    const void*     pPixelsPositiveX;
+    const void*     pPixelsNegativeX;
+    const void*     pPixelsPositiveY;
+    const void*     pPixelsNegativeY;
+    const void*     pPixelsPositiveZ;
+    const void*     pPixelsNegativeZ;
+    uint32_t        sideSize;
+} RgOriginalCubemapInfo;
+
+
 class CubemapManager
 {
 public:
