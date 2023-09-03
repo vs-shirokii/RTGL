@@ -207,6 +207,9 @@ add_library(RayTracedGL1 SHARED
     ${KTXSources}
     ${PublicHeaders}
 )
+set_target_properties(RayTracedGL1 PROPERTIES
+    OUTPUT_NAME "RTGL1"
+)
 
 # KTX
 target_include_directories(RayTracedGL1 PRIVATE "Source/KTX/include")
