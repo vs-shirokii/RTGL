@@ -295,7 +295,7 @@ namespace
 
 
         auto primVertices = std::vector< RgPrimitiveVertex >( *vertexCount );
-        auto defaultColor = std::optional( rgUtilPackColorByte4D( 255, 255, 255, 255 ) );
+        auto defaultColor = std::optional( Utils::PackColor( 255, 255, 255, 255 ) );
 
         for( const cgltf_attribute& attr : attrSpan )
         {

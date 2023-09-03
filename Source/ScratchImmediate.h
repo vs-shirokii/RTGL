@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include "Utils.h"
+
 #include <cassert>
 #include <optional>
 #include <span>
@@ -114,7 +116,7 @@ private:
         .normal   = { 0.0f, 1.0f, 0.0f },
         .tangent  = { 0.0f, 0.0f, 1.0f },
         .texCoord = { 0.0f, 0.0f },
-        .color    = rgUtilPackColorByte4D( 255, 255, 255, 255 ),
+        .color    = Utils::PackColor( 255, 255, 255, 255 ),
     };
     std::optional< RgUtilImScratchTopology > accumTopology;
     std::optional< RgFloat2D >               accumTexLayer1;
