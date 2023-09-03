@@ -44,10 +44,6 @@ void FUNC_NAME (const ShGeometryInstance inst)
     // -1 if normals should be inverted
     const float normalSign = float((inst.flags & GEOM_INST_FLAG_INVERTED_NORMALS) == 0) * 2.0 - 1.0;
 
-    const mat4 model = inst.model;
-    const mat3 model3 = mat3(model);
-
-
     if (useIndices)
     {
         for (uint tri = 0; tri < inst.indexCount / 3; tri++)

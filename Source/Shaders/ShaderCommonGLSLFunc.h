@@ -121,6 +121,30 @@ void unpackGeometryAndPrimitiveIndex(uint geomAndPrimIndex, out int geometryInde
     geometryIndex = 0;
 }
 
+vec3 transformBy( const ShGeometryInstance inst, const vec4 v )
+{
+    // clang-format off
+    return mat4x3(
+        inst.model_0.x, inst.model_1.x, inst.model_2.x, // column 1
+        inst.model_0.y, inst.model_1.y, inst.model_2.y, // column 2
+        inst.model_0.z, inst.model_1.z, inst.model_2.z, // column 3
+        inst.model_0.w, inst.model_1.w, inst.model_2.w  // column 3
+        ) * v;
+    // clang-format on
+}
+
+vec3 transformBy_prev( const ShGeometryInstance inst, const vec4 v )
+{
+    // clang-format off
+    return mat4x3(
+        inst.prevModel_0.x, inst.prevModel_1.x, inst.prevModel_2.x, // column 1
+        inst.prevModel_0.y, inst.prevModel_1.y, inst.prevModel_2.y, // column 2
+        inst.prevModel_0.z, inst.prevModel_1.z, inst.prevModel_2.z, // column 3
+        inst.prevModel_0.w, inst.prevModel_1.w, inst.prevModel_2.w  // column 3
+        ) * v;
+    // clang-format on
+}
+
 
 
 #ifdef DESC_SET_GLOBAL_UNIFORM

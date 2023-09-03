@@ -85,7 +85,9 @@ public:
 private:
     struct PrevInfo
     {
-        float    model[ 16 ];
+        float    model_0[ 4 ];
+        float    model_1[ 4 ];
+        float    model_2[ 4 ];
         uint32_t baseVertexIndex;
         uint32_t baseIndexIndex;
         uint32_t vertexCount;

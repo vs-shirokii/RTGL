@@ -368,7 +368,11 @@ void RTGL1::GeomInfoManager::WriteGeomInfo( uint32_t                 frameIndex,
         // copy data from previous frame to current ShGeometryInstance
         src.prevBaseVertexIndex = prev->baseVertexIndex;
         src.prevBaseIndexIndex  = prev->baseIndexIndex;
-        memcpy( src.prevModel, prev->model, sizeof( float ) * 16 );
+        static_assert( sizeof( src.prevModel_0 ) == sizeof( float ) * 4 );
+        static_assert( sizeof( prev->model_0 ) == sizeof( float ) * 4 );
+        memcpy( src.prevModel_0, prev->model_0, sizeof( src.prevModel_0 ) );
+        memcpy( src.prevModel_1, prev->model_1, sizeof( src.prevModel_1 ) );
+        memcpy( src.prevModel_2, prev->model_2, sizeof( src.prevModel_2 ) );
     }
     else
     {
@@ -426,9 +430,11 @@ void RTGL1::GeomInfoManager::WritePrevForNextFrame( const PrimitiveUniqueID&  ge
             .vertexCount     = src.vertexCount,
             .indexCount      = src.indexCount,
         };
-        static_assert( sizeof dst.model == sizeof( float ) * 16 );
-        static_assert( sizeof src.model == sizeof( float ) * 16 );
-        memcpy( dst.model, src.model, sizeof( float ) * 16 );
+        static_assert( sizeof dst.model_0 == sizeof( float ) * 4 );
+        static_assert( sizeof src.model_0 == sizeof( float ) * 4 );
+        memcpy( dst.model_0, src.model_0, sizeof( src.model_0 ) );
+        memcpy( dst.model_1, src.model_1, sizeof( src.model_1 ) );
+        memcpy( dst.model_2, src.model_2, sizeof( src.model_2 ) );
     }
 }
 

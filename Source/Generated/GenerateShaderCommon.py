@@ -614,8 +614,12 @@ GLOBAL_UNIFORM_STRUCT = [
 ]
 
 GEOM_INSTANCE_STRUCT = [
-    (TYPE_FLOAT32,     44,      "model",                1),
-    (TYPE_FLOAT32,     44,      "prevModel",            1),
+    (TYPE_FLOAT32,      4,      "model_0",              1),
+    (TYPE_FLOAT32,      4,      "model_1",              1),
+    (TYPE_FLOAT32,      4,      "model_2",              1),
+    (TYPE_FLOAT32,      4,      "prevModel_0",          1),
+    (TYPE_FLOAT32,      4,      "prevModel_1",          1),
+    (TYPE_FLOAT32,      4,      "prevModel_2",          1),
 
     (TYPE_UINT32,       1,      "flags",                1),
     (TYPE_UINT32,       1,      "texture_base",         1),
@@ -629,7 +633,7 @@ GEOM_INSTANCE_STRUCT = [
     (TYPE_UINT32,       1,      "colorFactor_base",     1),
     (TYPE_UINT32,       1,      "colorFactor_layer1",   1),
     (TYPE_UINT32,       1,      "colorFactor_layer2",   1),
-    (TYPE_UINT32,       1,      "colorFactor_layer3", 1),
+    (TYPE_UINT32,       1,      "colorFactor_layer3",   1),
 
     (TYPE_UINT32,       1,      "baseVertexIndex",      1),
     (TYPE_UINT32,       1,      "baseIndexIndex",       1),
@@ -645,16 +649,6 @@ GEOM_INSTANCE_STRUCT = [
     (TYPE_UINT32,       1,      "firstVertex_Layer1",   1),
     (TYPE_UINT32,       1,      "firstVertex_Layer2",   1),
     (TYPE_UINT32,       1,      "firstVertex_Layer3",   1),
-
-    (TYPE_UINT32,       1,      "_unused3",             1),
-    (TYPE_UINT32,       1,      "_unused4",             1),
-    (TYPE_UINT32,       1,      "_unused5",             1),
-    (TYPE_UINT32,       1,      "_unused6",             1),
-
-    (TYPE_UINT32,       1,      "_unused7",             1),
-    (TYPE_UINT32,       1,      "_unused8",             1),
-    (TYPE_UINT32,       1,      "_unused9",             1),
-    (TYPE_UINT32,       1,      "_unused10",            1),
 ]
 
 # TODO: make more compact

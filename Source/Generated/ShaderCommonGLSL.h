@@ -292,8 +292,12 @@ struct ShGlobalUniform
 
 struct ShGeometryInstance
 {
-    mat4 model;
-    mat4 prevModel;
+    vec4 model_0;
+    vec4 model_1;
+    vec4 model_2;
+    vec4 prevModel_0;
+    vec4 prevModel_1;
+    vec4 prevModel_2;
     uint flags;
     uint texture_base;
     uint texture_base_ORM;
@@ -318,14 +322,6 @@ struct ShGeometryInstance
     uint firstVertex_Layer1;
     uint firstVertex_Layer2;
     uint firstVertex_Layer3;
-    uint _unused3;
-    uint _unused4;
-    uint _unused5;
-    uint _unused6;
-    uint _unused7;
-    uint _unused8;
-    uint _unused9;
-    uint _unused10;
 };
 
 struct ShTonemapping

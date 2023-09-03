@@ -812,8 +812,13 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
         const auto layerColors   = textureManager.GetColorForLayers( primitive );
 
         auto geomInfo = ShGeometryInstance{
-            .model     = RG_MATRIX_TRANSPOSED( mesh.transform ),
-            .prevModel = { /* set in geomInfoManager */ },
+            .model_0 = { RG_ACCESS_VEC4( mesh.transform.matrix[ 0 ] ) },
+            .model_1 = { RG_ACCESS_VEC4( mesh.transform.matrix[ 1 ] ) },
+            .model_2 = { RG_ACCESS_VEC4( mesh.transform.matrix[ 2 ] ) },
+
+            .prevModel_0 = { /* set in geomInfoManager */ },
+            .prevModel_1 = { /* set in geomInfoManager */ },
+            .prevModel_2 = { /* set in geomInfoManager */ },
 
             .flags = GeomInfoManager::GetPrimitiveFlags( primitive, !isStatic && !isReplacement ),
 

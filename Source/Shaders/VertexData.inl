@@ -350,33 +350,27 @@ ShTriangle getTriangle(int instanceID, int instanceCustomIndex, int localGeometr
         }
 
         // to world space
-        tr.positions[0] = (inst.model * vec4(tr.positions[0], 1.0)).xyz;
-        tr.positions[1] = (inst.model * vec4(tr.positions[1], 1.0)).xyz;
-        tr.positions[2] = (inst.model * vec4(tr.positions[2], 1.0)).xyz;
-        
+        tr.positions[ 0 ] = transformBy( inst, vec4( tr.positions[ 0 ], 1.0 ) );
+        tr.positions[ 1 ] = transformBy( inst, vec4( tr.positions[ 1 ], 1.0 ) );
+        tr.positions[ 2 ] = transformBy( inst, vec4( tr.positions[ 2 ], 1.0 ) );
+
         // dynamic     -- use prev model matrix and prev positions if exist
         const bool hasPrevInfo = inst.prevBaseVertexIndex != UINT32_MAX;
 
-        if (hasPrevInfo)
+        if( hasPrevInfo )
         {
-            const uvec3 prevVertIndices = getPrevVertIndicesDynamic(inst.prevBaseVertexIndex, inst.prevBaseIndexIndex, primitiveId);
+            const uvec3 prevVertIndices = getPrevVertIndicesDynamic(
+                inst.prevBaseVertexIndex, inst.prevBaseIndexIndex, primitiveId );
 
-            const vec4 prevLocalPos[] =
-            {
-                vec4(getPrevDynamicVerticesPositions(prevVertIndices[0]), 1.0),
-                vec4(getPrevDynamicVerticesPositions(prevVertIndices[1]), 1.0),
-                vec4(getPrevDynamicVerticesPositions(prevVertIndices[2]), 1.0)
-            };
-
-            tr.prevPositions[0] = (inst.prevModel * prevLocalPos[0]).xyz;
-            tr.prevPositions[1] = (inst.prevModel * prevLocalPos[1]).xyz;
-            tr.prevPositions[2] = (inst.prevModel * prevLocalPos[2]).xyz;
+            tr.prevPositions[ 0 ] = transformBy_prev( inst, vec4( getPrevDynamicVerticesPositions( prevVertIndices[ 0 ] ), 1.0 ) );
+            tr.prevPositions[ 1 ] = transformBy_prev( inst, vec4( getPrevDynamicVerticesPositions( prevVertIndices[ 1 ] ), 1.0 ) );
+            tr.prevPositions[ 2 ] = transformBy_prev( inst, vec4( getPrevDynamicVerticesPositions( prevVertIndices[ 2 ] ), 1.0 ) );
         }
         else
         {
-            tr.prevPositions[0] = tr.positions[0];
-            tr.prevPositions[1] = tr.positions[1];
-            tr.prevPositions[2] = tr.positions[2];
+            tr.prevPositions[ 0 ] = tr.positions[ 0 ];
+            tr.prevPositions[ 1 ] = tr.positions[ 1 ];
+            tr.prevPositions[ 2 ] = tr.positions[ 2 ];
         }
     }
     else
@@ -415,34 +409,33 @@ ShTriangle getTriangle(int instanceID, int instanceCustomIndex, int localGeometr
             tr.layerTexCoord[ 3 ][ 2 ] = g_staticTexCoords_Layer3[ vertIndices[ 2 ] ];
         }
 
-        const vec4 prevLocalPos[] =
-        {
-            vec4(tr.positions[0], 1.0),
-            vec4(tr.positions[1], 1.0),
-            vec4(tr.positions[2], 1.0),
+        const vec3 localPos[] = {
+            tr.positions[ 0 ],
+            tr.positions[ 1 ],
+            tr.positions[ 2 ],
         };
 
         // to world space
-        tr.positions[0] = (inst.model * prevLocalPos[0]).xyz;
-        tr.positions[1] = (inst.model * prevLocalPos[1]).xyz;
-        tr.positions[2] = (inst.model * prevLocalPos[2]).xyz;
-        
+        tr.positions[ 0 ] = transformBy( inst, vec4( localPos[ 0 ], 1.0 ) );
+        tr.positions[ 1 ] = transformBy( inst, vec4( localPos[ 1 ], 1.0 ) );
+        tr.positions[ 2 ] = transformBy( inst, vec4( localPos[ 2 ], 1.0 ) );
+
         const bool hasPrevInfo = inst.prevBaseVertexIndex != UINT32_MAX;
 
         // use prev model matrix if exist
-        if (hasPrevInfo)
+        if( hasPrevInfo )
         {
-            // static geoms' local positions are constant, 
+            // static geoms' local positions are constant,
             // only model matrices are changing
-            tr.prevPositions[0] = (inst.prevModel * prevLocalPos[0]).xyz;
-            tr.prevPositions[1] = (inst.prevModel * prevLocalPos[1]).xyz;
-            tr.prevPositions[2] = (inst.prevModel * prevLocalPos[2]).xyz;
+            tr.prevPositions[ 0 ] = transformBy_prev( inst, vec4( localPos[ 0 ], 1.0 ) );
+            tr.prevPositions[ 1 ] = transformBy_prev( inst, vec4( localPos[ 1 ], 1.0 ) );
+            tr.prevPositions[ 2 ] = transformBy_prev( inst, vec4( localPos[ 2 ], 1.0 ) );
         }
         else
         {
-            tr.prevPositions[0] = tr.positions[0];
-            tr.prevPositions[1] = tr.positions[1];
-            tr.prevPositions[2] = tr.positions[2];
+            tr.prevPositions[ 0 ] = tr.positions[ 0 ];
+            tr.prevPositions[ 1 ] = tr.positions[ 1 ];
+            tr.prevPositions[ 2 ] = tr.positions[ 2 ];
         }
     }
 
@@ -471,13 +464,11 @@ ShTriangle getTriangle(int instanceID, int instanceCustomIndex, int localGeometr
     tr.emissiveTexture = inst.texture_base_E;
 
     {
-        const mat3 model3 = mat3(inst.model);
-
         // to world space
-        tr.normals[0] = model3 * tr.normals[0];
-        tr.normals[1] = model3 * tr.normals[1];
-        tr.normals[2] = model3 * tr.normals[2];
-        tr.tangent.xyz = model3 * tr.tangent.xyz;
+        tr.normals[ 0 ] = transformBy( inst, vec4( tr.normals[ 0 ], 0.0 ) );
+        tr.normals[ 1 ] = transformBy( inst, vec4( tr.normals[ 1 ], 0.0 ) );
+        tr.normals[ 2 ] = transformBy( inst, vec4( tr.normals[ 2 ], 0.0 ) );
+        tr.tangent.xyz  = transformBy( inst, vec4( tr.tangent.xyz, 0.0 ) );
     }
 
     tr.geometryInstanceFlags = inst.flags;
@@ -499,99 +490,21 @@ mat3 getOnlyCurPositions(int globalGeometryIndex, int primitiveId)
         const uvec3 vertIndices = getVertIndicesDynamic(inst.baseVertexIndex, inst.baseIndexIndex, primitiveId);
 
         // to world space
-        positions[0] = (inst.model * vec4(getDynamicVerticesPositions(vertIndices[0]), 1.0)).xyz;
-        positions[1] = (inst.model * vec4(getDynamicVerticesPositions(vertIndices[1]), 1.0)).xyz;
-        positions[2] = (inst.model * vec4(getDynamicVerticesPositions(vertIndices[2]), 1.0)).xyz;
+        positions[0] = transformBy(inst, vec4(getDynamicVerticesPositions(vertIndices[0]), 1.0));
+        positions[1] = transformBy(inst, vec4(getDynamicVerticesPositions(vertIndices[1]), 1.0));
+        positions[2] = transformBy(inst, vec4(getDynamicVerticesPositions(vertIndices[2]), 1.0));
     }
     else
     {
         const uvec3 vertIndices = getVertIndicesStatic(inst.baseVertexIndex, inst.baseIndexIndex, primitiveId);
 
         // to world space
-        positions[0] = (inst.model * vec4(getStaticVerticesPositions(vertIndices[0]), 1.0)).xyz;
-        positions[1] = (inst.model * vec4(getStaticVerticesPositions(vertIndices[1]), 1.0)).xyz;
-        positions[2] = (inst.model * vec4(getStaticVerticesPositions(vertIndices[2]), 1.0)).xyz;
+        positions[0] = transformBy(inst, vec4(getStaticVerticesPositions(vertIndices[0]), 1.0));
+        positions[1] = transformBy(inst, vec4(getStaticVerticesPositions(vertIndices[1]), 1.0));
+        positions[2] = transformBy(inst, vec4(getStaticVerticesPositions(vertIndices[2]), 1.0));
     }
     
     return positions;
-}
-
-mat3 getOnlyPrevPositions(int globalGeometryIndex, int primitiveId)
-{
-    mat3 prevPositions;
-
-    const ShGeometryInstance inst = geometryInstances[globalGeometryIndex];
-
-    const bool isDynamic = ( ( inst.flags & GEOM_INST_FLAG_IS_DYNAMIC ) != 0 );
-
-    if (isDynamic)
-    {
-        // dynamic     -- use prev model matrix and prev positions if exist
-        const bool hasPrevInfo = inst.prevBaseVertexIndex != UINT32_MAX;
-
-        if (hasPrevInfo)
-        {
-            const uvec3 prevVertIndices = getPrevVertIndicesDynamic(inst.prevBaseVertexIndex, inst.prevBaseIndexIndex, primitiveId);
-
-            const vec4 prevLocalPos[] =
-            {
-                vec4(getPrevDynamicVerticesPositions(prevVertIndices[0]), 1.0),
-                vec4(getPrevDynamicVerticesPositions(prevVertIndices[1]), 1.0),
-                vec4(getPrevDynamicVerticesPositions(prevVertIndices[2]), 1.0)
-            };
-
-            prevPositions[0] = (inst.prevModel * prevLocalPos[0]).xyz;
-            prevPositions[1] = (inst.prevModel * prevLocalPos[1]).xyz;
-            prevPositions[2] = (inst.prevModel * prevLocalPos[2]).xyz;
-        }
-        else
-        {
-            const uvec3 vertIndices = getVertIndicesDynamic(inst.baseVertexIndex, inst.baseIndexIndex, primitiveId);
-            
-            const vec4 localPos[] =
-            {
-                vec4(getDynamicVerticesPositions(vertIndices[0]), 1.0),
-                vec4(getDynamicVerticesPositions(vertIndices[1]), 1.0),
-                vec4(getDynamicVerticesPositions(vertIndices[2]), 1.0)
-            };
-
-            prevPositions[0] = (inst.model * localPos[0]).xyz;
-            prevPositions[1] = (inst.model * localPos[1]).xyz;
-            prevPositions[2] = (inst.model * localPos[2]).xyz;
-        }
-    }
-    else
-    {
-        const uvec3 vertIndices = getVertIndicesStatic(inst.baseVertexIndex, inst.baseIndexIndex, primitiveId);
-        
-        const vec4 localPos[] =
-        {
-            vec4(getStaticVerticesPositions(vertIndices[0]), 1.0),
-            vec4(getStaticVerticesPositions(vertIndices[1]), 1.0),
-            vec4(getStaticVerticesPositions(vertIndices[2]), 1.0),
-        };
-
-        const bool hasPrevInfo = inst.prevBaseVertexIndex != UINT32_MAX;
-
-        // movable     -- use prev model matrix if exist
-        // non-movable -- use current model matrix
-        if (hasPrevInfo)
-        {
-            // static geoms' local positions are constant, 
-            // only model matrices are changing
-            prevPositions[0] = (inst.prevModel * localPos[0]).xyz;
-            prevPositions[1] = (inst.prevModel * localPos[1]).xyz;
-            prevPositions[2] = (inst.prevModel * localPos[2]).xyz;
-        }
-        else
-        {
-            prevPositions[0] = (inst.model * localPos[0]).xyz;
-            prevPositions[1] = (inst.model * localPos[1]).xyz;
-            prevPositions[2] = (inst.model * localPos[2]).xyz;
-        }
-    }
-
-    return prevPositions;
 }
 
 vec4 packVisibilityBuffer(const ShPayload p)
@@ -635,10 +548,10 @@ bool unpackPrevVisibilityBuffer(const vec4 v, out vec3 prevPos)
         return false;
     }
 
-    const mat3 prevVerts = getOnlyCurPositions(curFrameGlobalGeomIndex, primIndex);
+    const mat3 verts = getOnlyCurPositions(curFrameGlobalGeomIndex, primIndex);
     const vec3 baryCoords = vec3(1.0 - v[2] - v[3], v[2], v[3]);
 
-    prevPos = prevVerts * baryCoords;
+    prevPos = verts * baryCoords;
 
     return true;
 }
