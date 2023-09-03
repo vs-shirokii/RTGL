@@ -23,135 +23,71 @@
 
 #include "TextureExporter.h"
 
+
+namespace RTGL1::debug::detail
+{
+
+DebugPrintFn           g_print{};
+RgMessageSeverityFlags g_printSeverity{ 0 };
+
+}
+
+
 namespace
 {
-#define INITIALIZED_RGINSTANCE ( reinterpret_cast< RgInstance >( 1024 ) )
 
-
-RgInstance                             g_deviceRgInstance{ nullptr };
 std::unique_ptr< RTGL1::VulkanDevice > g_device{};
 
-RTGL1::VulkanDevice* TryGetDevice( RgInstance rgInstance )
+RTGL1::VulkanDevice* TryGetDevice()
 {
-    if( rgInstance == g_deviceRgInstance )
+    if( g_device )
     {
-        if( g_device )
-        {
-            return g_device.get();
-        }
+        return g_device.get();
     }
     return nullptr;
 }
 
-RTGL1::VulkanDevice& GetDevice( RgInstance rgInstance )
+RTGL1::VulkanDevice& GetDevice()
 {
-    if( auto d = TryGetDevice( rgInstance ) )
+    if( auto d = TryGetDevice() )
     {
         return *d;
     }
-    throw RTGL1::RgException( RG_RESULT_WRONG_INSTANCE );
-}
+    throw RTGL1::RgException( RG_RESULT_NOT_INITIALIZED );
 }
 
-namespace RTGL1::debug::detail
+RgResult rgDestroyInstance()
 {
-DebugPrintFn           g_print{};
-RgMessageSeverityFlags g_printSeverity{ 0 };
-}
-
-
-
-RgResult rgCreateInstance( const RgInstanceCreateInfo* pInfo, RgInstance* pResult )
-{
-    *pResult = nullptr;
-
-    if( TryGetDevice( g_deviceRgInstance ) )
+    if( !TryGetDevice() )
     {
-        return RG_RESULT_ALREADY_INITIALIZED;
-    }
-
-    // during init, use raw logger
-    {
-        RTGL1::debug::detail::g_printSeverity = pInfo ? pInfo->allowedMessages : 0;
-        RTGL1::debug::detail::g_print         = [ pInfo ]( std::string_view       msg,
-                                                   RgMessageSeverityFlags severity ) {
-            if( pInfo && pInfo->pfnPrint )
-            {
-                assert( RTGL1::debug::detail::g_printSeverity & severity );
-                pInfo->pfnPrint( msg.data(), severity, pInfo->pUserPrintData );
-            }
-        };
-    }
-
-    try
-    {
-        g_device = std::make_unique< RTGL1::VulkanDevice >( pInfo );
-        g_deviceRgInstance = INITIALIZED_RGINSTANCE;
-
-        *pResult = g_deviceRgInstance;
-    }
-    // TODO: VulkanDevice must clean all the resources if initialization failed!
-    // So for now exceptions must not happen. But if they did, target application must be closed.
-    catch( RTGL1::RgException& e )
-    {
-        RTGL1::debug::Error( e.what() );
-        return e.GetErrorCode();
-    }
-
-    // now use a fancy logger
-    {
-        RgMessageSeverityFlags allmsg = RG_MESSAGE_SEVERITY_VERBOSE | RG_MESSAGE_SEVERITY_INFO |
-                                        RG_MESSAGE_SEVERITY_WARNING | RG_MESSAGE_SEVERITY_ERROR;
-        RgMessageSeverityFlags usermsg = pInfo ? pInfo->allowedMessages : 0;
-
-        RTGL1::debug::detail::g_printSeverity =
-            g_device && g_device->IsDevMode() ? allmsg : usermsg;
-
-        RTGL1::debug::detail::g_print = []( std::string_view       msg,
-                                            RgMessageSeverityFlags severity ) {
-            if( g_device )
-            {
-                assert( RTGL1::debug::detail::g_printSeverity & severity );
-                g_device->Print( msg, severity );
-            }
-        };
-    }
-
-    return RG_RESULT_SUCCESS;
-}
-
-RgResult rgDestroyInstance( RgInstance rgInstance )
-{
-    if( !TryGetDevice( rgInstance ) )
-    {
-        return RG_RESULT_WRONG_INSTANCE;
+        return RG_RESULT_NOT_INITIALIZED;
     }
 
     try
     {
         g_device.reset();
-        g_deviceRgInstance = nullptr;
     }
     catch( RTGL1::RgException& e )
     {
         RTGL1::debug::Error( e.what() );
+        RTGL1::debug::detail::g_printSeverity = 0;
+        RTGL1::debug::detail::g_print         = nullptr;
         return e.GetErrorCode();
     }
 
-    RTGL1::debug::detail::g_print = nullptr;
+    RTGL1::debug::detail::g_printSeverity = 0;
+    RTGL1::debug::detail::g_print         = nullptr;
 
     return RG_RESULT_SUCCESS;
 }
 
 template< typename Func, typename... Args >
-requires( 
-            std::is_same_v< std::invoke_result_t< Func, RTGL1::VulkanDevice, Args... >, void > 
-        )
-static auto Call( RgInstance rgInstance, Func f, Args&&... args )
+    requires( std::is_same_v< std::invoke_result_t< Func, RTGL1::VulkanDevice, Args... >, void > )
+auto Call( Func f, Args&&... args )
 {
     try
     {
-        RTGL1::VulkanDevice& dev = GetDevice( rgInstance );
+        RTGL1::VulkanDevice& dev = GetDevice();
 
         if( dev.IsSuspended() )
         {
@@ -169,17 +105,16 @@ static auto Call( RgInstance rgInstance, Func f, Args&&... args )
 }
 
 template< typename Func, typename... Args >
-requires( 
-            !std::is_same_v< std::invoke_result_t< Func, RTGL1::VulkanDevice, Args... >, void >
-            && std::is_default_constructible_v< std::invoke_result_t< Func, RTGL1::VulkanDevice, Args... > > 
-        )
-static auto Call( RgInstance rgInstance, Func f, Args&&... args )
+    requires( !std::is_same_v< std::invoke_result_t< Func, RTGL1::VulkanDevice, Args... >, void > &&
+              std::is_default_constructible_v<
+                  std::invoke_result_t< Func, RTGL1::VulkanDevice, Args... > > )
+auto Call( Func f, Args&&... args )
 {
     using ReturnType = std::invoke_result_t< Func, RTGL1::VulkanDevice, Args... >;
 
     try
     {
-        RTGL1::VulkanDevice& dev = GetDevice( rgInstance );
+        RTGL1::VulkanDevice& dev = GetDevice();
 
         if( !dev.IsSuspended() )
         {
@@ -195,139 +130,132 @@ static auto Call( RgInstance rgInstance, Func f, Args&&... args )
 
 
 
-RgResult rgUploadMeshPrimitive( RgInstance instance, const RgMeshInfo* pMesh, const RgMeshPrimitiveInfo* pPrimitive )
+RgResult rgUploadMeshPrimitive( const RgMeshInfo* pMesh, const RgMeshPrimitiveInfo* pPrimitive )
 {
-    return Call( instance, &RTGL1::VulkanDevice::UploadMeshPrimitive, pMesh, pPrimitive );
+    return Call( &RTGL1::VulkanDevice::UploadMeshPrimitive, pMesh, pPrimitive );
 }
 
-RgResult rgUploadDecal( RgInstance instance, const RgDecalInfo* pInfo )
+RgResult rgUploadDecal( const RgDecalInfo* pInfo )
 {
-    return Call( instance, &RTGL1::VulkanDevice::UploadDecal, pInfo );
+    return Call( &RTGL1::VulkanDevice::UploadDecal, pInfo );
 }
 
-RgResult rgUploadLensFlare( RgInstance instance, const RgLensFlareInfo* pInfo )
+RgResult rgUploadLensFlare( const RgLensFlareInfo* pInfo )
 {
-    return Call( instance, &RTGL1::VulkanDevice::UploadLensFlare, pInfo );
+    return Call( &RTGL1::VulkanDevice::UploadLensFlare, pInfo );
 }
 
-RgResult rgUploadCamera( RgInstance instance, const RgCameraInfo* pInfo )
+RgResult rgUploadCamera( const RgCameraInfo* pInfo )
 {
-    return Call( instance, &RTGL1::VulkanDevice::UploadCamera, pInfo );
+    return Call( &RTGL1::VulkanDevice::UploadCamera, pInfo );
 }
 
-RgResult rgUploadLight( RgInstance instance, const RgLightInfo* pInfo )
+RgResult rgUploadLight( const RgLightInfo* pInfo )
 {
-    return Call( instance, &RTGL1::VulkanDevice::UploadLight, pInfo );
+    return Call( &RTGL1::VulkanDevice::UploadLight, pInfo );
 }
 
-RgResult rgProvideOriginalTexture( RgInstance instance, const RgOriginalTextureInfo* pInfo )
+RgResult rgProvideOriginalTexture( const RgOriginalTextureInfo* pInfo )
 {
-    return Call( instance, &RTGL1::VulkanDevice::ProvideOriginalTexture, pInfo );
+    return Call( &RTGL1::VulkanDevice::ProvideOriginalTexture, pInfo );
 }
 
-RgResult rgProvideOriginalCubemapTexture( RgInstance instance, const RgOriginalCubemapInfo* pInfo )
+RgResult rgMarkOriginalTextureAsDeleted( const char* pTextureName )
 {
-    return Call( instance, &RTGL1::VulkanDevice::ProvideOriginalCubemapTexture, pInfo );
+    return Call( &RTGL1::VulkanDevice::MarkOriginalTextureAsDeleted, pTextureName );
 }
 
-RgResult rgMarkOriginalTextureAsDeleted( RgInstance instance, const char* pTextureName )
+RgResult rgStartFrame( const RgStartFrameInfo* pInfo )
 {
-    return Call( instance, &RTGL1::VulkanDevice::MarkOriginalTextureAsDeleted, pTextureName );
+    return Call( &RTGL1::VulkanDevice::StartFrame, pInfo );
 }
 
-RgResult rgStartFrame( RgInstance instance, const RgStartFrameInfo* pInfo )
+RgResult rgDrawFrame( const RgDrawFrameInfo* pInfo )
 {
-    return Call( instance, &RTGL1::VulkanDevice::StartFrame, pInfo );
+    return Call( &RTGL1::VulkanDevice::DrawFrame, pInfo );
 }
 
-RgResult rgDrawFrame( RgInstance instance, const RgDrawFrameInfo* pInfo )
+RgPrimitiveVertex* rgUtilScratchAllocForVertices( uint32_t vertexCount )
 {
-    return Call( instance, &RTGL1::VulkanDevice::DrawFrame, pInfo );
+    return Call( &RTGL1::VulkanDevice::ScratchAllocForVertices, vertexCount );
 }
 
-RgPrimitiveVertex* rgUtilScratchAllocForVertices( RgInstance instance, uint32_t vertexCount )
+void rgUtilScratchFree( const RgPrimitiveVertex* pPointer )
 {
-    return Call( instance, &RTGL1::VulkanDevice::ScratchAllocForVertices, vertexCount );
+    Call( &RTGL1::VulkanDevice::ScratchFree, pPointer );
 }
 
-void rgUtilScratchFree( RgInstance instance, const RgPrimitiveVertex* pPointer )
-{
-    Call( instance, &RTGL1::VulkanDevice::ScratchFree, pPointer );
-}
-
-void rgUtilScratchGetIndices( RgInstance              instance,
-                              RgUtilImScratchTopology topology,
+void rgUtilScratchGetIndices( RgUtilImScratchTopology topology,
                               uint32_t                vertexCount,
                               const uint32_t**        ppOutIndices,
                               uint32_t*               pOutIndexCount )
 {
-    Call( instance,
-          &RTGL1::VulkanDevice::ScratchGetIndices,
+    Call( &RTGL1::VulkanDevice::ScratchGetIndices,
           topology,
           vertexCount,
           ppOutIndices,
           pOutIndexCount );
 }
 
-void rgUtilImScratchClear( RgInstance instance )
+void rgUtilImScratchClear()
 {
-    Call( instance, &RTGL1::VulkanDevice::ImScratchClear );
+    Call( &RTGL1::VulkanDevice::ImScratchClear );
 }
 
-void rgUtilImScratchStart( RgInstance instance, RgUtilImScratchTopology topology )
+void rgUtilImScratchStart( RgUtilImScratchTopology topology )
 {
-    Call( instance, &RTGL1::VulkanDevice::ImScratchStart, topology );
+    Call( &RTGL1::VulkanDevice::ImScratchStart, topology );
 }
 
-void rgUtilImScratchEnd( RgInstance instance )
+void rgUtilImScratchEnd()
 {
-    Call( instance, &RTGL1::VulkanDevice::ImScratchEnd );
+    Call( &RTGL1::VulkanDevice::ImScratchEnd );
 }
 
-void rgUtilImScratchVertex( RgInstance instance, float x, float y, float z )
+void rgUtilImScratchVertex( float x, float y, float z )
 {
-    Call( instance, &RTGL1::VulkanDevice::ImScratchVertex, x, y, z );
+    Call( &RTGL1::VulkanDevice::ImScratchVertex, x, y, z );
 }
 
 
-void rgUtilImScratchNormal( RgInstance instance, float x, float y, float z )
+void rgUtilImScratchNormal( float x, float y, float z )
 {
-    Call( instance, &RTGL1::VulkanDevice::ImScratchNormal, x, y, z );
+    Call( &RTGL1::VulkanDevice::ImScratchNormal, x, y, z );
 }
 
-void rgUtilImScratchTexCoord( RgInstance instance, float u, float v )
+void rgUtilImScratchTexCoord( float u, float v )
 {
-    Call( instance, &RTGL1::VulkanDevice::ImScratchTexCoord, u, v );
+    Call( &RTGL1::VulkanDevice::ImScratchTexCoord, u, v );
 }
 
-void rgUtilImScratchTexCoord_Layer1( RgInstance instance, float u, float v )
+void rgUtilImScratchTexCoord_Layer1( float u, float v )
 {
-    Call( instance, &RTGL1::VulkanDevice::ImScratchTexCoord_Layer1, u, v );
+    Call( &RTGL1::VulkanDevice::ImScratchTexCoord_Layer1, u, v );
 }
 
-void rgUtilImScratchTexCoord_Layer2( RgInstance instance, float u, float v )
+void rgUtilImScratchTexCoord_Layer2( float u, float v )
 {
-    Call( instance, &RTGL1::VulkanDevice::ImScratchTexCoord_Layer2, u, v );
+    Call( &RTGL1::VulkanDevice::ImScratchTexCoord_Layer2, u, v );
 }
 
-void rgUtilImScratchTexCoord_Layer3( RgInstance instance, float u, float v )
+void rgUtilImScratchTexCoord_Layer3( float u, float v )
 {
-    Call( instance, &RTGL1::VulkanDevice::ImScratchTexCoord_Layer3, u, v );
+    Call( &RTGL1::VulkanDevice::ImScratchTexCoord_Layer3, u, v );
 }
 
-void rgUtilImScratchColor( RgInstance instance, RgColor4DPacked32 color )
+void rgUtilImScratchColor( RgColor4DPacked32 color )
 {
-    Call( instance, &RTGL1::VulkanDevice::ImScratchColor, color );
+    Call( &RTGL1::VulkanDevice::ImScratchColor, color );
 }
 
-void rgUtilImScratchSetToPrimitive( RgInstance instance, RgMeshPrimitiveInfo* pTarget )
+void rgUtilImScratchSetToPrimitive( RgMeshPrimitiveInfo* pTarget )
 {
-    Call( instance, &RTGL1::VulkanDevice::ImScratchSetToPrimitive, pTarget );
+    Call( &RTGL1::VulkanDevice::ImScratchSetToPrimitive, pTarget );
 }
 
-RgBool32 rgUtilIsUpscaleTechniqueAvailable( RgInstance instance, RgRenderUpscaleTechnique technique )
+RgBool32 rgUtilIsUpscaleTechniqueAvailable( RgRenderUpscaleTechnique technique )
 {
-    return Call( instance, &RTGL1::VulkanDevice::IsUpscaleTechniqueAvailable, technique );
+    return Call( &RTGL1::VulkanDevice::IsUpscaleTechniqueAvailable, technique );
 }
 
 const char* rgUtilGetResultDescription( RgResult result )
@@ -345,7 +273,110 @@ RgColor4DPacked32 rgUtilPackColorFloat4D( float r, float g, float b, float a )
     return RTGL1::Utils::PackColorFromFloat( r, g, b, a );
 }
 
-void rgUtilExportAsTGA( RgInstance instance, const void* pPixels, uint32_t width, uint32_t height, const char* pPath )
+void rgUtilExportAsTGA( const void* pPixels, uint32_t width, uint32_t height, const char* pPath )
 {
     RTGL1::TextureExporter::WriteTGA( pPath, pPixels, { width, height } );
+}
+
+}
+
+
+
+extern "C"
+{
+RGAPI RgResult RGCONV rgCreateInstance( const RgInstanceCreateInfo* pInfo, RgInterface* pInterface )
+{
+    if( pInfo == nullptr || pInterface == nullptr )
+    {
+        return RG_RESULT_WRONG_FUNCTION_ARGUMENT;
+    }
+
+    if( TryGetDevice() )
+    {
+        return RG_RESULT_ALREADY_INITIALIZED;
+    }
+
+    *pInterface = {};
+
+    // during init, use raw logger
+    {
+        RTGL1::debug::detail::g_printSeverity = pInfo->allowedMessages;
+        RTGL1::debug::detail::g_print         = [ pInfo ]( std::string_view       msg,
+                                                   RgMessageSeverityFlags severity ) {
+            if( pInfo->pfnPrint )
+            {
+                assert( RTGL1::debug::detail::g_printSeverity & severity );
+                pInfo->pfnPrint( msg.data(), severity, pInfo->pUserPrintData );
+            }
+        };
+    }
+
+    try
+    {
+        g_device = std::make_unique< RTGL1::VulkanDevice >( pInfo );
+
+        *pInterface = RgInterface{
+            .rgCreateInstance                  = rgCreateInstance,
+            .rgDestroyInstance                 = rgDestroyInstance,
+            .rgStartFrame                      = rgStartFrame,
+            .rgUploadCamera                    = rgUploadCamera,
+            .rgUploadMeshPrimitive             = rgUploadMeshPrimitive,
+            .rgUploadDecal                     = rgUploadDecal,
+            .rgUploadLensFlare                 = rgUploadLensFlare,
+            .rgUploadLight                     = rgUploadLight,
+            .rgProvideOriginalTexture          = rgProvideOriginalTexture,
+            .rgMarkOriginalTextureAsDeleted    = rgMarkOriginalTextureAsDeleted,
+            .rgDrawFrame                       = rgDrawFrame,
+            .rgUtilScratchAllocForVertices     = rgUtilScratchAllocForVertices,
+            .rgUtilScratchFree                 = rgUtilScratchFree,
+            .rgUtilScratchGetIndices           = rgUtilScratchGetIndices,
+            .rgUtilImScratchClear              = rgUtilImScratchClear,
+            .rgUtilImScratchStart              = rgUtilImScratchStart,
+            .rgUtilImScratchVertex             = rgUtilImScratchVertex,
+            .rgUtilImScratchNormal             = rgUtilImScratchNormal,
+            .rgUtilImScratchTexCoord           = rgUtilImScratchTexCoord,
+            .rgUtilImScratchTexCoord_Layer1    = rgUtilImScratchTexCoord_Layer1,
+            .rgUtilImScratchTexCoord_Layer2    = rgUtilImScratchTexCoord_Layer2,
+            .rgUtilImScratchTexCoord_Layer3    = rgUtilImScratchTexCoord_Layer3,
+            .rgUtilImScratchColor              = rgUtilImScratchColor,
+            .rgUtilImScratchEnd                = rgUtilImScratchEnd,
+            .rgUtilImScratchSetToPrimitive     = rgUtilImScratchSetToPrimitive,
+            .rgUtilIsUpscaleTechniqueAvailable = rgUtilIsUpscaleTechniqueAvailable,
+            .rgUtilGetResultDescription        = rgUtilGetResultDescription,
+            .rgUtilPackColorByte4D             = rgUtilPackColorByte4D,
+            .rgUtilPackColorFloat4D            = rgUtilPackColorFloat4D,
+            .rgUtilExportAsTGA                 = rgUtilExportAsTGA,
+        };
+    }
+    // TODO: VulkanDevice must clean all the resources if initialization failed!
+    // So for now exceptions must not happen. But if they did, target application must be closed.
+    catch( RTGL1::RgException& e )
+    {
+        RTGL1::debug::Error( e.what() );
+        RTGL1::debug::detail::g_printSeverity = 0;
+        RTGL1::debug::detail::g_print         = nullptr;
+        return e.GetErrorCode();
+    }
+
+    // now use a fancy logger
+    {
+        RgMessageSeverityFlags allmsg = RG_MESSAGE_SEVERITY_VERBOSE | RG_MESSAGE_SEVERITY_INFO |
+                                        RG_MESSAGE_SEVERITY_WARNING | RG_MESSAGE_SEVERITY_ERROR;
+        RgMessageSeverityFlags usermsg = pInfo->allowedMessages;
+
+        RTGL1::debug::detail::g_printSeverity =
+            g_device && g_device->IsDevMode() ? allmsg : usermsg;
+
+        RTGL1::debug::detail::g_print = []( std::string_view       msg,
+                                            RgMessageSeverityFlags severity ) {
+            if( g_device )
+            {
+                assert( RTGL1::debug::detail::g_printSeverity & severity );
+                g_device->Print( msg, severity );
+            }
+        };
+    }
+
+    return RG_RESULT_SUCCESS;
+}
 }

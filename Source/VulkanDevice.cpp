@@ -1456,24 +1456,6 @@ void RTGL1::VulkanDevice::ProvideOriginalTexture( const RgOriginalTextureInfo* p
                                        ovrdFolder );
 }
 
-void RTGL1::VulkanDevice::ProvideOriginalCubemapTexture( const RgOriginalCubemapInfo* pInfo )
-{
-    if( pInfo == nullptr )
-    {
-        throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
-    }
-    if( pInfo->sType != RG_STRUCTURE_TYPE_ORIGINAL_CUBEMAP_INFO )
-    {
-        throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
-    }
-    Dev_TryBreak( pInfo->pTextureName, true );
-
-    cubemapManager->TryCreateCubemap( currentFrameState.GetCmdBufferForMaterials( cmdManager ),
-                                      currentFrameState.GetFrameIndex(),
-                                      *pInfo,
-                                      ovrdFolder );
-}
-
 void RTGL1::VulkanDevice::MarkOriginalTextureAsDeleted( const char* pTextureName )
 {
     textureManager->TryDestroyMaterial( currentFrameState.GetFrameIndex(), pTextureName );

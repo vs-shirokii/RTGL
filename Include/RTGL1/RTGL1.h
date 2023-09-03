@@ -24,6 +24,8 @@
 #include <stdint.h>
 
 #if defined( _WIN32 )
+    #define RGAPI_CALL __stdcall
+    #define RGAPI_PTR  RGAPI_CALL
     #ifdef RG_LIBRARY_EXPORTS
         #define RGAPI __declspec( dllexport )
     #else
@@ -31,11 +33,13 @@
     #endif // RTGL1_EXPORTS
     #define RGCONV __cdecl
 #else
+    #define RGAPI_CALL
+    #define RGAPI_PTR
     #define RGAPI
     #define RGCONV
 #endif // defined(_WIN32)
 
-#define RG_RTGL_VERSION_API "1.03.0000"
+#define RG_RTGL_VERSION_API "1.04.0000"
 
 #ifdef RG_USE_SURFACE_WIN32
     #include <windows.h>
@@ -61,27 +65,18 @@ typedef void CAMetalLayer;
 extern "C" {
 #endif
 
-#if !defined( RG_DEFINE_NON_DISPATCHABLE_HANDLE )
-    #if defined( __LP64__ ) || defined( _WIN64 ) || ( defined( __x86_64__ ) && !defined( __ILP32__ ) ) || defined( _M_X64 ) || defined( __ia64 ) || defined( _M_IA64 ) || defined( __aarch64__ ) || defined( __powerpc64__ )
-        #define RG_DEFINE_NON_DISPATCHABLE_HANDLE( object ) typedef struct object##_T* object;
-    #else
-        #define RG_DEFINE_NON_DISPATCHABLE_HANDLE( object ) typedef uint64_t object;
-    #endif
-#endif
-
 typedef uint32_t RgBool32;
 #define RG_FALSE        0
 #define RG_TRUE         1
-
-RG_DEFINE_NON_DISPATCHABLE_HANDLE( RgInstance )
-#define RG_NULL_HANDLE  0
 
 typedef enum RgResult
 {
     RG_RESULT_SUCCESS,
     RG_RESULT_SUCCESS_FOUND_MESH,
     RG_RESULT_SUCCESS_FOUND_TEXTURE,
-    RG_RESULT_WRONG_INSTANCE,
+    RG_RESULT_CANT_FIND_DYNAMIC_LIBRARY,
+    RG_RESULT_CANT_FIND_ENTRY_FUNCTION_IN_DYNAMIC_LIBRARY,
+    RG_RESULT_NOT_INITIALIZED,
     RG_RESULT_ALREADY_INITIALIZED,
     RG_RESULT_GRAPHICS_API_ERROR,
     RG_RESULT_INTERNAL_ERROR,
@@ -105,9 +100,9 @@ typedef enum RgMessageSeverityFlagBits
 } RgMessageSeverityFlagBits;
 typedef uint32_t RgMessageSeverityFlags;
 
-typedef void ( *PFN_rgPrint )( const char* pMessage, RgMessageSeverityFlags flags, void* pUserData );
-typedef void ( *PFN_rgOpenFile )( const char* pFilePath, void* pUserData, const void** ppOutData, uint32_t* pOutDataSize, void** ppOutFileUserHandle );
-typedef void ( *PFN_rgCloseFile )( void* pFileUserHandle, void* pUserData );
+typedef void ( *PFN_rgPrint )( const char*            pMessage,
+                               RgMessageSeverityFlags flags,
+                               void*                  pUserData );
 
 typedef struct RgWin32SurfaceCreateInfo   RgWin32SurfaceCreateInfo;
 typedef struct RgMetalSurfaceCreateInfo   RgMetalSurfaceCreateInfo;
@@ -172,7 +167,6 @@ typedef enum RgStructureType
     RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT,
     RG_STRUCTURE_TYPE_LIGHT_ADDITIONAL_EXT,
     RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_INFO,
-    RG_STRUCTURE_TYPE_ORIGINAL_CUBEMAP_INFO,
     RG_STRUCTURE_TYPE_START_FRAME_INFO,
     RG_STRUCTURE_TYPE_DRAW_FRAME_INFO,
     RG_STRUCTURE_TYPE_DRAW_FRAME_RENDER_RESOLUTION_PARAMS,
@@ -220,6 +214,9 @@ typedef struct RgInstanceCreateInfo
     RgStructureType             sType;
     void*                       pNext;
 
+    // On Windows, a path to RTGL1.dll
+    const char*                 pRtglDynamicLibraryPath;
+
     // Application name.
     const char*                 pAppName;
     // Application GUID. Generate it for your application and specify it here.
@@ -232,13 +229,12 @@ typedef struct RgInstanceCreateInfo
     RgXcbSurfaceCreateInfo*     pXcbSurfaceCreateInfo;
     RgXlibSurfaceCreateInfo*    pXlibSurfaceCreateInfo;
 
-    // Path to the development configuration file. It's read line by line. Case-insensitive.
+    // Note: "RTGL1.json" is a development configuration file, located at pOverrideFolderPath.
     // "VulkanValidation"   - validate each Vulkan API call and print using pfnPrint
     // "Developer"          - load PNG texture files instead of KTX2; reload a texture if its PNG file was changed
     // "FPSMonitor"         - show FPS at the window name
-    // Default: "RayTracedGL1.txt"
-    const char*                 pConfigPath;
 
+    // Folder for all resources.
     const char*                 pOverrideFolderPath;
 
     // Optional function to print messages from the library.
@@ -292,8 +288,12 @@ typedef struct RgInstanceCreateInfo
 
 } RgInstanceCreateInfo;
 
-RGAPI RgResult RGCONV rgCreateInstance( const RgInstanceCreateInfo* pInfo, RgInstance* pResult );
-RGAPI RgResult RGCONV rgDestroyInstance( RgInstance instance );
+typedef struct RgInterface RgInterface;
+
+typedef RgResult( RGAPI_PTR* PFN_rgCreateInstance )( const RgInstanceCreateInfo* pInfo,
+                                                     RgInterface*                pInterface );
+typedef RgResult( RGAPI_PTR* PFN_rgDestroyInstance )();
+
 
 
 // Row-major transformation matrix.
@@ -478,9 +478,8 @@ typedef struct RgMeshInfo
     float                       animationTime;
 } RgMeshInfo;
 
-RGAPI RgResult RGCONV rgUploadMeshPrimitive( RgInstance                 instance,
-                                             const RgMeshInfo*          pMesh,
-                                             const RgMeshPrimitiveInfo* pPrimitive );
+typedef RgResult( RGAPI_PTR* PFN_rgUploadMeshPrimitive )( const RgMeshInfo*          pMesh,
+                                                          const RgMeshPrimitiveInfo* pPrimitive );
 
 
 
@@ -494,7 +493,7 @@ typedef struct RgDecalInfo
     const char*                 pTextureName;
 } RgDecalInfo;
 
-RGAPI RgResult RGCONV rgUploadDecal( RgInstance instance, const RgDecalInfo* pInfo );
+typedef RgResult( RGAPI_PTR* PFN_rgUploadDecal )( const RgDecalInfo* pInfo );
 
 // Render specified vertex geometry, if 'pointToCheck' is not hidden.
 typedef struct RgLensFlareInfo
@@ -512,7 +511,7 @@ typedef struct RgLensFlareInfo
     RgFloat3D                   pointToCheck;
 } RgLensFlareInfo;
 
-RGAPI RgResult RGCONV rgUploadLensFlare( RgInstance instance, const RgLensFlareInfo* pInfo );
+typedef RgResult( RGAPI_PTR* PFN_rgUploadLensFlare )( const RgLensFlareInfo* pInfo );
 
 
 
@@ -532,7 +531,7 @@ typedef struct RgCameraInfo
     float           cameraFar;
 } RgCameraInfo;
 
-RGAPI RgResult RGCONV rgUploadCamera( RgInstance instance, const RgCameraInfo* pInfo );
+typedef RgResult( RGAPI_PTR* PFN_rgUploadCamera )( const RgCameraInfo* pInfo );
 
 
 
@@ -611,7 +610,7 @@ typedef struct RgLightInfo
     RgBool32        isExportable;
 } RgLightInfo;
 
-RGAPI RgResult RGCONV rgUploadLight( RgInstance instance, const RgLightInfo* pInfo );
+typedef RgResult( RGAPI_PTR* PFN_rgUploadLight)(const RgLightInfo* pInfo );
 
 
 
@@ -641,24 +640,8 @@ typedef struct RgOriginalTextureInfo
     RgSamplerAddressMode    addressModeV;
 } RgOriginalTextureInfo;
 
-typedef struct RgOriginalCubemapInfo
-{
-    RgStructureType         sType;
-    void*                   pNext;
-    const char*             pTextureName;
-    // R8G8B8A8 pixel data. Each must be (sideSize * sideSize * 4) bytes.
-    const void*             pPixelsPositiveX;
-    const void*             pPixelsNegativeX;
-    const void*             pPixelsPositiveY;
-    const void*             pPixelsNegativeY;
-    const void*             pPixelsPositiveZ;
-    const void*             pPixelsNegativeZ;
-    uint32_t                sideSize;
-} RgOriginalCubemapInfo;
-
-RGAPI RgResult RGCONV rgProvideOriginalTexture( RgInstance instance, const RgOriginalTextureInfo* pInfo );
-RGAPI RgResult RGCONV rgProvideOriginalCubemapTexture( RgInstance instance, const RgOriginalCubemapInfo* pInfo );
-RGAPI RgResult RGCONV rgMarkOriginalTextureAsDeleted( RgInstance instance, const char* pTextureName );
+typedef RgResult( RGAPI_PTR* PFN_rgProvideOriginalTexture )( const RgOriginalTextureInfo* pInfo );
+typedef RgResult( RGAPI_PTR* PFN_rgMarkOriginalTextureAsDeleted )( const char* pTextureName );
 
 
 
@@ -671,7 +654,7 @@ typedef struct RgStartFrameInfo
     RgBool32        vsync;
 } RgStartFrameInfo;
 
-RGAPI RgResult RGCONV rgStartFrame( RgInstance instance, const RgStartFrameInfo* pInfo );
+typedef RgResult( RGAPI_PTR* PFN_rgStartFrame )( const RgStartFrameInfo* pInfo );
 
 
 
@@ -1032,7 +1015,7 @@ typedef struct RgDrawFrameInfo
     double                      currentTime;
 } RgDrawFrameInfo;
 
-RGAPI RgResult RGCONV           rgDrawFrame( RgInstance instance, const RgDrawFrameInfo* pInfo );
+typedef RgResult( RGAPI_PTR* PFN_rgDrawFrame)(const RgDrawFrameInfo* pInfo );
 
 
 
@@ -1044,27 +1027,119 @@ typedef enum RgUtilImScratchTopology
     RG_UTIL_IM_SCRATCH_TOPOLOGY_QUADS,
 } RgUtilImScratchTopology;
 
-RGAPI RgPrimitiveVertex* RGCONV rgUtilScratchAllocForVertices( RgInstance instance, uint32_t vertexCount );
-RGAPI void RGCONV               rgUtilScratchFree( RgInstance instance, const RgPrimitiveVertex* pPointer );
-RGAPI void RGCONV               rgUtilScratchGetIndices( RgInstance instance, RgUtilImScratchTopology topology, uint32_t vertexCount, const uint32_t** ppOutIndices, uint32_t* pOutIndexCount );
+typedef RgPrimitiveVertex*  ( RGAPI_PTR* PFN_rgUtilScratchAllocForVertices      )( uint32_t vertexCount );
+typedef void                ( RGAPI_PTR* PFN_rgUtilScratchFree                  )( const RgPrimitiveVertex* pPointer );
+typedef void                ( RGAPI_PTR* PFN_rgUtilScratchGetIndices            )( RgUtilImScratchTopology topology, uint32_t vertexCount, const uint32_t** ppOutIndices, uint32_t* pOutIndexCount );
+typedef void                ( RGAPI_PTR* PFN_rgUtilImScratchClear               )();
+typedef void                ( RGAPI_PTR* PFN_rgUtilImScratchStart               )( RgUtilImScratchTopology topology );
+typedef void                ( RGAPI_PTR* PFN_rgUtilImScratchVertex              )( float x, float y, float z ); // Push vertex to a list
+typedef void                ( RGAPI_PTR* PFN_rgUtilImScratchNormal              )( float x, float y, float z );
+typedef void                ( RGAPI_PTR* PFN_rgUtilImScratchTexCoord            )( float u, float v );
+typedef void                ( RGAPI_PTR* PFN_rgUtilImScratchTexCoord_Layer1     )( float u, float v );
+typedef void                ( RGAPI_PTR* PFN_rgUtilImScratchTexCoord_Layer2     )( float u, float v );
+typedef void                ( RGAPI_PTR* PFN_rgUtilImScratchTexCoord_Layer3     )( float u, float v );
+typedef void                ( RGAPI_PTR* PFN_rgUtilImScratchColor               )( RgColor4DPacked32 color );
+typedef void                ( RGAPI_PTR* PFN_rgUtilImScratchEnd                 )();
+typedef void                ( RGAPI_PTR* PFN_rgUtilImScratchSetToPrimitive      )( RgMeshPrimitiveInfo* pTarget ); // Set accumulated vertices to pTarget
+typedef RgBool32            ( RGAPI_PTR* PFN_rgUtilIsUpscaleTechniqueAvailable  )( RgRenderUpscaleTechnique technique );
+typedef const char*         ( RGAPI_PTR* PFN_rgUtilGetResultDescription         )( RgResult result );
+typedef RgColor4DPacked32   ( RGAPI_PTR* PFN_rgUtilPackColorByte4D              )( uint8_t r, uint8_t g, uint8_t b, uint8_t a );
+typedef RgColor4DPacked32   ( RGAPI_PTR* PFN_rgUtilPackColorFloat4D             )( float r, float g, float b, float a );
+typedef void                ( RGAPI_PTR* PFN_rgUtilExportAsTGA                  )( const void* pPixels, uint32_t width, uint32_t height, const char* pPath );
 
-RGAPI void RGCONV               rgUtilImScratchClear( RgInstance instance );
-RGAPI void RGCONV               rgUtilImScratchStart( RgInstance instance, RgUtilImScratchTopology topology );
-RGAPI void RGCONV               rgUtilImScratchVertex( RgInstance instance, float x, float y, float z );            // Push vertex to a list
-RGAPI void RGCONV               rgUtilImScratchNormal( RgInstance instance, float x, float y, float z );
-RGAPI void RGCONV               rgUtilImScratchTexCoord( RgInstance instance, float u, float v );
-RGAPI void RGCONV               rgUtilImScratchTexCoord_Layer1( RgInstance instance, float u, float v );
-RGAPI void RGCONV               rgUtilImScratchTexCoord_Layer2( RgInstance instance, float u, float v );
-RGAPI void RGCONV               rgUtilImScratchTexCoord_Layer3( RgInstance instance, float u, float v );
-RGAPI void RGCONV               rgUtilImScratchColor( RgInstance instance, RgColor4DPacked32 color );
-RGAPI void RGCONV               rgUtilImScratchEnd( RgInstance instance );
-RGAPI void RGCONV               rgUtilImScratchSetToPrimitive( RgInstance instance, RgMeshPrimitiveInfo* pTarget ); // Set accumulated vertices to pTarget
 
-RGAPI RgBool32 RGCONV           rgUtilIsUpscaleTechniqueAvailable( RgInstance instance, RgRenderUpscaleTechnique technique );
-RGAPI const char* RGCONV        rgUtilGetResultDescription( RgResult result );
-RGAPI RgColor4DPacked32 RGCONV  rgUtilPackColorByte4D( uint8_t r, uint8_t g, uint8_t b, uint8_t a );
-RGAPI RgColor4DPacked32 RGCONV  rgUtilPackColorFloat4D( float r, float g, float b, float a );
-RGAPI void RGCONV               rgUtilExportAsTGA( RgInstance instance, const void* pPixels, uint32_t width, uint32_t height, const char* pPath );
+
+typedef struct RgInterface
+{
+    PFN_rgCreateInstance                  rgCreateInstance;
+    PFN_rgDestroyInstance                 rgDestroyInstance;
+    // Main
+    PFN_rgStartFrame                      rgStartFrame;
+    PFN_rgUploadCamera                    rgUploadCamera;
+    PFN_rgUploadMeshPrimitive             rgUploadMeshPrimitive;
+    PFN_rgUploadDecal                     rgUploadDecal;
+    PFN_rgUploadLensFlare                 rgUploadLensFlare;
+    PFN_rgUploadLight                     rgUploadLight;
+    PFN_rgProvideOriginalTexture          rgProvideOriginalTexture;
+    PFN_rgMarkOriginalTextureAsDeleted    rgMarkOriginalTextureAsDeleted;
+    PFN_rgDrawFrame                       rgDrawFrame;
+    // Utils
+    PFN_rgUtilScratchAllocForVertices     rgUtilScratchAllocForVertices;
+    PFN_rgUtilScratchFree                 rgUtilScratchFree;
+    PFN_rgUtilScratchGetIndices           rgUtilScratchGetIndices;
+    PFN_rgUtilImScratchClear              rgUtilImScratchClear;
+    PFN_rgUtilImScratchStart              rgUtilImScratchStart;
+    PFN_rgUtilImScratchVertex             rgUtilImScratchVertex;
+    PFN_rgUtilImScratchNormal             rgUtilImScratchNormal;
+    PFN_rgUtilImScratchTexCoord           rgUtilImScratchTexCoord;
+    PFN_rgUtilImScratchTexCoord_Layer1    rgUtilImScratchTexCoord_Layer1;
+    PFN_rgUtilImScratchTexCoord_Layer2    rgUtilImScratchTexCoord_Layer2;
+    PFN_rgUtilImScratchTexCoord_Layer3    rgUtilImScratchTexCoord_Layer3;
+    PFN_rgUtilImScratchColor              rgUtilImScratchColor;
+    PFN_rgUtilImScratchEnd                rgUtilImScratchEnd;
+    PFN_rgUtilImScratchSetToPrimitive     rgUtilImScratchSetToPrimitive;
+    PFN_rgUtilIsUpscaleTechniqueAvailable rgUtilIsUpscaleTechniqueAvailable;
+    PFN_rgUtilGetResultDescription        rgUtilGetResultDescription;
+    PFN_rgUtilPackColorByte4D             rgUtilPackColorByte4D;
+    PFN_rgUtilPackColorFloat4D            rgUtilPackColorFloat4D;
+    PFN_rgUtilExportAsTGA                 rgUtilExportAsTGA;
+} RgInterface;
+
+#if defined( _WIN32 )
+
+inline RgResult rgLoadLibraryAndCreate( const RgInstanceCreateInfo* pInfo,
+                                        RgInterface*                pOutInterface,
+                                        HMODULE*                    pOutDll )
+{
+    if( pOutDll )
+    {
+        *pOutDll = NULL;
+    }
+
+    if( !pInfo || !pInfo->pRtglDynamicLibraryPath )
+    {
+        return RG_RESULT_WRONG_FUNCTION_ARGUMENT;
+    }
+
+    HMODULE dll = LoadLibraryA( pInfo->pRtglDynamicLibraryPath );
+    if( !dll )
+    {
+        return RG_RESULT_CANT_FIND_DYNAMIC_LIBRARY;
+    }
+
+    PFN_rgCreateInstance createFunc =
+        ( PFN_rgCreateInstance )GetProcAddress( dll, "rgCreateInstance" );
+
+    if( !createFunc )
+    {
+        FreeLibrary( dll );
+        return RG_RESULT_CANT_FIND_ENTRY_FUNCTION_IN_DYNAMIC_LIBRARY;
+    }
+
+    if( pOutDll )
+    {
+        *pOutDll = dll;
+    }
+
+    return createFunc( pInfo, pOutInterface );
+}
+
+inline RgResult rgDestroyAndUnloadLibrary( RgInterface* pInterface, HMODULE dll )
+{
+    if( !pInterface || !dll )
+    {
+        return RG_RESULT_WRONG_FUNCTION_ARGUMENT;
+    }
+
+    pInterface->rgDestroyInstance();
+    memset( pInterface, 0, sizeof( *pInterface ) );
+
+    FreeLibrary( dll );
+
+    return RG_RESULT_SUCCESS;
+}
+
+#endif // defined( _WIN32 ) 
 
 #ifdef __cplusplus
 }

@@ -141,14 +141,14 @@ const RgFloat2D s_CubeTexCoords[] = {
     {0,0}, {1,0}, {0,1}, {0,1}, {0,0}, {1,0}, 
     {0,1}, {0,1}, {0,0}, {1,0}, {0,1}, {0,1}, 
 };
-const RgPrimitiveVertex* GetCubeVertices()
+const RgPrimitiveVertex* GetCubeVertices( RgColor4DPacked32 color )
 {
     static RgPrimitiveVertex verts[ std::size( s_CubePositions ) ] = {};
     for( size_t i = 0; i < std::size( s_CubePositions ); i++ )
     {
         memcpy( verts[ i ].position, &s_CubePositions[ i ], 3 * sizeof( float ) );
         memcpy( verts[ i ].texCoord, &s_CubeTexCoords[ i ], 2 * sizeof( float ) );
-        verts[ i ].color = rgUtilPackColorByte4D( 255, 255, 255, 255 );
+        verts[ i ].color = color;
     }
     return verts;
 }
@@ -436,7 +436,7 @@ void FillGAllMeshes(
 
 
 
-void MainLoop( RgInstance instance, std::string_view gltfPath )
+void MainLoop( RgInterface& rt, std::string_view gltfPath )
 {
     RgResult r       = RG_RESULT_SUCCESS;
     uint64_t frameId = 0;
@@ -444,8 +444,9 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
 
     // some resources can be initialized out of frame
     {
-        const uint32_t white = 0xFFFFFFFF;
+        constexpr uint32_t white = 0xFFFFFFFF;
 
+#if 0
         auto skyboxInfo = RgOriginalCubemapInfo{
             .sType            = RG_STRUCTURE_TYPE_ORIGINAL_CUBEMAP_INFO,
             .pNext            = nullptr,
@@ -458,19 +459,20 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
             .pPixelsNegativeZ = &white,
             .sideSize         = 1,
         };
-        r = rgProvideOriginalCubemapTexture( instance, &skyboxInfo );
+        r = rgProvideOriginalCubemapTexture( &skyboxInfo );
         RG_CHECK( r );
+#endif
 
 
         auto uploadMaterial =
-            [ instance ]( const char* pTextureName, const void* pPixels, uint32_t w, uint32_t h ) {
+            [ &rt ]( const char* pTextureName, const void* pPixels, uint32_t w, uint32_t h ) {
                 auto info = RgOriginalTextureInfo{
                     .sType        = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_INFO,
                     .pTextureName = pTextureName,
                     .pPixels      = pPixels,
                     .size         = { w, h },
                 };
-                RgResult t = rgProvideOriginalTexture( instance, &info );
+                RgResult t = rt.rgProvideOriginalTexture( &info );
                 RG_CHECK( t );
             };
 
@@ -488,13 +490,13 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
 
         {
             auto startInfo = RgStartFrameInfo{
-                .sType       = RG_STRUCTURE_TYPE_START_FRAME_INFO,
-                .pNext       = NULL,
-                .pMapName    = "untitled",
-                .vsync       = true,
+                .sType    = RG_STRUCTURE_TYPE_START_FRAME_INFO,
+                .pNext    = NULL,
+                .pMapName = "untitled",
+                .vsync    = true,
             };
 
-            r = rgStartFrame( instance, &startInfo );
+            r = rt.rgStartFrame( &startInfo );
             RG_CHECK( r );
         }
 
@@ -515,7 +517,7 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
                 memcpy( camera.view, &view[ 0 ][ 0 ], 16 * sizeof( float ) );
             }
 
-            r = rgUploadCamera( instance, &camera );
+            r = rt.rgUploadCamera( &camera );
             RG_CHECK( r );
         }
 
@@ -554,7 +556,7 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
                     .color                = 0xFFFFFFFF,
                 };
 
-                r = rgUploadMeshPrimitive( instance, &mesh, &prim );
+                r = rt.rgUploadMeshPrimitive( &mesh, &prim );
                 RG_CHECK( r );
             }
         }
@@ -582,14 +584,14 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
                 .pNext                = nullptr,
                 .flags                = 0,
                 .primitiveIndexInMesh = 0,
-                .pVertices            = GetCubeVertices(),
-                .vertexCount          = std::size( s_CubePositions ),
-                .pTextureName         = nullptr,
-                .textureFrame         = 0,
-                .color                = rgUtilPackColorByte4D( 128, 255, 128, 128 ),
+                .pVertices    = GetCubeVertices( rt.rgUtilPackColorByte4D( 255, 255, 255, 255 ) ),
+                .vertexCount  = std::size( s_CubePositions ),
+                .pTextureName = nullptr,
+                .textureFrame = 0,
+                .color        = rt.rgUtilPackColorByte4D( 128, 255, 128, 128 ),
             };
 
-            r = rgUploadMeshPrimitive( instance, &mesh, &prim );
+            r = rt.rgUploadMeshPrimitive( &mesh, &prim );
             RG_CHECK( r );
         }
 
@@ -619,10 +621,10 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
                 .pTextureName         = nullptr,
                 .textureFrame         = 0,
                 // alpha is not 1.0
-                .color = rgUtilPackColorByte4D( 255, 128, 128, 128 ),
+                .color = rt.rgUtilPackColorByte4D( 255, 128, 128, 128 ),
             };
 
-            r = rgUploadMeshPrimitive( instance, &mesh, &prim );
+            r = rt.rgUploadMeshPrimitive( &mesh, &prim );
             RG_CHECK( r );
         }
 
@@ -647,7 +649,7 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
             auto dirLight = RgLightDirectionalEXT{
                 .sType                  = RG_STRUCTURE_TYPE_LIGHT_DIRECTIONAL_EXT,
                 .pNext                  = nullptr,
-                .color                  = rgUtilPackColorByte4D( 255, 255, 255, 255 ),
+                .color                  = rt.rgUtilPackColorByte4D( 255, 255, 255, 255 ),
                 .intensity              = ctl_SunIntensity,
                 .direction              = { -1, -8, -1 },
                 .angularDiameterDegrees = 0.5f,
@@ -660,7 +662,7 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
                 .isExportable = true,
             };
 
-            r = rgUploadLight( instance, &l );
+            r = rt.rgUploadLight( &l );
             RG_CHECK( r );
         }
 
@@ -706,8 +708,10 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
                 .skyColorMultiplier = ctl_SkyIntensity,
                 .skyColorSaturation = 1.0f,
                 .skyViewerPosition  = { 0, 0, 0 },
-                .pSkyCubemapTextureName = "_external_/cubemap/0",
             };
+#if 0
+                .pSkyCubemapTextureName = "_external_/cubemap/0",
+#endif
 
             auto resolution = RgDrawFrameRenderResolutionParams{
                 .sType            = RG_STRUCTURE_TYPE_DRAW_FRAME_RENDER_RESOLUTION_PARAMS,
@@ -724,7 +728,7 @@ void MainLoop( RgInstance instance, std::string_view gltfPath )
                 .currentTime      = GetCurrentTimeInSeconds(),
             };
 
-            r = rgDrawFrame( instance, &frameInfo );
+            r = rt.rgDrawFrame( &frameInfo );
             RG_CHECK( r );
         }
 
@@ -742,11 +746,11 @@ int main( int argc, char* argv[] )
     g_GlfwHandle = glfwCreateWindow( 1600, 900, "RTGL1 Test", nullptr, nullptr );
 
 
-    RgResult   r;
-    RgInstance instance;
+    auto r  = RgResult{};
+    auto rt = RgInterface{};
 
 #ifdef _WIN32
-    RgWin32SurfaceCreateInfo win32Info = {
+    auto win32Info = RgWin32SurfaceCreateInfo{
         .hinstance = GetModuleHandle( NULL ),
         .hwnd      = glfwGetWin32Window( g_GlfwHandle ),
     };
@@ -757,8 +761,13 @@ int main( int argc, char* argv[] )
     };
 #endif
 
-    RgInstanceCreateInfo info = {
+    auto info = RgInstanceCreateInfo{
         .sType = RG_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+
+#ifdef _WIN32
+        .pRtglDynamicLibraryPath = "RTGL1.dll",
+#else
+#endif
 
         .pAppName = "RTGL1 Test",
         .pAppGUID = "459d6734-62a6-4d47-927a-bedcdb0445c5",
@@ -800,15 +809,21 @@ int main( int argc, char* argv[] )
         .worldScale   = 1.0f,
     };
 
-    r = rgCreateInstance( &info, &instance );
+#ifdef _WIN32
+    HMODULE rtDll = nullptr;
+#else
+    void* rtDll = nullptr;
+#endif
+
+    r = rgLoadLibraryAndCreate( &info, &rt, &rtDll );
     RG_CHECK( r );
 
     {
         auto gltfPath = argc > 1 ? argv[ 1 ] : "_external_/Sponza/glTF/Sponza.gltf";
-        MainLoop( instance, gltfPath );
+        MainLoop( rt, gltfPath );
     }
 
-    r = rgDestroyInstance( instance );
+    r = rgDestroyAndUnloadLibrary( &rt, rtDll );
     RG_CHECK( r );
 
 
