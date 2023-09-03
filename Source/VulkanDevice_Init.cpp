@@ -160,20 +160,15 @@ VkSurfaceKHR GetSurfaceFromUser( VkInstance instance, const RgInstanceCreateInfo
     throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Surface info wasn't specified" );
 }
 
-RTGL1::LibraryConfig ReadConfig( const char* pPath )
+RTGL1::LibraryConfig ReadConfig( const std::filesystem::path& ovrdFolder  )
 {
     using namespace RTGL1;
-
-    if( Utils::IsCstrEmpty( pPath ) )
-    {
-        pPath = "RayTracedGL1.json";
-    }
-
-    if( auto c = json_parser::ReadFileAs< LibraryConfig >( std::filesystem::path( pPath ) ) )
+    assert( !ovrdFolder.empty() );
+    
+    if( auto c = json_parser::ReadFileAs< LibraryConfig >( ovrdFolder / "RTGL1.json" ) )
     {
         return *c;
     }
-
     return {};
 }
 
@@ -185,8 +180,8 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
     , surface( VK_NULL_HANDLE )
     , frameId( 1 )
     , waitForOutOfFrameFence( false )
-    , ovrdFolder( Utils::SafeCstr( info->pOverrideFolderPath ) )
-    , libconfig( ReadConfig( info->pConfigPath ) )
+    , ovrdFolder{ Utils::SafeCstr( info->pOverrideFolderPath ) }
+    , libconfig{ ReadConfig( ovrdFolder ) }
     , debugMessenger( VK_NULL_HANDLE )
     , userPrint{ std::make_unique< UserPrint >( info->pfnPrint, info->pUserPrintData ) }
     , rayCullBackFacingTriangles( info->rayCullBackFacingTriangles )
