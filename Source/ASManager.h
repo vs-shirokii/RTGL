@@ -125,7 +125,6 @@ private:
 
     // for filling buffers
     std::unique_ptr< VertexCollector > collectorStatic;
-    std::unique_ptr< VertexCollector > collectorReplacements;
     std::unique_ptr< VertexCollector > collectorDynamic[ MAX_FRAMES_IN_FLIGHT ];
     // device-local buffer for storing previous info
     Buffer                             previousDynamicPositions;
@@ -158,6 +157,8 @@ private:
         bool              isStatic;
     };
     std::vector< Object > curFrame_objects;
+
+    VertexCollector::CopyRanges curFrame_replacementDataToCopy{};
 
     // top level AS
     std::unique_ptr< AutoBuffer >    instanceBuffer;

@@ -218,25 +218,9 @@ bool RTGL1::GeomInfoManager::CopyFromStaging( VkCommandBuffer    cmd,
 {
     auto label = CmdLabel{ cmd, "Copying geom infos" };
 
-    struct MinMax
-    {
-        void add( uint32_t x )
-        {
-            vbegin = std::min( x, vbegin );
-            vend   = std::max( x + 1, vend );
-        }
 
-        uint32_t first() const { return vbegin; }
-        uint32_t count() const { return vend - vbegin; }
-        bool     valid() const { return count() > 0; }
-
-        uint32_t vbegin{ 0 };
-        uint32_t vend{ 0 };
-    };
-
-
-    auto matchprev_range = MinMax{};
-    auto geominfo_range  = MinMax{};
+    auto matchprev_range = CopyRange{};
+    auto geominfo_range  = CopyRange{};
 
 
     auto prevIndexToCurIndexArr = static_cast< MatchPrevIndexType* >( matchPrevShadow.get() );

@@ -28,7 +28,7 @@
 #include "Common.h"
 #include "Material.h"
 #include "VertexCollectorFilter.h"
-#include "UniqueID.h"
+#include "Utils.h"
 
 #include "RTGL1/RTGL1.h"
 
@@ -68,6 +68,33 @@ public:
     VertexCollector& operator=( const VertexCollector& other )     = delete;
     VertexCollector& operator=( VertexCollector&& other ) noexcept = delete;
 
+
+    void Reset();
+
+
+    struct CopyRanges
+    {
+        CopyRange vertices;
+        CopyRange indices;
+        CopyRange texCoord1;
+        CopyRange texCoord2;
+        CopyRange texCoord3;
+
+        static auto Merge( const CopyRanges& a, const CopyRanges& b )
+        {
+            return CopyRanges{
+                .vertices  = CopyRange::merge( a.vertices, b.vertices ),
+                .indices   = CopyRange::merge( a.indices, b.indices ),
+                .texCoord1 = CopyRange::merge( a.texCoord1, b.texCoord1 ),
+                .texCoord2 = CopyRange::merge( a.texCoord2, b.texCoord2 ),
+                .texCoord3 = CopyRange::merge( a.texCoord3, b.texCoord3 ),
+            };
+        }
+    };
+    bool CopyFromStaging( VkCommandBuffer cmd, const CopyRanges& ranges );
+    bool CopyFromStaging( VkCommandBuffer cmd );
+
+
     struct UploadResult
     {
         VkAccelerationStructureGeometryKHR       asGeometryInfo;
@@ -81,15 +108,8 @@ public:
 
     auto Upload( VertexCollectorFilterTypeFlags geomFlags,
                  const RgMeshInfo&              mesh,
-                 const RgMeshPrimitiveInfo&     prim ) -> std::optional< UploadResult >;
-
-
-    // Clear data that was generated while collecting.
-    // Should be called when blasGeometries is not needed anymore
-    void Reset();
-    // Copy buffer from staging and set barrier for processing in compute shader
-    // "isStaticVertexData" is required to determine what GLSL struct to use for copying
-    bool CopyFromStaging( VkCommandBuffer cmd );
+                 const RgMeshPrimitiveInfo&     prim,
+                 CopyRanges*                    resultRanges ) -> std::optional< UploadResult >;
 
 
     VkBuffer GetVertexBuffer() const;
@@ -112,10 +132,6 @@ private:
                                   uint32_t                   texcIndex_1,
                                   uint32_t                   texcIndex_2,
                                   uint32_t                   texcIndex_3 );
-
-    bool CopyVertexDataFromStaging( VkCommandBuffer cmd );
-    bool CopyTexCoordsFromStaging( VkCommandBuffer cmd, uint32_t layerIndex );
-    bool CopyIndexDataFromStaging( VkCommandBuffer cmd );
 
 private:
     VkDevice device;
@@ -195,11 +211,11 @@ private:
     };
 
 
-    SharedDeviceLocal< ShVertex >             bufVertices;
-    SharedDeviceLocal< uint32_t >             bufIndices;
-    SharedDeviceLocal< RgFloat2D >            bufTexcoordLayer1;
-    SharedDeviceLocal< RgFloat2D >            bufTexcoordLayer2;
-    SharedDeviceLocal< RgFloat2D >            bufTexcoordLayer3;
+    SharedDeviceLocal< ShVertex >  bufVertices;
+    SharedDeviceLocal< uint32_t >  bufIndices;
+    SharedDeviceLocal< RgFloat2D > bufTexcoordLayer1;
+    SharedDeviceLocal< RgFloat2D > bufTexcoordLayer2;
+    SharedDeviceLocal< RgFloat2D > bufTexcoordLayer3;
 
     uint32_t curVertexCount{ 0 };
     uint32_t curIndexCount{ 0 };

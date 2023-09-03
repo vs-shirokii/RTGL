@@ -403,6 +403,46 @@ auto find_p( const M& m, const std::string_view key )
     return static_cast< ResultType >( nullptr );
 }
 
+struct CopyRange
+{
+    void add( uint32_t x )
+    {
+        vbegin = std::min( x, vbegin );
+        vend   = std::max( x + 1, vend );
+    }
+
+    static auto merge( const CopyRange& a, const CopyRange& b )
+    {
+        return CopyRange{
+            .vbegin = std::min( a.vbegin, b.vbegin ),
+            .vend   = std::max( a.vend, b.vend ),
+        };
+    }
+
+    uint32_t first() const { return vbegin; }
+    uint32_t count() const { return vend - vbegin; }
+    bool     valid() const { return count() > 0; }
+
+    uint32_t vbegin{ 0 };
+    uint32_t vend{ 0 };
+};
+
+inline auto MakeRangeFromCount( uint32_t first, uint32_t count )
+{
+    return CopyRange{
+        .vbegin = first,
+        .vend   = first + count,
+    };
+}
+
+inline auto MakeRangeFromOverallCount( uint32_t first, uint32_t overallCount )
+{
+    return CopyRange{
+        .vbegin = first,
+        .vend   = overallCount,
+    };
+}
+
 namespace ext
 {
     // https://en.cppreference.com/w/cpp/utility/variant/visit

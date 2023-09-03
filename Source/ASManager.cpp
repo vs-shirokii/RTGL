@@ -115,9 +115,6 @@ RTGL1::ASManager::ASManager( VkDevice                                _device,
         collectorStatic = std::make_unique< VertexCollector >(
             device, *allocator, maxVertsPerLayer, false, "Static" );
 
-        collectorReplacements = std::make_unique< VertexCollector >(
-            device, *allocator, maxVertsPerLayer, false, "Replacements" );
-
         for( auto& c : collectorDynamic )
         {
             c = collectorDynamic[ 0 ] ? VertexCollector::CreateWithSameDeviceLocalBuffers(
@@ -733,11 +730,13 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
     // if AS doesn't exist, create it
     if( !builtInstance )
     {
-        auto& dstCollector = isReplacement ? collectorReplacements
-                             : isStatic    ? collectorStatic
-                                           : collectorDynamic[ frameIndex ];
+        auto& dstCollector =
+            isStatic || isReplacement ? collectorStatic : collectorDynamic[ frameIndex ];
 
-        auto uploadedData = dstCollector->Upload( geomFlags, mesh, primitive );
+        auto copyRanges = VertexCollector::CopyRanges{};
+
+        auto uploadedData = dstCollector->Upload(
+            geomFlags, mesh, primitive, isReplacement ? &copyRanges : nullptr );
         if( !uploadedData )
         {
             return false;
@@ -779,9 +778,12 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
         // save a built instance to a corresponding storage
         if( isReplacement )
         {
+            assert( copyRanges.vertices.valid() );
+            curFrame_replacementDataToCopy =
+                VertexCollector::CopyRanges::Merge( curFrame_replacementDataToCopy, copyRanges );
+
             // look at the TODO note above
             assert( builtReplacements[ mesh.pMeshName ].size() == uniqueID.primitiveIndex );
-
             builtReplacements[ mesh.pMeshName ].push_back( builtInstance );
         }
         else if( isStatic )
@@ -813,7 +815,7 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
             .model     = RG_MATRIX_TRANSPOSED( mesh.transform ),
             .prevModel = { /* set in geomInfoManager */ },
 
-            .flags = GeomInfoManager::GetPrimitiveFlags( primitive, !isStatic ),
+            .flags = GeomInfoManager::GetPrimitiveFlags( primitive, !isStatic && !isReplacement ),
 
             .texture_base = layerTextures[ 0 ].indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
             .texture_base_ORM =
@@ -865,10 +867,14 @@ void RTGL1::ASManager::SubmitDynamicGeometry( DynamicGeometryToken& token,
     assert( token );
     token = {};
 
-    auto label = CmdLabel{ cmd, "Building dynamic BLAS" };
+    {
+        auto label = CmdLabel{ cmd, "Vertex data" };
 
+        collectorDynamic[ frameIndex ]->CopyFromStaging( cmd );
 
-    collectorDynamic[ frameIndex ]->CopyFromStaging( cmd );
+        collectorStatic->CopyFromStaging( cmd, curFrame_replacementDataToCopy );
+        curFrame_replacementDataToCopy = {};
+    }
 
 
     if( asBuilder->BuildBottomLevel( cmd ) )

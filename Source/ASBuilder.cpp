@@ -20,6 +20,8 @@
 
 #include "ASBuilder.h"
 
+#include "CmdLabel.h"
+
 #include <algorithm>
 #include <utility>
 
@@ -121,6 +123,8 @@ void ASBuilder::AddBLAS( VkAccelerationStructureKHR                             
 
 bool ASBuilder::BuildBottomLevel( VkCommandBuffer cmd )
 {
+    auto label = CmdLabel{ cmd, "Build BLAS" };
+
     assert( bottomLBuildInfo.geomInfos.size() == bottomLBuildInfo.rangeInfos.size() );
 
     if( bottomLBuildInfo.geomInfos.empty() )
@@ -181,6 +185,8 @@ void ASBuilder::AddTLAS( VkAccelerationStructureKHR                      as,
 
 bool ASBuilder::BuildTopLevel( VkCommandBuffer cmd )
 {
+    auto label = CmdLabel{ cmd, "Build TLAS" };
+
     assert( topLBuildInfo.geomInfos.size() == topLBuildInfo.rangeInfos.size() );
 
     if( topLBuildInfo.geomInfos.empty() )

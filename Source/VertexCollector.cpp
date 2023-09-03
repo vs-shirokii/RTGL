@@ -131,13 +131,14 @@ uint32_t AlignUpBy3( uint32_t x )
 
 auto RTGL1::VertexCollector::Upload( VertexCollectorFilterTypeFlags geomFlags,
                                      const RgMeshInfo&              mesh,
-                                     const RgMeshPrimitiveInfo&     prim )
-    -> std::optional< UploadResult >
+                                     const RgMeshPrimitiveInfo&     prim,
+                                     CopyRanges* resultRanges ) -> std::optional< UploadResult >
 {
     using FT = VertexCollectorFilterTypeFlagBits;
 
     const uint32_t vertIndex   = AlignUpBy3( curVertexCount );
     const uint32_t indIndex    = AlignUpBy3( curIndexCount );
+    const uint32_t primIndex   = curPrimitiveCount;
     const uint32_t texcIndex_1 = curTexCoordCount_Layer1;
     const uint32_t texcIndex_2 = curTexCoordCount_Layer2;
     const uint32_t texcIndex_3 = curTexCoordCount_Layer3;
@@ -145,13 +146,26 @@ auto RTGL1::VertexCollector::Upload( VertexCollectorFilterTypeFlags geomFlags,
     const bool     useIndices    = prim.indexCount != 0 && prim.pIndices != nullptr;
     const uint32_t triangleCount = useIndices ? prim.indexCount / 3 : prim.vertexCount / 3;
 
-    curVertexCount = vertIndex + prim.vertexCount;
-    curIndexCount  = indIndex + ( useIndices ? prim.indexCount : 0 );
-    curPrimitiveCount += triangleCount;
-    curTexCoordCount_Layer1 += GeomInfoManager::LayerExists( prim, 1 ) ? prim.vertexCount : 0;
-    curTexCoordCount_Layer2 += GeomInfoManager::LayerExists( prim, 2 ) ? prim.vertexCount : 0;
-    curTexCoordCount_Layer3 += GeomInfoManager::LayerExists( prim, 3 ) ? prim.vertexCount : 0;
+    // clang-format off
+    curVertexCount          = vertIndex   + ( prim.vertexCount );
+    curIndexCount           = indIndex    + ( useIndices ? prim.indexCount : 0 );
+    curPrimitiveCount       = primIndex   + ( triangleCount );
+    curTexCoordCount_Layer1 = texcIndex_1 + ( GeomInfoManager::LayerExists( prim, 1 ) ? prim.vertexCount : 0 );
+    curTexCoordCount_Layer2 = texcIndex_2 + ( GeomInfoManager::LayerExists( prim, 2 ) ? prim.vertexCount : 0 );
+    curTexCoordCount_Layer3 = texcIndex_3 + ( GeomInfoManager::LayerExists( prim, 3 ) ? prim.vertexCount : 0 );
+    // clang-format on
 
+
+    if( resultRanges )
+    {
+        *resultRanges = CopyRanges{
+            .vertices  = MakeRangeFromOverallCount( vertIndex, curVertexCount ),
+            .indices   = MakeRangeFromOverallCount( indIndex, curIndexCount ),
+            .texCoord1 = MakeRangeFromOverallCount( texcIndex_1, curTexCoordCount_Layer1 ),
+            .texCoord2 = MakeRangeFromOverallCount( texcIndex_2, curTexCoordCount_Layer2 ),
+            .texCoord3 = MakeRangeFromOverallCount( texcIndex_3, curTexCoordCount_Layer3 ),
+        };
+    }
 
 
     if( !( geomFlags & FT::CF_DYNAMIC ) )
@@ -310,177 +324,131 @@ void RTGL1::VertexCollector::Reset()
     curTexCoordCount_Layer3 = 0;
 }
 
-bool RTGL1::VertexCollector::CopyVertexDataFromStaging( VkCommandBuffer cmd )
-{
-    if( curVertexCount == 0 )
-    {
-        return false;
-    }
-
-    VkBufferCopy info = {
-        .srcOffset = 0,
-        .dstOffset = 0,
-        .size      = curVertexCount * sizeof( ShVertex ),
-    };
-
-    vkCmdCopyBuffer(
-        cmd, bufVertices.staging.GetBuffer(), bufVertices.deviceLocal->GetBuffer(), 1, &info );
-
-    return true;
-}
-
-bool RTGL1::VertexCollector::CopyTexCoordsFromStaging( VkCommandBuffer cmd, uint32_t layerIndex )
-{
-    std::pair< SharedDeviceLocal< RgFloat2D >*, uint32_t > txc = {};
-
-    switch( layerIndex )
-    {
-        case 1: txc = { &bufTexcoordLayer1, curTexCoordCount_Layer1 }; break;
-        case 2: txc = { &bufTexcoordLayer2, curTexCoordCount_Layer2 }; break;
-        case 3: txc = { &bufTexcoordLayer3, curTexCoordCount_Layer3 }; break;
-        default: assert( 0 ); return false;
-    }
-
-    auto& [ buf, count ] = txc;
-
-    if( count == 0 )
-    {
-        return false;
-    }
-
-    VkBufferCopy info = {
-        .srcOffset = 0,
-        .dstOffset = 0,
-        .size      = count * sizeof( RgFloat2D ),
-    };
-
-    vkCmdCopyBuffer( cmd, buf->staging.GetBuffer(), buf->deviceLocal->GetBuffer(), 1, &info );
-    return true;
-}
-
-bool RTGL1::VertexCollector::CopyIndexDataFromStaging( VkCommandBuffer cmd )
-{
-    if( curIndexCount == 0 )
-    {
-        return false;
-    }
-
-    VkBufferCopy info = {
-        .srcOffset = 0,
-        .dstOffset = 0,
-        .size      = curIndexCount * sizeof( uint32_t ),
-    };
-
-    vkCmdCopyBuffer(
-        cmd, bufIndices.staging.GetBuffer(), bufIndices.deviceLocal->GetBuffer(), 1, &info );
-
-    return true;
-}
-
 bool RTGL1::VertexCollector::CopyFromStaging( VkCommandBuffer cmd )
 {
-    bool copiedAny = false;
+    return CopyFromStaging( cmd,
+                            CopyRanges{
+                                .vertices  = MakeRangeFromCount( 0, curVertexCount ),
+                                .indices   = MakeRangeFromCount( 0, curIndexCount ),
+                                .texCoord1 = MakeRangeFromCount( 0, curTexCoordCount_Layer1 ),
+                                .texCoord2 = MakeRangeFromCount( 0, curTexCoordCount_Layer2 ),
+                                .texCoord3 = MakeRangeFromCount( 0, curTexCoordCount_Layer3 ),
+                            } );
+}
 
-    // just prepare for preprocessing - so no AS as the destination for this moment
+bool RTGL1::VertexCollector::CopyFromStaging( VkCommandBuffer cmd, const CopyRanges& ranges )
+{
+    struct Temp
     {
-        std::array< VkBufferMemoryBarrier, 2 > barriers     = {};
-        uint32_t                               barrierCount = 0;
+        VkBuffer     buf;
+        VkDeviceSize offset;
+        VkDeviceSize size;
+    };
 
-        if( CopyVertexDataFromStaging( cmd ) )
+    auto copyFromStaging = []< typename T >( VkCommandBuffer         cmd,
+                                             SharedDeviceLocal< T >& buf,
+                                             const CopyRange& rng ) -> std::optional< Temp > {
+        if( rng.valid() )
         {
-            barriers[ barrierCount++ ] = {
-                .sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
-                .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+            auto info = VkBufferCopy{
+                .srcOffset = 0,
+                .dstOffset = 0,
+                .size      = rng.count() * sizeof( T ),
+            };
+
+            vkCmdCopyBuffer( cmd, buf.staging.GetBuffer(), buf.deviceLocal->GetBuffer(), 1, &info );
+
+            return Temp{
+                .buf    = buf.deviceLocal->GetBuffer(),
+                .offset = info.dstOffset,
+                .size   = info.size,
+            };
+        }
+        return {};
+    };
+
+    auto barriers     = std::array< VkBufferMemoryBarrier2, 5 >{};
+    auto barrierCount = uint32_t{ 0 };
+
+
+    if( auto c = copyFromStaging( cmd, bufVertices, ranges.vertices ) )
+    {
+        barriers[ barrierCount++ ] = VkBufferMemoryBarrier2{
+            .sType         = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .pNext         = nullptr,
+            .srcStageMask  = VK_PIPELINE_STAGE_2_COPY_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                            VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT |
+                             VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer              = c->buf,
+            .offset              = c->offset,
+            .size                = c->size,
+        };
+    }
+
+    if( auto c = copyFromStaging( cmd, bufIndices, ranges.indices ) )
+    {
+        barriers[ barrierCount++ ] = VkBufferMemoryBarrier2{
+            .sType         = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .pNext         = nullptr,
+            .srcStageMask  = VK_PIPELINE_STAGE_2_COPY_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                            VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT |
+                             VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer              = c->buf,
+            .offset              = c->offset,
+            .size                = c->size,
+        };
+    }
+
+    std::pair< SharedDeviceLocal< RgFloat2D >*, const CopyRange* > texLayers[] = {
+        { &bufTexcoordLayer1, &ranges.texCoord1 },
+        { &bufTexcoordLayer2, &ranges.texCoord2 },
+        { &bufTexcoordLayer3, &ranges.texCoord3 },
+    };
+
+
+    for( auto [ tbuf, trng ] : texLayers )
+    {
+        if( auto c = copyFromStaging( cmd, *tbuf, *trng ) )
+        {
+            // for read-only
+            barriers[ barrierCount++ ] = VkBufferMemoryBarrier2{
+                .sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+                .pNext               = nullptr,
+                .srcStageMask        = VK_PIPELINE_STAGE_2_COPY_BIT,
+                .srcAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                .dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT,
                 .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .buffer              = bufVertices.deviceLocal->GetBuffer(),
-                .offset              = 0,
-                .size                = curVertexCount * sizeof( ShVertex ),
+                .buffer              = c->buf,
+                .offset              = c->offset,
+                .size                = c->size,
             };
-            copiedAny = true;
-        }
-
-        if( CopyIndexDataFromStaging( cmd ) )
-        {
-            barriers[ barrierCount++ ] = {
-                .sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
-                .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
-                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .buffer              = bufIndices.deviceLocal->GetBuffer(),
-                .offset              = 0,
-                .size                = curIndexCount * sizeof( uint32_t ),
-            };
-            copiedAny = true;
-        }
-
-        if( barrierCount > 0 )
-        {
-            vkCmdPipelineBarrier( cmd,
-                                  VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                  VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
-                                      VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
-                                  0,
-                                  0,
-                                  nullptr,
-                                  barrierCount,
-                                  barriers.data(),
-                                  0,
-                                  nullptr );
         }
     }
 
-    // copy for read-only
+    if( barrierCount > 0 )
     {
-        std::array< VkBufferMemoryBarrier, 3 > barriers     = {};
-        uint32_t                               barrierCount = 0;
+        auto dep = VkDependencyInfo{
+            .sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .bufferMemoryBarrierCount = barrierCount,
+            .pBufferMemoryBarriers    = barriers.data(),
+        };
 
-        for( uint32_t layerIndex : { 1, 2, 3 } )
-        {
-            std::pair< SharedDeviceLocal< RgFloat2D >*, uint32_t /* elem count */ > txc = {};
-
-            switch( layerIndex )
-            {
-                case 1: txc = { &bufTexcoordLayer1, curTexCoordCount_Layer1 }; break;
-                case 2: txc = { &bufTexcoordLayer2, curTexCoordCount_Layer2 }; break;
-                case 3: txc = { &bufTexcoordLayer3, curTexCoordCount_Layer3 }; break;
-                default: assert( 0 ); continue;
-            }
-
-            if( CopyTexCoordsFromStaging( cmd, layerIndex ) )
-            {
-                barriers[ barrierCount++ ] = {
-                    .sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                    .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
-                    .dstAccessMask       = VK_ACCESS_SHADER_READ_BIT,
-                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                    .buffer              = txc.first->deviceLocal->GetBuffer(),
-                    .offset              = 0,
-                    .size                = txc.second * sizeof( RgFloat2D ),
-                };
-                copiedAny = true;
-            }
-        }
-
-        if( barrierCount > 0 )
-        {
-            vkCmdPipelineBarrier( cmd,
-                                  VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                  VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                                  0,
-                                  0,
-                                  nullptr,
-                                  barrierCount,
-                                  barriers.data(),
-                                  0,
-                                  nullptr );
-        }
+        svkCmdPipelineBarrier2KHR( cmd, &dep );
+        return true;
     }
-
-    return copiedAny;
+    return false;
 }
 
 VkBuffer RTGL1::VertexCollector::GetVertexBuffer() const
@@ -518,7 +486,7 @@ void RTGL1::VertexCollector::InsertVertexPreprocessBeginBarrier( VkCommandBuffer
 
 void RTGL1::VertexCollector::InsertVertexPreprocessFinishBarrier( VkCommandBuffer cmd )
 {
-    std::array< VkBufferMemoryBarrier, 5 > barriers     = {};
+    std::array< VkBufferMemoryBarrier, 2 > barriers     = {};
     uint32_t                               barrierCount = 0;
 
     if( curVertexCount > 0 )
