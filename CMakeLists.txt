@@ -208,8 +208,12 @@ add_library(RayTracedGL1 SHARED
     ${PublicHeaders}
 )
 set_target_properties(RayTracedGL1 PROPERTIES
-    OUTPUT_NAME "RTGL1"
+    OUTPUT_NAME RTGL1
 )
+set_target_properties(RayTracedGL1 PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY $<IF:$<CONFIG:Debug>,${CMAKE_SOURCE_DIR}/Build/bin/debug,${CMAKE_SOURCE_DIR}/Build/bin>
+)
+
 
 # KTX
 target_include_directories(RayTracedGL1 PRIVATE "Source/KTX/include")
@@ -276,9 +280,11 @@ if (RG_WITH_EXAMPLES)
     add_definitions(-DASSET_DIRECTORY="../")
     add_executable(RtglExample Tests/RtglTest.cpp)
     set_property(TARGET RtglExample PROPERTY CXX_STANDARD 20)
-    target_link_libraries(RtglExample RayTracedGL1)
     target_link_libraries(RtglExample glfw)
+    target_include_directories(RtglExample PRIVATE "Include" )
     target_include_directories(RtglExample PUBLIC Tests/Libs/glm)
+    # not needed, but let RtglExample be built after RayTracedGL1
+    add_dependencies(RtglExample RayTracedGL1)
 endif()
 
 # VS hot-reload - disabled because of glaze

@@ -765,7 +765,11 @@ int main( int argc, char* argv[] )
         .sType = RG_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 
 #ifdef _WIN32
-        .pRtglDynamicLibraryPath = "RTGL1.dll",
+    #ifndef NDEBUG
+        .pRtglDynamicLibraryPath = ASSET_DIRECTORY "bin/debug/RTGL1.dll",
+    #else
+        .pRtglDynamicLibraryPath = ASSET_DIRECTORY "bin/RTGL1.dll",
+    #endif
 #else
 #endif
 
