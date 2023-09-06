@@ -33,16 +33,26 @@ using namespace RTGL1;
 namespace
 {
 
-std::optional< uint32_t > ResolveDefaultDataSize( VkFormat format, const RgExtent2D& size )
+std::optional< size_t > ResolveDefaultDataSize( VkFormat format, const RgExtent2D& size )
 {
-    if( format != VK_FORMAT_R8G8B8A8_SRGB && format != VK_FORMAT_R8G8B8A8_UNORM )
-    {
-        assert( 0 && "Default can be only RGBA8" );
-        return std::nullopt;
-    }
-    constexpr uint32_t defaultBytesPerPixel = 4;
+    // TODO: some format don't have an integer byte-per-pixel
+    uint32_t bytesPerPixel = 0;
 
-    return defaultBytesPerPixel * size.width * size.height;
+    switch( format )
+    {
+        case VK_FORMAT_R8_UNORM:
+        case VK_FORMAT_R8_SRGB: bytesPerPixel = 1; break;
+        case VK_FORMAT_R8G8B8A8_UNORM:
+        case VK_FORMAT_R8G8B8A8_SRGB:
+        case VK_FORMAT_B8G8R8A8_UNORM:
+        case VK_FORMAT_B8G8R8A8_SRGB: bytesPerPixel = 4; break;
+        default:
+            assert( 0 && "ResolveDefaultDataSize is not implemented for this format" );
+            return {};
+    }
+    assert( bytesPerPixel > 0 );
+    
+    return size_t{ bytesPerPixel } * size.width * size.height;
 }
 
 

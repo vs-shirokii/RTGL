@@ -182,6 +182,7 @@ typedef enum RgStructureType
     RG_STRUCTURE_TYPE_LENS_FLARE_INFO,
     RG_STRUCTURE_TYPE_DECAL_INFO,
     RG_STRUCTURE_TYPE_CAMERA_INFO,
+    RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_DETAILS_EXT,
 } RgStructureType;
 
 typedef enum RgTextureSwizzling
@@ -626,6 +627,26 @@ typedef enum RgSamplerAddressMode
     RG_SAMPLER_ADDRESS_MODE_REPEAT,
     RG_SAMPLER_ADDRESS_MODE_CLAMP,
 } RgSamplerAddressMode;
+
+typedef enum RgFormat
+{
+    // TODO: expand
+    RG_FORMAT_UNDEFINED        = 0,
+    RG_FORMAT_R8_UNORM         = 9,
+    RG_FORMAT_R8_SRGB          = 15,
+    RG_FORMAT_R8G8B8A8_UNORM   = 37,
+    RG_FORMAT_R8G8B8A8_SRGB    = 43,
+    RG_FORMAT_B8G8R8A8_UNORM   = 44,
+    RG_FORMAT_B8G8R8A8_SRGB    = 50,
+} RgFormat;
+
+// Can be linked after RgOriginalTextureInfo.
+typedef struct RgOriginalTextureDetailsEXT
+{
+    RgStructureType         sType;
+    void*                   pNext;
+    RgFormat                format;
+} RgOriginalTextureDetailsEXT;
 
 typedef struct RgOriginalTextureInfo
 {

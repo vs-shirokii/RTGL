@@ -89,6 +89,7 @@ namespace detail
     template<> constexpr auto TypeToStructureType< RgStartFrameInfo                     > = RG_STRUCTURE_TYPE_START_FRAME_INFO                     ;
     template<> constexpr auto TypeToStructureType< RgDrawFrameInfo                      > = RG_STRUCTURE_TYPE_DRAW_FRAME_INFO                      ;
     template<> constexpr auto TypeToStructureType< RgCameraInfo                         > = RG_STRUCTURE_TYPE_CAMERA_INFO                          ;
+    template<> constexpr auto TypeToStructureType< RgOriginalTextureDetailsEXT          > = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_DETAILS_EXT         ;
     // clang-format on
 
     template< typename T >
@@ -130,6 +131,7 @@ namespace detail
     static_assert( CheckMembers< RgStartFrameInfo >() );
     static_assert( CheckMembers< RgDrawFrameInfo >() );
     static_assert( CheckMembers< RgCameraInfo >() );
+    static_assert( CheckMembers< RgOriginalTextureDetailsEXT >() );
 
 
     template< typename T >
@@ -144,6 +146,7 @@ namespace detail
     template<> struct LinkRootHelper< RgMeshPrimitivePBREXT              >{ using Root = RgMeshPrimitiveInfo; };
     template<> struct LinkRootHelper< RgMeshPrimitiveAttachedLightEXT    >{ using Root = RgMeshPrimitiveInfo; };
     template<> struct LinkRootHelper< RgMeshPrimitiveForceRasterizedEXT  >{ using Root = RgMeshPrimitiveInfo; };
+    template<> struct LinkRootHelper< RgOriginalTextureDetailsEXT        >{ using Root = RgOriginalTextureInfo; };
     template<> struct LinkRootHelper< RgLightAdditionalEXT               >{ using Root = RgLightInfo; };
     template<> struct LinkRootHelper< RgLightDirectionalEXT              >{ using Root = RgLightInfo; };
     template<> struct LinkRootHelper< RgLightSphericalEXT                >{ using Root = RgLightInfo; };

@@ -68,7 +68,7 @@ std::optional< RTGL1::ImageLoader::ResultInfo > RTGL1::ImageLoader::Load(
         .levelCount     = std::min( pTexture->numLevels, MAX_PREGENERATED_MIPMAP_LEVELS ),
         .isPregenerated = true,
         .pData          = ktxTexture_GetData( pTexture ),
-        .dataSize       = static_cast< uint32_t >( ktxTexture_GetDataSize( pTexture ) ),
+        .dataSize       = ktxTexture_GetDataSize( pTexture ),
         .baseSize       = { pTexture->baseWidth, pTexture->baseHeight },
         .format         = ktxTexture_GetVkFormat( pTexture ),
     };
@@ -87,8 +87,8 @@ std::optional< RTGL1::ImageLoader::ResultInfo > RTGL1::ImageLoader::Load(
             break;
         }
 
-        result.levelOffsets[ level ] = static_cast< uint32_t >( offset );
-        result.levelSizes[ level ]   = static_cast< uint32_t >( size );
+        result.levelOffsets[ level ] = offset;
+        result.levelSizes[ level ]   = size;
     }
 
 
@@ -119,7 +119,7 @@ std::optional< RTGL1::ImageLoader::LayeredResultInfo > RTGL1::ImageLoader::LoadL
 
     LayeredResultInfo result = {
         .layerData = {},
-        .dataSize  = static_cast< uint32_t >( ktxTexture_GetDataSize( pTexture ) ),
+        .dataSize  = ktxTexture_GetDataSize( pTexture ),
         .baseSize  = { pTexture->baseWidth, pTexture->baseHeight },
         .format    = ktxTexture_GetVkFormat( pTexture ),
     };

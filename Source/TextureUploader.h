@@ -46,7 +46,7 @@ public:
         VkCommandBuffer cmd;
         uint32_t        frameIndex;
         const void*     pData;
-        uint32_t        dataSize;
+        size_t          dataSize;
         struct
         {
             const void* pFaces[ 6 ];
@@ -57,8 +57,8 @@ public:
         // if count is 0, useMipmaps is true and format supports blit,
         // then the mipmaps will be generated
         uint32_t                            pregeneratedLevelCount;
-        const uint32_t*                     pLevelDataOffsets;
-        const uint32_t*                     pLevelDataSizes;
+        const size_t*                       pLevelDataOffsets;
+        const size_t*                       pLevelDataSizes;
         bool                                isUpdateable;
         const char*                         pDebugName;
         bool                                isCubemap;

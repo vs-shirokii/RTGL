@@ -271,7 +271,7 @@ bool RTGL1::CubemapManager::TryCreateCubemap( VkCommandBuffer              cmd,
         return false;
     }
     upload.baseSize = commonSize;
-    upload.dataSize = 4 * commonSize.width * commonSize.height;
+    upload.dataSize = size_t{ 4 } * commonSize.width * commonSize.height;
     //
 
 

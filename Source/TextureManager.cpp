@@ -72,6 +72,30 @@ auto FindEmptySlot( std::vector< Texture >& textures )
     } );
 }
 
+VkFormat toVkFormat( RgFormat f )
+{
+    switch( f )
+    {
+        case RG_FORMAT_UNDEFINED: assert( 0 ); return VK_FORMAT_UNDEFINED;
+        case RG_FORMAT_R8_UNORM: return VK_FORMAT_R8_UNORM;
+        case RG_FORMAT_R8_SRGB: return VK_FORMAT_R8_SRGB;
+        case RG_FORMAT_R8G8B8A8_UNORM: return VK_FORMAT_R8G8B8A8_UNORM;
+        case RG_FORMAT_R8G8B8A8_SRGB: return VK_FORMAT_R8G8B8A8_SRGB;
+        case RG_FORMAT_B8G8R8A8_UNORM: return VK_FORMAT_B8G8R8A8_UNORM;
+        case RG_FORMAT_B8G8R8A8_SRGB: return VK_FORMAT_B8G8R8A8_SRGB;
+        default: assert( 0 ); return VK_FORMAT_R8G8B8A8_SRGB;
+    }
+}
+
+VkFormat getVkFormat( const RgOriginalTextureDetailsEXT* details, VkFormat fallback )
+{
+    if( details )
+    {
+        return toVkFormat( details->format );
+    }
+    return fallback;
+}
+
 }
 
 
@@ -417,12 +441,15 @@ bool TextureManager::TryCreateMaterial( VkCommandBuffer              cmd,
     }
 
 
+    auto details = pnext::find< RgOriginalTextureDetailsEXT >( &info );
+
+
     // clang-format off
     TextureOverrides ovrd[] = {
-        TextureOverrides( ovrdFolder, info.pTextureName, postfixes[ 0 ], info.pPixels, info.size, VK_FORMAT_R8G8B8A8_SRGB, OnlyKTX2LoaderIfNonDevMode() ),
-        TextureOverrides( ovrdFolder, info.pTextureName, postfixes[ 1 ], nullptr, {}, VK_FORMAT_R8G8B8A8_UNORM, OnlyKTX2LoaderIfNonDevMode() ),
-        TextureOverrides( ovrdFolder, info.pTextureName, postfixes[ 2 ], nullptr, {}, VK_FORMAT_R8G8B8A8_UNORM, OnlyKTX2LoaderIfNonDevMode() ),
-        TextureOverrides( ovrdFolder, info.pTextureName, postfixes[ 3 ], nullptr, {}, VK_FORMAT_R8G8B8A8_SRGB, OnlyKTX2LoaderIfNonDevMode() ),
+        TextureOverrides( ovrdFolder, info.pTextureName, postfixes[ 0 ], info.pPixels, info.size, getVkFormat( details, VK_FORMAT_R8G8B8A8_SRGB ), OnlyKTX2LoaderIfNonDevMode() ),
+        TextureOverrides( ovrdFolder, info.pTextureName, postfixes[ 1 ], nullptr, {}, getVkFormat( details, VK_FORMAT_R8G8B8A8_UNORM ), OnlyKTX2LoaderIfNonDevMode() ),
+        TextureOverrides( ovrdFolder, info.pTextureName, postfixes[ 2 ], nullptr, {}, getVkFormat( details, VK_FORMAT_R8G8B8A8_UNORM ), OnlyKTX2LoaderIfNonDevMode() ),
+        TextureOverrides( ovrdFolder, info.pTextureName, postfixes[ 3 ], nullptr, {}, getVkFormat( details, VK_FORMAT_R8G8B8A8_SRGB ), OnlyKTX2LoaderIfNonDevMode() ),
     };
     static_assert( std::size( ovrd ) == TEXTURES_PER_MATERIAL_COUNT );
     // clang-format on

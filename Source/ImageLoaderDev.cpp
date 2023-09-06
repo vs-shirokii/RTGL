@@ -46,18 +46,24 @@ std::optional< RTGL1::ImageLoader::ResultInfo > RTGL1::ImageLoaderDev::Load( con
         return {};
     }
 
-    const uint32_t width  = x;
-    const uint32_t height = y;
+    if( x <= 0 || y <= 0 )
+    {
+        assert( 0 );
+        return {};
+    }
 
-    assert( width > 0 && height > 0 );
+    const auto width  = static_cast< uint32_t >( x );
+    const auto height = static_cast< uint32_t >( y );
 
-    ImageLoader::ResultInfo result = {
+    const auto dataSize = size_t{ width } * size_t{ height } * Channels;
+
+    auto result = ImageLoader::ResultInfo{
         .levelOffsets   = { 0 },
-        .levelSizes     = { width * height * Channels },
+        .levelSizes     = { dataSize },
         .levelCount     = 1,
         .isPregenerated = false,
         .pData          = pData,
-        .dataSize       = width * height * Channels,
+        .dataSize       = dataSize,
         .baseSize       = { width, height },
         .format         = VK_FORMAT_R8G8B8A8_SRGB,
     };
