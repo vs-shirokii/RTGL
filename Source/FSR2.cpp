@@ -174,7 +174,8 @@ RTGL1::FramebufferImageIndex RTGL1::FSR2::Apply(
     float                                  nearPlane,
     float                                  farPlane,
     float                                  fovVerticalRad,
-    bool                                   resetAccumulation )
+    bool                                   resetAccumulation,
+    float                                  oneGameUnitInMeters )
 {
     assert( nearPlane > 0.0f && nearPlane < farPlane );
 
@@ -209,6 +210,13 @@ RTGL1::FramebufferImageIndex RTGL1::FSR2::Apply(
         .cameraNear                 = nearPlane,
         .cameraFar                  = farPlane,
         .cameraFovAngleVertical     = fovVerticalRad,
+        .viewSpaceToMetersFactor    = oneGameUnitInMeters,
+        .enableAutoReactive         = false,
+        .colorOpaqueOnly            = {},
+        .autoTcThreshold            = {},
+        .autoTcScale                = {},
+        .autoReactiveScale          = {},
+        .autoReactiveMax            = {}
     };
     // clang-format on
 

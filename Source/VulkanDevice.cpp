@@ -644,7 +644,8 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
                                     cameraInfo.cameraNear,
                                     cameraInfo.cameraFar,
                                     cameraInfo.fovYRadians,
-                                    resolution.resetUpscalerHistory );
+                                    resolution.resetUpscalerHistory,
+                                    sceneImportExport->GetWorldScale() );
         }
 
         accum = framebuffers->BlitForEffects(

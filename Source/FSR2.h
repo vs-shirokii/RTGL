@@ -52,7 +52,8 @@ public:
                                  float                                  nearPlane,
                                  float                                  farPlane,
                                  float                                  fovVerticalRad,
-                                 bool                                   resetAccumulation );
+                                 bool                                   resetAccumulation,
+                                 float                                  oneGameUnitInMeters );
 
     static RgFloat2D GetJitter( const ResolutionState& resolutionState, uint32_t frameId );
 
