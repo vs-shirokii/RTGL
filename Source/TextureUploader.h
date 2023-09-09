@@ -150,6 +150,8 @@ protected:
 
     // Each dynamic image has its pointer to HOST_VISIBLE data for updating.
     rgl::unordered_map< VkImage, UpdateableImageInfo > updateableImageInfos;
+
+    const rgl::unordered_set< VkFormat > supportBlit;
 };
 
 }
