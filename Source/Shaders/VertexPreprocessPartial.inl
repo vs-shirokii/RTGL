@@ -40,7 +40,8 @@
 void FUNC_NAME (const ShGeometryInstance inst)
 {
     const bool useIndices = inst.baseIndexIndex != UINT32_MAX;
-    const bool genNormals = (inst.flags & GEOM_INST_FLAG_GENERATE_NORMALS) != 0;
+    const bool genNormals = ( inst.flags & GEOM_INST_FLAG_GENERATE_NORMALS ) != 0 &&
+                            ( inst.flags & GEOM_INST_FLAG_EXACT_NORMALS ) == 0;
     // -1 if normals should be inverted
     const float normalSign = float((inst.flags & GEOM_INST_FLAG_INVERTED_NORMALS) == 0) * 2.0 - 1.0;
 
