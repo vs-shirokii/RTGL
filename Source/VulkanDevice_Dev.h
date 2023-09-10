@@ -66,7 +66,6 @@ struct Devmode
         float saturation[ 3 ];
         float crosstalk[ 3 ];
 
-        float                    fovDeg;
         bool                     vsync;
         RgRenderUpscaleTechnique upscaleTechnique;
         RgRenderSharpenTechnique sharpenTechnique;
@@ -78,6 +77,18 @@ struct Devmode
         float lightmapScreenCoverage;
 
     } drawInfoOvrd;
+
+    struct
+    {
+        bool                       fovEnable;
+        float                      fovDeg;
+        bool                       customEnable;
+        RgFloat3D                  customPos;
+        RgFloat2D                  customAngles;
+        RgFloat2D                  intr_lastAngles;
+        std::optional< RgFloat2D > intr_lastMouse;
+        float                      intr_time;
+    } cameraOvrd;
 
     bool ignoreExternalGeometry{ false };
 

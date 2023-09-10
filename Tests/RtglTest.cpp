@@ -502,20 +502,19 @@ void MainLoop( RgInterface& rt, std::string_view gltfPath )
 
 
         {
+            auto right = glm::normalize( glm::cross( ctl_CameraDirection, { 0, 1, 0 } ) );
+
             auto camera = RgCameraInfo{
                 .sType       = RG_STRUCTURE_TYPE_CAMERA_INFO,
                 .pNext       = nullptr,
+                .position    = { ctl_CameraPosition.x, ctl_CameraPosition.y, ctl_CameraPosition.z },
+                .up          = { 0, 1, 0 },
+                .right       = { right.x, right.y, right.z },
                 .fovYRadians = glm::radians( 75.0f ),
                 .aspect      = 16.0f / 9.0f,
                 .cameraNear  = 0.1f,
                 .cameraFar   = 10000.0f,
             };
-            {
-                glm::mat4 view = glm::lookAt(
-                    ctl_CameraPosition, ctl_CameraPosition + ctl_CameraDirection, { 0, 1, 0 } );
-                // GLM is column major, copy matrix data directly
-                memcpy( camera.view, &view[ 0 ][ 0 ], 16 * sizeof( float ) );
-            }
 
             r = rt.rgUploadCamera( &camera );
             RG_CHECK( r );

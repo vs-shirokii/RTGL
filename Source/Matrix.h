@@ -40,6 +40,17 @@ namespace Matrix
     // Set new position for viewer in (column-major) view matrix.
     void SetNewViewerPosition( float* result, const float* viewMatrix, const float* newPosition );
 
+    void MakeUpRightFrom( RgFloat3D&       up,
+                          RgFloat3D&       right,
+                          const float      yawRad,
+                          const float      pitchRad,
+                          const RgFloat3D& vglobalUp,
+                          const RgFloat3D& vglobalRight );
+
+    void MakeViewMatrix( float*           matrix,
+                         const RgFloat3D& vposition,
+                         const RgFloat3D& vright,
+                         const RgFloat3D& vup );
     void MakeProjectionMatrix(
         float* matrix, float aspect, float fovYRad, float zNear, float zFar );
 }

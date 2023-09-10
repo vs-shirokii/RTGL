@@ -156,8 +156,8 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
         memcpy( gu->view, cameraInfo.view, 16 * sizeof( float ) );
         memcpy( gu->projection, cameraInfo.projection, 16 * sizeof( float ) );
 
-        Matrix::Inverse( gu->invView, gu->view );
-        Matrix::Inverse( gu->invProjection, gu->projection );
+        memcpy( gu->invView, cameraInfo.viewInverse, 16 * sizeof( float ) );
+        memcpy( gu->invProjection, cameraInfo.projectionInverse, 16 * sizeof( float ) );
 
         memcpy( gu->cameraPositionPrev, gu->cameraPosition, 3 * sizeof( float ) );
         gu->cameraPosition[ 0 ] = gu->invView[ 12 ];
@@ -525,9 +525,9 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
                 cmd,
                 frameIndex,
                 *textureManager,
-                uniform->GetData()->view,
+                cameraInfo.view,
                 pnext::get< RgDrawFrameSkyParams >( drawInfo ).skyViewerPosition,
-                uniform->GetData()->projection,
+                cameraInfo.projection,
                 jitter,
                 renderResolution );
         }
@@ -596,8 +596,8 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
                                       *uniform,
                                       *tonemapping,
                                       *volumetric,
-                                      uniform->GetData()->view,
-                                      uniform->GetData()->projection,
+                                      cameraInfo.view,
+                                      cameraInfo.projection,
                                       jitter,
                                       renderResolution );
     }
@@ -1330,22 +1330,65 @@ void RTGL1::VulkanDevice::UploadCamera( const RgCameraInfo* pInfo )
     {
         throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
     }
+    if( Utils::SqrLength( pInfo->right.data ) < 0.01f )
+    {
+        throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Null RgCameraInfo::right" );
+    }
+    if( Utils::SqrLength( pInfo->up.data ) < 0.01f )
+    {
+        throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Null RgCameraInfo::up" );
+    }
 
-    cameraInfo.aspect      = pInfo->aspect;
-    cameraInfo.fovYRadians = pInfo->fovYRadians;
-    cameraInfo.cameraNear  = pInfo->cameraNear;
-    cameraInfo.cameraFar   = pInfo->cameraFar;
+    auto base = [ this ]( const RgCameraInfo& info ) {
+        cameraInfo.aspect      = info.aspect;
+        cameraInfo.fovYRadians = info.fovYRadians;
+        cameraInfo.cameraNear  = info.cameraNear;
+        cameraInfo.cameraFar   = info.cameraFar;
 
-    static_assert( sizeof( cameraInfo.projection ) == 16 * sizeof( float ) );
-    static_assert( sizeof( cameraInfo.view ) == 16 * sizeof( float ) );
-    static_assert( sizeof( pInfo->view ) == 16 * sizeof( float ) );
+        static_assert( sizeof cameraInfo.projection == 16 * sizeof( float ) );
+        static_assert( sizeof cameraInfo.view == 16 * sizeof( float ) );
+        static_assert( sizeof cameraInfo.projectionInverse == 16 * sizeof( float ) );
+        static_assert( sizeof cameraInfo.viewInverse == 16 * sizeof( float ) );
+        static_assert( sizeof info.position == 3 * sizeof( float ) );
+        static_assert( sizeof info.right == 3 * sizeof( float ) );
+        static_assert( sizeof info.up == 3 * sizeof( float ) );
 
-    memcpy( cameraInfo.view, pInfo->view, 16 * sizeof( float ) );
-    Matrix::MakeProjectionMatrix( cameraInfo.projection,
-                                  pInfo->aspect,
-                                  pInfo->fovYRadians,
-                                  pInfo->cameraNear,
-                                  pInfo->cameraFar );
+        Matrix::MakeViewMatrix( cameraInfo.view, info.position, info.right, info.up );
+        Matrix::MakeProjectionMatrix(
+            cameraInfo.projection, info.aspect, info.fovYRadians, info.cameraNear, info.cameraFar );
+
+        Matrix::Inverse( cameraInfo.viewInverse, cameraInfo.view );
+        Matrix::Inverse( cameraInfo.projectionInverse, cameraInfo.projection );
+
+        if( auto readback =
+                pnext::find< RgCameraInfoReadbackEXT >( const_cast< RgCameraInfo* >( &info ) ) )
+        {
+            static_assert( sizeof readback->view == sizeof cameraInfo.view );
+            static_assert( sizeof readback->projection == sizeof cameraInfo.projection );
+            static_assert( sizeof readback->viewInverse == sizeof cameraInfo.viewInverse );
+            static_assert( sizeof readback->projectionInverse ==
+                           sizeof cameraInfo.projectionInverse );
+
+            memcpy( readback->view, cameraInfo.view, sizeof cameraInfo.view );
+            memcpy( readback->projection, cameraInfo.projection, sizeof cameraInfo.projection );
+            memcpy( readback->viewInverse, cameraInfo.viewInverse, sizeof cameraInfo.viewInverse );
+            memcpy( readback->projectionInverse,
+                    cameraInfo.projectionInverse,
+                    sizeof cameraInfo.projectionInverse );
+        }
+    };
+
+    if( Dev_IsDevmodeInitialized() )
+    {
+        auto modified = RgCameraInfo{ *pInfo };
+        Dev_Override( modified );
+
+        base( modified );
+    }
+    else
+    {
+        base( *pInfo );
+    }
 }
 
 void RTGL1::VulkanDevice::UploadLight( const RgLightInfo* pInfo )

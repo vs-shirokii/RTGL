@@ -145,6 +145,7 @@ private:
     bool Dev_IsDevmodeInitialized() const;
     void Dev_Draw() const;
     void Dev_Override( RgStartFrameInfo& info ) const;
+    void Dev_Override( RgCameraInfo& info ) const;
     void Dev_Override( RgDrawFrameRenderResolutionParams& resolution,
                        RgDrawFrameIlluminationParams&     illumination,
                        RgDrawFrameTonemappingParams&      tonemappingp,
@@ -233,6 +234,8 @@ private:
     {
         float view[ 16 ]{};
         float projection[ 16 ]{};
+        float viewInverse[ 16 ]{};
+        float projectionInverse[ 16 ]{};
         float aspect{ 16.0 / 9.0f };
         float fovYRadians{ 1.0f };
         float cameraNear{ 0.1f };

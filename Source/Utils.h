@@ -187,6 +187,7 @@ namespace Utils
 
     float       Dot( const float a[ 3 ], const float b[ 3 ] );
     float       Length( const float v[ 3 ] );
+    float       SqrLength( const float v[ 3 ] );
     bool        TryNormalize( float inout[ 3 ] );
     void        Normalize( float inout[ 3 ] );
     RgFloat3D   Normalize( const RgFloat3D& v );
@@ -194,6 +195,7 @@ namespace Utils
     void        Negate( float inout[ 3 ] );
     void        Nullify( float inout[ 3 ] );
     void        Cross( const float a[ 3 ], const float b[ 3 ], float r[ 3 ] );
+    auto        Cross( const RgFloat3D& a, const RgFloat3D& b ) -> RgFloat3D;
     RgFloat3D   GetUnnormalizedNormal( const RgFloat3D positions[ 3 ] );
     bool        GetNormalAndArea( const RgFloat3D positions[ 3 ], RgFloat3D& normal, float& area );
     // In terms of GLSL: mat3(a), where a is mat4.

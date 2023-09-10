@@ -171,6 +171,7 @@ public:
 
     const RgFloat3D& GetWorldUp() const;
     const RgFloat3D& GetWorldForward() const;
+    RgFloat3D        GetWorldRight() const;
     float            GetWorldScale() const;
 
     auto MakeWorldTransform() const -> RgTransform;

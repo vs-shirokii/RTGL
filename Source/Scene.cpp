@@ -623,6 +623,16 @@ const RgFloat3D& RTGL1::SceneImportExport::GetWorldForward() const
     return worldForward;
 }
 
+RgFloat3D RTGL1::SceneImportExport::GetWorldRight() const
+{
+    const auto& up = GetWorldUp();
+    const auto& forward = GetWorldForward();
+
+    RgFloat3D worldRight = Utils::Cross( up, forward );
+    assert( std::abs( Utils::SqrLength( worldRight.data ) - 1.0 ) < 0.001f );
+    return worldRight;
+}
+
 float RTGL1::SceneImportExport::GetWorldScale() const
 {
     if( dev.worldTransform.enable )

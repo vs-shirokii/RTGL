@@ -44,10 +44,15 @@
 
 #include "Matrix.h"
 
+#include "Utils.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstring>
+
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #ifndef M_PI
 constexpr float M_PI = 3.141592653589793238462643383279f;
@@ -375,6 +380,45 @@ void RTGL1::Matrix::SetNewViewerPosition( float*       result,
     result[ 3 * 4 + 0 ] = Dot3( columnI, invT );
     result[ 3 * 4 + 1 ] = Dot3( columnJ, invT );
     result[ 3 * 4 + 2 ] = Dot3( columnK, invT );
+}
+
+void RTGL1::Matrix::MakeUpRightFrom( RgFloat3D&       up,
+                                     RgFloat3D&       right,
+                                     const float      yawRad,
+                                     const float      pitchRad,
+                                     const RgFloat3D& vglobalUp,
+                                     const RgFloat3D& vglobalRight )
+{
+    const auto globalUp    = glm::vec3{ RG_ACCESS_VEC3( vglobalUp.data ) };
+    const auto globalRight = glm::vec3{ RG_ACCESS_VEC3( vglobalRight.data ) };
+
+    const auto rotationMatrix =
+        glm::mat3{ glm::rotate( glm::mat4{ 1.0f }, yawRad, globalUp ) *
+                   glm::rotate( glm::mat4{ 1.0f }, pitchRad, globalRight ) };
+
+
+    const auto rup    = rotationMatrix * globalUp;
+    const auto rright = rotationMatrix * globalRight;
+
+    memcpy( up.data, &rup, sizeof( float ) * 3 );
+    memcpy( right.data, &rright, sizeof( float ) * 3 );
+}
+
+void RTGL1::Matrix::MakeViewMatrix( float*           matrix,
+                                    const RgFloat3D& vposition,
+                                    const RgFloat3D& vright,
+                                    const RgFloat3D& vup )
+{
+    const auto cameraPos = glm::vec3{ RG_ACCESS_VEC3( vposition.data ) };
+    const auto up        = glm::vec3{ RG_ACCESS_VEC3( vup.data ) };
+    const auto right     = glm::vec3{ RG_ACCESS_VEC3( vright.data ) };
+
+    const auto forward = glm::cross( up, right );
+
+    const auto viewMatrix = glm::lookAt( cameraPos, cameraPos + forward, up );
+
+    static_assert( sizeof viewMatrix == 16 * sizeof( float ) );
+    memcpy( matrix, &viewMatrix, 16 * sizeof( float ) );
 }
 
 void RTGL1::Matrix::MakeProjectionMatrix(

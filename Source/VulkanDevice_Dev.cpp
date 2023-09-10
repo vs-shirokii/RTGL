@@ -20,6 +20,8 @@
 
 #include "VulkanDevice.h"
 
+#include "Matrix.h"
+
 #include "Generated/ShaderCommonC.h"
 
 #include <imgui.h>
@@ -124,7 +126,6 @@ void RTGL1::VulkanDevice::Dev_Draw() const
         if( ImGui::TreeNode( "Present" ) )
         {
             ImGui::Checkbox( "Vsync", &modifiers.vsync );
-            ImGui::SliderFloat( "Vertical FOV", &modifiers.fovDeg, 10, 120, "%.0f degrees" );
 
             static_assert(
                 std::is_same_v< int, std::underlying_type_t< RgRenderUpscaleTechnique > > );
@@ -298,6 +299,88 @@ void RTGL1::VulkanDevice::Dev_Draw() const
         ImGui::Separator();
         ImGui::Dummy( ImVec2( 0, 4 ) );
 
+        if( ImGui::TreeNode( "Camera" ) )
+        {
+            auto& modifiers = devmode->cameraOvrd;
+
+            ImGui::Checkbox( "FOV Override", &modifiers.fovEnable );
+            {
+                ImGui::BeginDisabled( !modifiers.fovEnable );
+                ImGui::SliderFloat( "Vertical FOV", &modifiers.fovDeg, 10, 120, "%.0f degrees" );
+                ImGui::EndDisabled();
+            }
+
+            ImGui::Checkbox( "Freelook", &modifiers.customEnable );
+            ImGui::TextUnformatted( "Freelook:\n"
+                                    "    * WASD - to move\n"
+                                    "    * Alt - hold to rotate\n"
+                                    "NOTE: inputs are read only from this window, and not from the game's one" );
+            if( modifiers.customEnable )
+            {
+                if( ImGui::IsKeyPressed( ImGuiKey_LeftAlt ) )
+                {
+                    if( ImGui::IsMousePosValid() )
+                    {
+                        modifiers.intr_lastMouse  = { ImGui::GetMousePos().x,
+                                                      ImGui::GetMousePos().y };
+                        modifiers.intr_lastAngles = modifiers.customAngles;
+                    }
+                }
+                if( ImGui::IsKeyReleased( ImGuiKey_LeftAlt ) )
+                {
+                    modifiers.intr_lastMouse  = {};
+                    modifiers.intr_lastAngles = modifiers.customAngles;
+                }
+
+                if( modifiers.intr_lastMouse && ImGui::IsMousePosValid() )
+                {
+                    modifiers.customAngles = {
+                        modifiers.intr_lastAngles.data[ 0 ] -
+                            ( ImGui::GetMousePos().x - modifiers.intr_lastMouse->data[ 0 ] ),
+                        modifiers.intr_lastAngles.data[ 1 ] -
+                            ( ImGui::GetMousePos().y - modifiers.intr_lastMouse->data[ 1 ] ),
+                    };
+                }
+                else
+                {
+                    modifiers.intr_lastMouse  = {};
+                    modifiers.intr_lastAngles = modifiers.customAngles;
+                }
+
+                {
+                    float speed = 0.1f * sceneImportExport->GetWorldScale();
+
+                    RgFloat3D up, right;
+                    Matrix::MakeUpRightFrom( up,
+                                             right,
+                                             Utils::DegToRad( modifiers.customAngles.data[ 0 ] ),
+                                             Utils::DegToRad( modifiers.customAngles.data[ 1 ] ),
+                                             sceneImportExport->GetWorldUp(),
+                                             sceneImportExport->GetWorldRight() );
+                    RgFloat3D fwd = Utils::Cross( up, right );
+
+                    auto fma = []( const RgFloat3D& a, float mult, const RgFloat3D& b ) {
+                        return RgFloat3D{ a.data[ 0 ] + mult * b.data[ 0 ],
+                                          a.data[ 1 ] + mult * b.data[ 1 ],
+                                          a.data[ 2 ] + mult * b.data[ 2 ] };
+                    };
+
+                    modifiers.customPos = fma(
+                        modifiers.customPos, ImGui::IsKeyDown( ImGuiKey_A ) ? -speed : 0, right );
+                    modifiers.customPos = fma(
+                        modifiers.customPos, ImGui::IsKeyDown( ImGuiKey_D ) ? +speed : 0, right );
+                    modifiers.customPos = fma(
+                        modifiers.customPos, ImGui::IsKeyDown( ImGuiKey_W ) ? +speed : 0, fwd );
+                    modifiers.customPos = fma(
+                        modifiers.customPos, ImGui::IsKeyDown( ImGuiKey_S ) ? -speed : 0, fwd );
+                }
+            }
+            ImGui::TreePop();
+        }
+
+        ImGui::Dummy( ImVec2( 0, 4 ) );
+        ImGui::Separator();
+        ImGui::Dummy( ImVec2( 0, 4 ) );
         devmode->breakOnTexture[ std::size( devmode->breakOnTexture ) - 1 ] = '\0';
         ImGui::TextUnformatted( "Debug break on texture: " );
         ImGui::Checkbox( "Image upload", &devmode->breakOnTextureImage );
@@ -940,6 +1023,46 @@ void RTGL1::VulkanDevice::Dev_Override( RgStartFrameInfo& info ) const
         {
             modifiers.vsync = src.vsync;
         }
+    }
+}
+
+void RTGL1::VulkanDevice::Dev_Override( RgCameraInfo& info ) const
+{
+    if( !Dev_IsDevmodeInitialized() )
+    {
+        assert( 0 );
+        return;
+    }
+
+    auto& modifiers = devmode->cameraOvrd;
+
+    if( modifiers.fovEnable )
+    {
+        info.fovYRadians = Utils::DegToRad( modifiers.fovDeg );
+    }
+    else
+    {
+        modifiers.fovDeg = Utils::RadToDeg( info.fovYRadians );
+    }
+
+    if( modifiers.customEnable )
+    {
+        RgCameraInfo& dst_camera = info;
+
+        dst_camera.position = modifiers.customPos;
+        Matrix::MakeUpRightFrom( dst_camera.up,
+                                 dst_camera.right,
+                                 Utils::DegToRad( modifiers.customAngles.data[ 0 ] ),
+                                 Utils::DegToRad( modifiers.customAngles.data[ 1 ] ),
+                                 sceneImportExport->GetWorldUp(),
+                                 sceneImportExport->GetWorldRight() );
+    }
+    else
+    {
+        const RgCameraInfo& src_camera = info;
+
+        modifiers.customPos    = src_camera.position;
+        modifiers.customAngles = { 0, 0 };
     }
 }
 

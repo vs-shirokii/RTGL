@@ -281,6 +281,11 @@ float Utils::Length( const float v[ 3 ] )
     return sqrtf( Dot( v, v ) );
 }
 
+float Utils::SqrLength( const float v[ 3 ] )
+{
+    return Dot( v, v );
+}
+
 bool Utils::TryNormalize( float inout[ 3 ] )
 {
     float len = Length( inout );
@@ -341,6 +346,13 @@ void Utils::Cross( const float a[ 3 ], const float b[ 3 ], float r[ 3 ] )
     r[ 0 ] = a[ 1 ] * b[ 2 ] - a[ 2 ] * b[ 1 ];
     r[ 1 ] = a[ 2 ] * b[ 0 ] - a[ 0 ] * b[ 2 ];
     r[ 2 ] = a[ 0 ] * b[ 1 ] - a[ 1 ] * b[ 0 ];
+}
+
+auto Utils::Cross( const RgFloat3D& a, const RgFloat3D& b ) -> RgFloat3D
+{
+    RgFloat3D r;
+    Cross( a.data, b.data, r.data );
+    return r;
 }
 
 RgFloat3D Utils::GetUnnormalizedNormal( const RgFloat3D positions[ 3 ] )

@@ -183,6 +183,7 @@ typedef enum RgStructureType
     RG_STRUCTURE_TYPE_DECAL_INFO,
     RG_STRUCTURE_TYPE_CAMERA_INFO,
     RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_DETAILS_EXT,
+    RG_STRUCTURE_TYPE_CAMERA_INFO_READ_BACK_EXT,
 } RgStructureType;
 
 typedef enum RgTextureSwizzling
@@ -516,6 +517,18 @@ typedef RgResult( RGAPI_PTR* PFN_rgUploadLensFlare )( const RgLensFlareInfo* pIn
 
 
 
+// If provided, members are initialized in rgUploadCamera().
+// Can be linked after RgCameraInfo.
+typedef struct RgCameraInfoReadbackEXT
+{
+    RgStructureType sType;
+    void*           pNext;
+    float           view[ 16 ];
+    float           projection[ 16 ];
+    float           viewInverse[ 16 ];
+    float           projectionInverse[ 16 ];
+} RgCameraInfoReadbackEXT;
+
 typedef uint32_t RgCameraFlags;
 
 typedef struct RgCameraInfo
@@ -523,13 +536,16 @@ typedef struct RgCameraInfo
     RgStructureType sType;
     void*           pNext;
     RgCameraFlags   flags;
-    // View matrix is column major.
-    float           view[ 16 ];
+    RgFloat3D       position;
+    RgFloat3D       up;
+    RgFloat3D       right;
     float           fovYRadians;
     float           aspect;
     // Near and far planes for a projection matrix.
     float           cameraNear;
     float           cameraFar;
+    // Optional view matrix ({ pView[0],pView[1],pView[2],pView[3] } is a column).
+    const float     *pView;
 } RgCameraInfo;
 
 typedef RgResult( RGAPI_PTR* PFN_rgUploadCamera )( const RgCameraInfo* pInfo );

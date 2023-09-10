@@ -89,6 +89,7 @@ namespace detail
     template<> constexpr auto TypeToStructureType< RgStartFrameInfo                     > = RG_STRUCTURE_TYPE_START_FRAME_INFO                     ;
     template<> constexpr auto TypeToStructureType< RgDrawFrameInfo                      > = RG_STRUCTURE_TYPE_DRAW_FRAME_INFO                      ;
     template<> constexpr auto TypeToStructureType< RgCameraInfo                         > = RG_STRUCTURE_TYPE_CAMERA_INFO                          ;
+    template<> constexpr auto TypeToStructureType< RgCameraInfoReadbackEXT              > = RG_STRUCTURE_TYPE_CAMERA_INFO_READ_BACK_EXT            ;
     template<> constexpr auto TypeToStructureType< RgOriginalTextureDetailsEXT          > = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_DETAILS_EXT         ;
     // clang-format on
 
@@ -131,6 +132,7 @@ namespace detail
     static_assert( CheckMembers< RgStartFrameInfo >() );
     static_assert( CheckMembers< RgDrawFrameInfo >() );
     static_assert( CheckMembers< RgCameraInfo >() );
+    static_assert( CheckMembers< RgCameraInfoReadbackEXT >() );
     static_assert( CheckMembers< RgOriginalTextureDetailsEXT >() );
 
 
@@ -152,6 +154,7 @@ namespace detail
     template<> struct LinkRootHelper< RgLightSphericalEXT                >{ using Root = RgLightInfo; };
     template<> struct LinkRootHelper< RgLightPolygonalEXT                >{ using Root = RgLightInfo; };
     template<> struct LinkRootHelper< RgLightSpotEXT                     >{ using Root = RgLightInfo; };
+    template<> struct LinkRootHelper< RgCameraInfoReadbackEXT            >{ using Root = RgCameraInfo; };
     template<> struct LinkRootHelper< RgDrawFrameRenderResolutionParams  >{ using Root = RgDrawFrameInfo; };
     template<> struct LinkRootHelper< RgDrawFrameIlluminationParams      >{ using Root = RgDrawFrameInfo; };
     template<> struct LinkRootHelper< RgDrawFrameVolumetricParams        >{ using Root = RgDrawFrameInfo; };
