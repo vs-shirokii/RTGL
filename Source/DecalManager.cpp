@@ -285,10 +285,9 @@ void RTGL1::DecalManager::Upload( uint32_t                                 frame
 
     ShDecalInstance instance = {
         .textureAlbedoAlpha = mat.indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
-        .textureOcclusionRoughnessMetallic =
-            mat.indices[ TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_INDEX ],
-        .textureNormal   = mat.indices[ TEXTURE_NORMAL_INDEX ],
-        .textureEmissive = mat.indices[ TEXTURE_EMISSIVE_INDEX ],
+        .textureNormal      = mat.indices[ TEXTURE_NORMAL_INDEX ],
+        .textureEmissive    = mat.indices[ TEXTURE_EMISSIVE_INDEX ],
+        .packedColor        = prim.color,
     };
     Matrix::ToMat4Transposed( instance.transform, ExtraceDecalTransform( mesh, prim ) );
 

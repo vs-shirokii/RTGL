@@ -53,7 +53,9 @@ void main()
     const vec2 texCoord = localPosition.xy + 0.5;
 
     {
-        out_albedo = getTextureSample( decal.textureAlbedoAlpha, texCoord );
+        out_albedo =
+            getTextureSample( decal.textureAlbedoAlpha, texCoord ) *
+            unpackUintColor( decal.packedColor );
     }
 
     if( decal.textureNormal != MATERIAL_NO_TEXTURE )

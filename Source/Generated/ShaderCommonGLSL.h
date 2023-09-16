@@ -371,9 +371,9 @@ struct ShDecalInstance
 {
     mat4 transform;
     uint textureAlbedoAlpha;
-    uint textureOcclusionRoughnessMetallic;
     uint textureNormal;
     uint textureEmissive;
+    uint packedColor;
 };
 
 struct ShPortalInstance

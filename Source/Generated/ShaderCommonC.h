@@ -376,9 +376,9 @@ struct ShDecalInstance
 {
     float transform[16];
     uint32_t textureAlbedoAlpha;
-    uint32_t textureOcclusionRoughnessMetallic;
     uint32_t textureNormal;
     uint32_t textureEmissive;
+    uint32_t packedColor;
 };
 
 struct ShPortalInstance

@@ -694,9 +694,9 @@ LENS_FLARES_INSTANCE_STRUCT = [
 DECAL_INSTANCE_STRUCT = [
     (TYPE_FLOAT32,     44,      "transform",                            1),
     (TYPE_UINT32,       1,      "textureAlbedoAlpha",                   1),
-    (TYPE_UINT32,       1,      "textureOcclusionRoughnessMetallic",    1),
     (TYPE_UINT32,       1,      "textureNormal",                        1),
     (TYPE_UINT32,       1,      "textureEmissive",                      1),
+    (TYPE_UINT32,       1,      "packedColor",                          1),
 ]
 
 PORTAL_INSTANCE_STRUCT = [
