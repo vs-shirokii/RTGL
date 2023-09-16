@@ -44,6 +44,12 @@ vec2 getInverseDownsampledSize()
 // get UV coords in [0..1] range
 vec2 getSrcUV(const ivec2 downsampledPix)
 {
+    if (stepIndex == 0)
+    {
+        return ( vec2( downsampledPix ) + 0.5 -
+                 vec2( globalUniform.jitterX, globalUniform.jitterY ) ) *
+               getInverseDownsampledSize();
+    }
     return (vec2(downsampledPix) + 0.5) * getInverseDownsampledSize();
 }
 
