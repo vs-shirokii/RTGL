@@ -84,7 +84,6 @@ public:
     VulkanDevice& operator=( VulkanDevice&& other ) noexcept = delete;
 
     void UploadMeshPrimitive( const RgMeshInfo* pMesh, const RgMeshPrimitiveInfo* pPrimitive );
-    void UploadDecal( const RgDecalInfo* pInfo );
     void UploadLensFlare( const RgLensFlareInfo* pInfo );
 
     void UploadCamera( const RgCameraInfo* pInfo );

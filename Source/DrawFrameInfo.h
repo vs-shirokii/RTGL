@@ -78,7 +78,6 @@ namespace detail
     template<> constexpr auto TypeToStructureType< RgMeshPrimitiveAttachedLightEXT      > = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_ATTACHED_LIGHT_EXT    ;
     template<> constexpr auto TypeToStructureType< RgMeshPrimitiveForceRasterizedEXT    > = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_FORCE_RASTERIZED_EXT  ;
     template<> constexpr auto TypeToStructureType< RgLensFlareInfo                      > = RG_STRUCTURE_TYPE_LENS_FLARE_INFO                      ;
-    template<> constexpr auto TypeToStructureType< RgDecalInfo                          > = RG_STRUCTURE_TYPE_DECAL_INFO                           ;
     template<> constexpr auto TypeToStructureType< RgLightInfo                          > = RG_STRUCTURE_TYPE_LIGHT_INFO                           ;
     template<> constexpr auto TypeToStructureType< RgLightAdditionalEXT                 > = RG_STRUCTURE_TYPE_LIGHT_ADDITIONAL_EXT                 ;
     template<> constexpr auto TypeToStructureType< RgLightDirectionalEXT                > = RG_STRUCTURE_TYPE_LIGHT_DIRECTIONAL_EXT                ;
@@ -121,7 +120,6 @@ namespace detail
     static_assert( CheckMembers< RgMeshPrimitiveAttachedLightEXT >() );
     static_assert( CheckMembers< RgMeshPrimitiveForceRasterizedEXT >() );
     static_assert( CheckMembers< RgLensFlareInfo >() );
-    static_assert( CheckMembers< RgDecalInfo >() );
     static_assert( CheckMembers< RgLightInfo >() );
     static_assert( CheckMembers< RgLightAdditionalEXT >() );
     static_assert( CheckMembers< RgLightDirectionalEXT >() );

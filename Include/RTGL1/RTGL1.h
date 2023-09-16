@@ -151,39 +151,38 @@ typedef struct RgXlibSurfaceCreateInfo
 
 typedef enum RgStructureType
 {
-    RG_STRUCTURE_TYPE_NONE,
-    RG_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-    RG_STRUCTURE_TYPE_MESH_INFO,
-    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
-    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_PORTAL_EXT,
-    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_TEXTURE_LAYERS_EXT,
-    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_PBR_EXT,
-    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_ATTACHED_LIGHT_EXT,
-    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_FORCE_RASTERIZED_EXT,
-    RG_STRUCTURE_TYPE_LIGHT_INFO,
-    RG_STRUCTURE_TYPE_LIGHT_DIRECTIONAL_EXT,
-    RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT,
-    RG_STRUCTURE_TYPE_LIGHT_POLYGONAL_EXT,
-    RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT,
-    RG_STRUCTURE_TYPE_LIGHT_ADDITIONAL_EXT,
-    RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_INFO,
-    RG_STRUCTURE_TYPE_START_FRAME_INFO,
-    RG_STRUCTURE_TYPE_DRAW_FRAME_INFO,
-    RG_STRUCTURE_TYPE_DRAW_FRAME_RENDER_RESOLUTION_PARAMS,
-    RG_STRUCTURE_TYPE_DRAW_FRAME_ILLUMINATION_PARAMS,
-    RG_STRUCTURE_TYPE_DRAW_FRAME_VOLUMETRIC_PARAMS,
-    RG_STRUCTURE_TYPE_DRAW_FRAME_TONEMAPPING_PARAMS,
-    RG_STRUCTURE_TYPE_DRAW_FRAME_BLOOM_PARAMS,
-    RG_STRUCTURE_TYPE_DRAW_FRAME_REFLECT_REFRACT_PARAMS,
-    RG_STRUCTURE_TYPE_DRAW_FRAME_SKY_PARAMS,
-    RG_STRUCTURE_TYPE_DRAW_FRAME_TEXTURES_PARAMS,
-    RG_STRUCTURE_TYPE_DRAW_FRAME_LIGHTMAP_PARAMS,
-    RG_STRUCTURE_TYPE_DRAW_FRAME_POST_EFFECTS_PARAMS,
-    RG_STRUCTURE_TYPE_LENS_FLARE_INFO,
-    RG_STRUCTURE_TYPE_DECAL_INFO,
-    RG_STRUCTURE_TYPE_CAMERA_INFO,
-    RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_DETAILS_EXT,
-    RG_STRUCTURE_TYPE_CAMERA_INFO_READ_BACK_EXT,
+    RG_STRUCTURE_TYPE_NONE                                = 0,
+    RG_STRUCTURE_TYPE_INSTANCE_CREATE_INFO                = 1,
+    RG_STRUCTURE_TYPE_MESH_INFO                           = 2,
+    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO                 = 3,
+    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_PORTAL_EXT           = 4,
+    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_TEXTURE_LAYERS_EXT   = 5,
+    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_PBR_EXT              = 6,
+    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_ATTACHED_LIGHT_EXT   = 7,
+    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_FORCE_RASTERIZED_EXT = 8,
+    RG_STRUCTURE_TYPE_LIGHT_INFO                          = 9,
+    RG_STRUCTURE_TYPE_LIGHT_DIRECTIONAL_EXT               = 10,
+    RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT                 = 11,
+    RG_STRUCTURE_TYPE_LIGHT_POLYGONAL_EXT                 = 12,
+    RG_STRUCTURE_TYPE_LIGHT_SPOT_EXT                      = 13,
+    RG_STRUCTURE_TYPE_LIGHT_ADDITIONAL_EXT                = 14,
+    RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_INFO               = 15,
+    RG_STRUCTURE_TYPE_START_FRAME_INFO                    = 16,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_INFO                     = 17,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_RENDER_RESOLUTION_PARAMS = 18,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_ILLUMINATION_PARAMS      = 19,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_VOLUMETRIC_PARAMS        = 20,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_TONEMAPPING_PARAMS       = 21,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_BLOOM_PARAMS             = 22,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_REFLECT_REFRACT_PARAMS   = 23,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_SKY_PARAMS               = 24,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_TEXTURES_PARAMS          = 25,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_LIGHTMAP_PARAMS          = 26,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_POST_EFFECTS_PARAMS      = 27,
+    RG_STRUCTURE_TYPE_LENS_FLARE_INFO                     = 28,
+    RG_STRUCTURE_TYPE_CAMERA_INFO                         = 30,
+    RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_DETAILS_EXT        = 31,
+    RG_STRUCTURE_TYPE_CAMERA_INFO_READ_BACK_EXT           = 32,
 } RgStructureType;
 
 typedef enum RgTextureSwizzling
@@ -352,6 +351,9 @@ typedef enum RgMeshPrimitiveFlagBits
     RG_MESH_PRIMITIVE_ACID                  = 8192,
     RG_MESH_PRIMITIVE_THIN_MEDIA            = 16384,
     RG_MESH_PRIMITIVE_SKY_VISIBILITY        = 32768,
+    // If set, the first triangle is analyzed to make a decal.
+    // Requires vertexCount >= 3.
+    RG_MESH_PRIMITIVE_DECAL                 = 65536,
 } RgMeshPrimitiveFlagBits;
 typedef uint32_t RgMeshPrimitiveFlags;
 
@@ -484,18 +486,6 @@ typedef RgResult( RGAPI_PTR* PFN_rgUploadMeshPrimitive )( const RgMeshInfo*     
                                                           const RgMeshPrimitiveInfo* pPrimitive );
 
 
-
-typedef struct RgDecalInfo
-{
-    RgStructureType             sType;
-    void*                       pNext;
-    // Transformation from [-0.5, 0.5] cube to a scaled oriented box.
-    // Orientation should transform (0,0,1) to decal's normal.
-    RgTransform                 transform;
-    const char*                 pTextureName;
-} RgDecalInfo;
-
-typedef RgResult( RGAPI_PTR* PFN_rgUploadDecal )( const RgDecalInfo* pInfo );
 
 // Render specified vertex geometry, if 'pointToCheck' is not hidden.
 typedef struct RgLensFlareInfo
@@ -1094,7 +1084,6 @@ typedef struct RgInterface
     PFN_rgStartFrame                      rgStartFrame;
     PFN_rgUploadCamera                    rgUploadCamera;
     PFN_rgUploadMeshPrimitive             rgUploadMeshPrimitive;
-    PFN_rgUploadDecal                     rgUploadDecal;
     PFN_rgUploadLensFlare                 rgUploadLensFlare;
     PFN_rgUploadLight                     rgUploadLight;
     PFN_rgProvideOriginalTexture          rgProvideOriginalTexture;

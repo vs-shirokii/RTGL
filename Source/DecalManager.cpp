@@ -53,6 +53,158 @@ constexpr VkPrimitiveTopology CUBE_TOPOLOGY     = VK_PRIMITIVE_TOPOLOGY_TRIANGLE
 
     return pipelineLayout;
 }
+
+auto tovec3( const float* p ) -> RgFloat3D
+{
+    return { p[ 0 ], p[ 1 ], p[ 2 ] };
+}
+
+auto GetVertex( const RgMeshPrimitiveInfo& prim, uint32_t i ) -> RgFloat3D
+{
+    if( prim.pIndices && i < prim.indexCount )
+    {
+        auto v = prim.pIndices[ i ];
+        if( prim.pVertices && v < prim.vertexCount )
+        {
+            return tovec3( prim.pVertices[ v ].position );
+        }
+    }
+    else if( prim.pVertices && i < prim.vertexCount )
+    {
+        return tovec3( prim.pVertices[ i ].position );
+    }
+    assert( 0 );
+    return {};
+}
+
+RgFloat3D operator+( const RgFloat3D& a, const RgFloat3D& b )
+{
+    return { a.data[ 0 ] + b.data[ 0 ], a.data[ 1 ] + b.data[ 1 ], a.data[ 2 ] + b.data[ 2 ] };
+}
+
+RgFloat3D operator-( const RgFloat3D& a, const RgFloat3D& b )
+{
+    return { a.data[ 0 ] - b.data[ 0 ], a.data[ 1 ] - b.data[ 1 ], a.data[ 2 ] - b.data[ 2 ] };
+}
+
+RgFloat3D operator/( const RgFloat3D& a, float s )
+{
+    return { a.data[ 0 ] / s, a.data[ 1 ] / s, a.data[ 2 ] / s };
+}
+
+void ExtractBasis( const RgMeshPrimitiveInfo& prim,
+                   RgFloat3D ( &basis )[ 3 ],
+                   RgFloat2D& scale,
+                   RgFloat3D& center )
+{
+    using namespace RTGL1::Utils;
+
+    {
+        RgFloat3D dx, dy;
+        {
+            const RgFloat3D tri[] = {
+                GetVertex( prim, 0 ),
+                GetVertex( prim, 1 ),
+                GetVertex( prim, 2 ),
+            };
+
+            const auto a_0 = tri[ 1 ] - tri[ 0 ];
+            const auto b_0 = tri[ 2 ] - tri[ 0 ];
+
+            const auto a_1 = tri[ 0 ] - tri[ 1 ];
+            const auto b_1 = tri[ 2 ] - tri[ 1 ];
+
+            const auto a_2 = tri[ 1 ] - tri[ 2 ];
+            const auto b_2 = tri[ 0 ] - tri[ 2 ];
+
+            dx       = a_0;
+            dy       = b_0;
+            float dt = Dot( a_0, b_0 );
+
+            // choose a pair with the largest angle
+            if( auto dt_1 = Dot( a_1, b_1 ); dt_1 < dt )
+            {
+                dx = a_1;
+                dy = b_1;
+                dt = dt_1;
+            }
+            if( auto dt_2 = Dot( a_2, b_2 ); dt_2 < dt )
+            {
+                dx = a_2;
+                dy = b_2;
+                dt = dt_2;
+            }
+        }
+
+        const auto dx_len = Length( dx.data );
+        const auto dy_len = Length( dy.data );
+
+        basis[ 0 ] = dx / dx_len;
+        basis[ 1 ] = dy / dy_len;
+        basis[ 2 ] = Cross( basis[ 0 ], basis[ 1 ] );
+
+        scale = { dx_len, dy_len };
+    }
+
+    center = { 0, 0, 0 };
+    for( uint32_t i = 0; i < prim.vertexCount; i++ )
+    {
+        center = center + tovec3( prim.pVertices[ i ].position );
+    }
+    center = center / float( prim.vertexCount );
+}
+
+
+// Transformation from [-0.5, 0.5] cube to a scaled oriented box.
+// Orientation should transform (0,0,1) to decal's normal.
+auto ExtraceDecalTransform( const RgMeshInfo& mesh, const RgMeshPrimitiveInfo& prim ) -> RgTransform
+{
+    RgFloat3D basis[ 3 ];
+    RgFloat2D scaleuv;
+    RgFloat3D center;
+    ExtractBasis( prim, basis, scaleuv, center );
+
+    constexpr float DecalDepth = 0.05f;
+
+    // clang-format off
+    float scale[] = {
+        scaleuv.data[ 0 ], 0, 0, 0,
+        0, scaleuv.data[ 1 ], 0, 0,
+        0, 0, DecalDepth, 0,
+        0, 0, 0, 1,
+    };
+
+    // (0,0,1) transforms to normal
+    float rotate[] = {
+         basis[ 0 ].data[ 0 ], basis[ 1 ].data[ 0 ], basis[ 2 ].data[ 0 ], 0,
+         basis[ 0 ].data[ 1 ], basis[ 1 ].data[ 1 ], basis[ 2 ].data[ 1 ], 0,
+         basis[ 0 ].data[ 2 ], basis[ 1 ].data[ 2 ], basis[ 2 ].data[ 2 ], 0,
+         0, 0, 0, 1,
+    };
+
+    float translate[] = {
+        1, 0, 0, center.data[ 0 ],
+        0, 1, 0, center.data[ 1 ],
+        0, 0, 1, center.data[ 2 ],
+        0, 0, 0, 1,
+    };
+    // clang-format on
+
+    float m[ 16 ];
+    RTGL1::Matrix::Multiply( m, rotate, scale );
+    RTGL1::Matrix::Multiply( m, translate, m );
+
+    float instance[ 16 ];
+    RTGL1::Matrix::ToMat4( instance, mesh.transform );
+    RTGL1::Matrix::Multiply( m, instance, m );
+
+    return { {
+        { m[ 0 * 4 + 0 ], m[ 0 * 4 + 1 ], m[ 0 * 4 + 2 ], m[ 0 * 4 + 3 ] },
+        { m[ 1 * 4 + 0 ], m[ 1 * 4 + 1 ], m[ 1 * 4 + 2 ], m[ 1 * 4 + 3 ] },
+        { m[ 2 * 4 + 0 ], m[ 2 * 4 + 1 ], m[ 2 * 4 + 2 ], m[ 2 * 4 + 3 ] },
+    } };
+}
+
 }
 
 RTGL1::DecalManager::DecalManager( VkDevice                           _device,
@@ -110,7 +262,8 @@ void RTGL1::DecalManager::PrepareForFrame( uint32_t frameIndex )
 }
 
 void RTGL1::DecalManager::Upload( uint32_t                                 frameIndex,
-                                  const RgDecalInfo&                       uploadInfo,
+                                  const RgMeshInfo&                        mesh,
+                                  const RgMeshPrimitiveInfo&               prim,
                                   const std::shared_ptr< TextureManager >& textureManager )
 {
     if( decalCount >= DECAL_MAX_COUNT )
@@ -119,10 +272,16 @@ void RTGL1::DecalManager::Upload( uint32_t                                 frame
         return;
     }
 
+    if( !prim.pVertices || prim.vertexCount < 3 )
+    {
+        assert( 0 );
+        return;
+    }
+
     const uint32_t decalIndex = decalCount;
     decalCount++;
 
-    const MaterialTextures mat = textureManager->GetMaterialTextures( uploadInfo.pTextureName );
+    const MaterialTextures mat = textureManager->GetMaterialTextures( prim.pTextureName );
 
     ShDecalInstance instance = {
         .textureAlbedoAlpha = mat.indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
@@ -131,7 +290,7 @@ void RTGL1::DecalManager::Upload( uint32_t                                 frame
         .textureNormal   = mat.indices[ TEXTURE_NORMAL_INDEX ],
         .textureEmissive = mat.indices[ TEXTURE_EMISSIVE_INDEX ],
     };
-    Matrix::ToMat4Transposed( instance.transform, uploadInfo.transform );
+    Matrix::ToMat4Transposed( instance.transform, ExtraceDecalTransform( mesh, prim ) );
 
     {
         auto* dst = instanceBuffer->GetMappedAs< ShDecalInstance* >( frameIndex );

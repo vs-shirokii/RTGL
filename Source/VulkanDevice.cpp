@@ -1046,11 +1046,23 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
                     .textureName    = Utils::SafeCstr( prim.pTextureName ),
                 } );
                 break;
-            case Devmode::DebugPrimMode::None:
             case Devmode::DebugPrimMode::Decal:
+                devmode->primitivesTable.push_back( Devmode::DebugPrim{
+                    .result         = UploadResult::Dynamic,
+                    .callIndex      = uint32_t( devmode->primitivesTable.size() ),
+                    .objectId       = 0,
+                    .meshName       = {},
+                    .primitiveIndex = 0,
+                    .primitiveName  = {},
+                    .textureName    = Utils::SafeCstr( prim.pTextureName ),
+                } );
+                break;
+            case Devmode::DebugPrimMode::None:
             default: break;
         }
     };
+
+    // --- //
 
     auto uploadPrimitive_Core = [ this, &logDebugStat ]( const RgMeshInfo&          mesh,
                                                          const RgMeshPrimitiveInfo& prim ) {
@@ -1150,6 +1162,7 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
         }
     };
 
+    // --- //
 
     auto uploadPrimitive_WithMeta = [ this, &uploadPrimitive_Core ](
                                         const RgMeshInfo& mesh, const RgMeshPrimitiveInfo& prim ) {
@@ -1195,7 +1208,25 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
         uploadPrimitive_Core( mesh, modified );
     };
 
-    auto uploadPrimitive_FilterSwapchained = [ this, &uploadPrimitive_WithMeta, &logDebugStat ](
+    // --- //
+
+    auto uploadPrimitive_FilterDecal = [ this, &uploadPrimitive_WithMeta, &logDebugStat ](
+                                           const RgMeshInfo&          mesh,
+                                           const RgMeshPrimitiveInfo& prim ) {
+        if( prim.flags & RG_MESH_PRIMITIVE_DECAL )
+        {
+            decalManager->Upload( currentFrameState.GetFrameIndex(), mesh, prim, textureManager );
+            logDebugStat( Devmode::DebugPrimMode::Decal, &mesh, prim );
+        }
+        else
+        {
+            uploadPrimitive_WithMeta( mesh, prim );
+        }
+    };
+
+    // --- //
+
+    auto uploadPrimitive_FilterSwapchained = [ this, &uploadPrimitive_FilterDecal, &logDebugStat ](
                                                  const RgMeshInfo*          mesh,
                                                  const RgMeshPrimitiveInfo& prim ) {
         if( mesh )
@@ -1245,39 +1276,13 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
                 }
             }
 
-            uploadPrimitive_WithMeta( *mesh, prim );
+            uploadPrimitive_FilterDecal( *mesh, prim );
         }
     };
 
+    // --- //
+
     uploadPrimitive_FilterSwapchained( pMesh, *pPrimitive );
-}
-
-void RTGL1::VulkanDevice::UploadDecal( const RgDecalInfo* pInfo )
-{
-    if( pInfo == nullptr )
-    {
-        throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
-    }
-    if( pInfo->sType != RG_STRUCTURE_TYPE_DECAL_INFO )
-    {
-        throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
-    }
-    Dev_TryBreak( pInfo->pTextureName, false );
-
-    decalManager->Upload( currentFrameState.GetFrameIndex(), *pInfo, textureManager );
-
-    if( devmode && devmode->primitivesTableMode == Devmode::DebugPrimMode::Decal )
-    {
-        devmode->primitivesTable.push_back( Devmode::DebugPrim{
-            .result         = UploadResult::Dynamic,
-            .callIndex      = uint32_t( devmode->primitivesTable.size() ),
-            .objectId       = 0,
-            .meshName       = {},
-            .primitiveIndex = 0,
-            .primitiveName  = {},
-            .textureName    = Utils::SafeCstr( pInfo->pTextureName ),
-        } );
-    }
 }
 
 void RTGL1::VulkanDevice::UploadLensFlare( const RgLensFlareInfo* pInfo )

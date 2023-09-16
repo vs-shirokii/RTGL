@@ -276,6 +276,11 @@ float Utils::Dot( const float a[ 3 ], const float b[ 3 ] )
     return a[ 0 ] * b[ 0 ] + a[ 1 ] * b[ 1 ] + a[ 2 ] * b[ 2 ];
 }
 
+float Utils::Dot( const RgFloat3D& a, const RgFloat3D& b )
+{
+    return Dot( a.data, b.data );
+}
+
 float Utils::Length( const float v[ 3 ] )
 {
     return sqrtf( Dot( v, v ) );

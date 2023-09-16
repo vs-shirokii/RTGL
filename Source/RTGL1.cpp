@@ -135,11 +135,6 @@ RgResult rgUploadMeshPrimitive( const RgMeshInfo* pMesh, const RgMeshPrimitiveIn
     return Call( &RTGL1::VulkanDevice::UploadMeshPrimitive, pMesh, pPrimitive );
 }
 
-RgResult rgUploadDecal( const RgDecalInfo* pInfo )
-{
-    return Call( &RTGL1::VulkanDevice::UploadDecal, pInfo );
-}
-
 RgResult rgUploadLensFlare( const RgLensFlareInfo* pInfo )
 {
     return Call( &RTGL1::VulkanDevice::UploadLensFlare, pInfo );
@@ -321,7 +316,6 @@ RGAPI RgResult RGCONV rgCreateInstance( const RgInstanceCreateInfo* pInfo, RgInt
             .rgStartFrame                      = rgStartFrame,
             .rgUploadCamera                    = rgUploadCamera,
             .rgUploadMeshPrimitive             = rgUploadMeshPrimitive,
-            .rgUploadDecal                     = rgUploadDecal,
             .rgUploadLensFlare                 = rgUploadLensFlare,
             .rgUploadLight                     = rgUploadLight,
             .rgProvideOriginalTexture          = rgProvideOriginalTexture,

@@ -186,6 +186,7 @@ namespace Utils
     }
 
     float       Dot( const float a[ 3 ], const float b[ 3 ] );
+    float       Dot( const RgFloat3D& a, const RgFloat3D& b );
     float       Length( const float v[ 3 ] );
     float       SqrLength( const float v[ 3 ] );
     bool        TryNormalize( float inout[ 3 ] );

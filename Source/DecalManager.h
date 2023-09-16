@@ -49,7 +49,8 @@ public:
 
     void PrepareForFrame( uint32_t frameIndex );
     void Upload( uint32_t                                 frameIndex,
-                 const RgDecalInfo&                       uploadInfo,
+                 const RgMeshInfo&                        mesh,
+                 const RgMeshPrimitiveInfo&               prim,
                  const std::shared_ptr< TextureManager >& textureManager );
     void SubmitForFrame( VkCommandBuffer cmd, uint32_t frameIndex );
     void Draw( VkCommandBuffer                          cmd,
