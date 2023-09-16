@@ -347,14 +347,6 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
         cmdManager,
         *info );
 
-    decalManager = std::make_shared< DecalManager >(
-        device, 
-        memAllocator, 
-        framebuffers,
-        *shaderManager, 
-        *uniform, 
-        *textureManager );
-
     portalList = std::make_shared< PortalList >( 
         device,
         memAllocator );
@@ -461,7 +453,6 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
     shaderManager->Subscribe( imageComposition );
     shaderManager->Subscribe( rasterizer );
     shaderManager->Subscribe( volumetric );
-    shaderManager->Subscribe( decalManager );
     shaderManager->Subscribe( rtPipeline );
     shaderManager->Subscribe( lightGrid );
     shaderManager->Subscribe( tonemapping );
@@ -481,7 +472,6 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
     shaderManager->Subscribe( effectCrtDecode );
 
     framebuffers->Subscribe( rasterizer );
-    framebuffers->Subscribe( decalManager );
     framebuffers->Subscribe( amdFsr2 );
     framebuffers->Subscribe( restirBuffers );
 
@@ -531,7 +521,6 @@ RTGL1::VulkanDevice::~VulkanDevice()
     rtPipeline.reset();
     pathTracer.reset();
     rasterizer.reset();
-    decalManager.reset();
     portalList.reset();
     lightManager.reset();
     lightGrid.reset();

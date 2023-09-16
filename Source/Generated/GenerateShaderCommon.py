@@ -262,7 +262,6 @@ CONST = {
     "BINDING_LENS_FLARES_CULLING_INPUT"         : 0,
     "BINDING_LENS_FLARES_DRAW_CMDS"             : 1,
     "BINDING_DRAW_LENS_FLARES_INSTANCES"        : 0,
-    "BINDING_DECAL_INSTANCES"                   : 0,
     "BINDING_PORTAL_INSTANCES"                  : 0,
     "BINDING_LPM_PARAMS"                        : 0,
     "BINDING_RESTIR_INDIRECT_INITIAL_SAMPLES"   : 0,
@@ -691,14 +690,6 @@ LENS_FLARES_INSTANCE_STRUCT = [
     (TYPE_FLOAT32,      1,      "emissiveMult",         1),
 ]
 
-DECAL_INSTANCE_STRUCT = [
-    (TYPE_FLOAT32,     44,      "transform",                            1),
-    (TYPE_UINT32,       1,      "textureAlbedoAlpha",                   1),
-    (TYPE_UINT32,       1,      "textureNormal",                        1),
-    (TYPE_UINT32,       1,      "textureEmissive_emissiveMult",         1),
-    (TYPE_UINT32,       1,      "packedColor",                          1),
-]
-
 PORTAL_INSTANCE_STRUCT = [
     (TYPE_FLOAT32,      4,      "inPosition",               1),
     (TYPE_FLOAT32,      4,      "outPosition",              1),
@@ -728,7 +719,6 @@ STRUCTS = {
     "ShIndirectDrawCommand":    (INDIRECT_DRAW_CMD_STRUCT,      False,  STRUCT_ALIGNMENT_STD430,    0),
     # TODO: should be STRUCT_ALIGNMENT_STD430, but current generator is not great as it just adds pads at the end, so it's 0
     "ShLensFlareInstance":      (LENS_FLARES_INSTANCE_STRUCT,   False,  0,                          0),
-    "ShDecalInstance":          (DECAL_INSTANCE_STRUCT,         False,  STRUCT_ALIGNMENT_STD430,    0),
     "ShPortalInstance":         (PORTAL_INSTANCE_STRUCT,        False,  STRUCT_ALIGNMENT_STD140,    0),
 }
 

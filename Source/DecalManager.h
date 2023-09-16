@@ -39,7 +39,7 @@ public:
                   std::shared_ptr< Framebuffers >    storageFramebuffers,
                   const ShaderManager&               shaderManager,
                   const GlobalUniform&               uniform,
-                  const TextureManager&              textureManager );
+                  VkPipelineLayout&&                 drawPipelineLayout );
     ~DecalManager() override;
 
     DecalManager( const DecalManager& other )                = delete;
@@ -47,17 +47,19 @@ public:
     DecalManager& operator=( const DecalManager& other )     = delete;
     DecalManager& operator=( DecalManager&& other ) noexcept = delete;
 
-    void PrepareForFrame( uint32_t frameIndex );
-    void Upload( uint32_t                                 frameIndex,
-                 const RgMeshInfo&                        mesh,
-                 const RgMeshPrimitiveInfo&               prim,
-                 const std::shared_ptr< TextureManager >& textureManager );
-    void SubmitForFrame( VkCommandBuffer cmd, uint32_t frameIndex );
-    void Draw( VkCommandBuffer                          cmd,
-               uint32_t                                 frameIndex,
-               const std::shared_ptr< GlobalUniform >&  uniform,
-               const std::shared_ptr< Framebuffers >&   framebuffers,
-               const std::shared_ptr< TextureManager >& textureManager );
+    void CopyRtGBufferToAttachments( VkCommandBuffer      cmd,
+                                     uint32_t             frameIndex,
+                                     const GlobalUniform& uniform,
+                                     Framebuffers&        framebuffers );
+    void CopyAttachmentsToRtGBuffer( VkCommandBuffer      cmd,
+                                     uint32_t             frameIndex,
+                                     const GlobalUniform& uniform,
+                                     const Framebuffers&  framebuffers );
+
+    VkRenderPass  GetRenderPass() { return renderPass; }
+    VkFramebuffer GetFramebuffer( uint32_t frameIndex ) { return passFramebuffers[ frameIndex ]; }
+    VkPipeline    GetDrawPipeline() { return pipeline; }
+    VkPipelineLayout GetDrawPipelineLayout() { return drawPipelineLayout; }
 
     void OnShaderReload( const ShaderManager* shaderManager ) override;
     void OnFramebuffersSizeChange( const ResolutionState& resolutionState ) override;
@@ -68,28 +70,20 @@ private:
     void DestroyFramebuffers();
     void CreatePipelines( const ShaderManager* shaderManager );
     void DestroyPipelines();
-    void CreateDescriptors();
 
 private:
     VkDevice                        device;
     std::shared_ptr< Framebuffers > storageFramebuffers;
 
-    std::unique_ptr< AutoBuffer > instanceBuffer;
-    uint32_t                      decalCount{ 0 };
-
     VkRenderPass  renderPass{ VK_NULL_HANDLE };
     VkFramebuffer passFramebuffers[ MAX_FRAMES_IN_FLIGHT ]{};
 
-    VkPipelineLayout pipelineLayout{ VK_NULL_HANDLE };
+    VkPipelineLayout drawPipelineLayout{ VK_NULL_HANDLE };
     VkPipeline       pipeline{ VK_NULL_HANDLE };
 
     VkPipelineLayout copyingPipelineLayout{ VK_NULL_HANDLE };
     VkPipeline       copyNormalsToAttachment{ VK_NULL_HANDLE };
     VkPipeline       copyNormalsToGbuffer{ VK_NULL_HANDLE };
-
-    VkDescriptorPool      descPool{ VK_NULL_HANDLE };
-    VkDescriptorSetLayout descSetLayout{ VK_NULL_HANDLE };
-    VkDescriptorSet       descSet{ VK_NULL_HANDLE };
 };
 
 }

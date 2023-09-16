@@ -42,7 +42,6 @@ namespace RTGL1
 #define BINDING_LENS_FLARES_CULLING_INPUT (0)
 #define BINDING_LENS_FLARES_DRAW_CMDS (1)
 #define BINDING_DRAW_LENS_FLARES_INSTANCES (0)
-#define BINDING_DECAL_INSTANCES (0)
 #define BINDING_PORTAL_INSTANCES (0)
 #define BINDING_LPM_PARAMS (0)
 #define BINDING_RESTIR_INDIRECT_INITIAL_SAMPLES (0)
@@ -370,15 +369,6 @@ struct ShLensFlareInstance
     uint32_t textureIndex;
     uint32_t emissiveTextureIndex;
     float emissiveMult;
-};
-
-struct ShDecalInstance
-{
-    float transform[16];
-    uint32_t textureAlbedoAlpha;
-    uint32_t textureNormal;
-    uint32_t textureEmissive_emissiveMult;
-    uint32_t packedColor;
 };
 
 struct ShPortalInstance

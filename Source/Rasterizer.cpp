@@ -36,6 +36,7 @@ struct RasterizedPushConst
     uint32_t textureIndex;
     uint32_t emissiveTextureIndex;
     float    emissiveMult;
+    uint32_t normalTextureIndex;
 
     explicit RasterizedPushConst( const RTGL1::RasterizedDataCollector::DrawInfo& info,
                                   const float*                                    defaultViewProj )
@@ -44,6 +45,7 @@ struct RasterizedPushConst
         , textureIndex( info.texture_base )
         , emissiveTextureIndex( info.texture_base_E )
         , emissiveMult( info.emissive )
+        , normalTextureIndex( info.texture_base_N )
     {
         float model[ 16 ] = RG_MATRIX_TRANSPOSED( info.transform );
         RTGL1::Matrix::Multiply(
@@ -56,7 +58,34 @@ static_assert( offsetof( RasterizedPushConst, packedColor ) == 64 );
 static_assert( offsetof( RasterizedPushConst, textureIndex ) == 68 );
 static_assert( offsetof( RasterizedPushConst, emissiveTextureIndex ) == 72 );
 static_assert( offsetof( RasterizedPushConst, emissiveMult ) == 76 );
-static_assert( sizeof( RasterizedPushConst ) == 80 );
+static_assert( offsetof( RasterizedPushConst, normalTextureIndex ) == 80 );
+static_assert( sizeof( RasterizedPushConst ) == 84 );
+
+VkPipelineLayout CreatePipelineLayout( VkDevice                           device,
+                                       std::span< VkDescriptorSetLayout > descs,
+                                       const char*                        name )
+{
+    const auto pushConst = VkPushConstantRange{
+        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+        .offset     = 0,
+        .size       = sizeof( RasterizedPushConst ),
+    };
+
+    auto layoutInfo = VkPipelineLayoutCreateInfo{
+        .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount         = static_cast< uint32_t >( descs.size() ),
+        .pSetLayouts            = descs.data(),
+        .pushConstantRangeCount = 1,
+        .pPushConstantRanges    = &pushConst,
+    };
+
+    VkPipelineLayout pl = nullptr;
+    VkResult         r  = vkCreatePipelineLayout( device, &layoutInfo, nullptr, &pl );
+    RTGL1::VK_CHECKERROR( r );
+
+    SET_DEBUG_NAME( device, pl, VK_OBJECT_TYPE_PIPELINE_LAYOUT, name );
+    return pl;
+}
 
 }
 
@@ -85,14 +114,23 @@ RTGL1::Rasterizer::Rasterizer( VkDevice                                _device,
                                                      _textureManager,
                                                      _instanceInfo.rasterizedMaxVertexCount,
                                                      _instanceInfo.rasterizedMaxIndexCount );
-
-    VkDescriptorSetLayout layouts[] = {
-        _textureManager->GetDescSetLayout(),
-        _uniform.GetDescSetLayout(),
-        _tonemapping.GetDescSetLayout(),
-        _volumetric.GetDescSetLayout(),
-    };
-    CreatePipelineLayouts( layouts, std::size( layouts ), _textureManager->GetDescSetLayout() );
+    {
+        VkDescriptorSetLayout ls[] = {
+            _textureManager->GetDescSetLayout(),
+            _uniform.GetDescSetLayout(),
+            _tonemapping.GetDescSetLayout(),
+            _volumetric.GetDescSetLayout(),
+        };
+        rasterPassPipelineLayout =
+            CreatePipelineLayout( device, ls, "Raster pass Pipeline layout" );
+    }
+    {
+        VkDescriptorSetLayout ls[] = {
+            _textureManager->GetDescSetLayout(),
+        };
+        swapchainPassPipelineLayout =
+            CreatePipelineLayout( device, ls, "Swapchain pass Pipeline layout" );
+    }
 
     rasterPass = std::make_shared< RasterPass >( device,
                                                  _physDevice,
@@ -121,6 +159,22 @@ RTGL1::Rasterizer::Rasterizer( VkDevice                                _device,
                                                  *storageFramebuffers,
                                                  *_textureManager,
                                                  _instanceInfo );
+
+    {
+        VkDescriptorSetLayout ls[] = {
+            _uniform.GetDescSetLayout(),
+            storageFramebuffers->GetDescSetLayout(),
+            _textureManager->GetDescSetLayout(),
+        };
+        auto decalPipelineLayout = CreatePipelineLayout( device, ls, "Decal Pipeline layout" );
+
+        decalManager = std::make_unique< DecalManager >( device,
+                                                         allocator,
+                                                         storageFramebuffers,
+                                                         _shaderManager,
+                                                         _uniform,
+                                                         std::move( decalPipelineLayout ) );
+    }
 }
 
 RTGL1::Rasterizer::~Rasterizer()
@@ -145,10 +199,10 @@ void RTGL1::Rasterizer::Upload( uint32_t                   frameIndex,
     collector->AddPrimitive( frameIndex, rasterType, transform, info, pViewProjection, pViewport );
 }
 
-void RTGL1::Rasterizer::UploadLensFlare( uint32_t                     frameIndex,
-                                         const RgLensFlareInfo&       info,
-                                         float                        emissiveMult,
-                                         const TextureManager&        textureManager )
+void RTGL1::Rasterizer::UploadLensFlare( uint32_t               frameIndex,
+                                         const RgLensFlareInfo& info,
+                                         float                  emissiveMult,
+                                         const TextureManager&  textureManager )
 {
     lensFlares->Upload( frameIndex, info, emissiveMult, textureManager );
 }
@@ -214,7 +268,10 @@ struct RasterLensFlares
 
 struct RasterDrawParams
 {
-    RasterizerPipelines&                                 pipelines;
+    RasterizerPipelines* pipelines{ nullptr };
+    VkPipeline           standalonePipeline{ nullptr };
+    VkPipelineLayout     standalonePipelineLayout{ nullptr };
+
     std::span< const RasterizedDataCollector::DrawInfo > drawInfos{};
 
     VkRenderPass                      renderPass{ VK_NULL_HANDLE };
@@ -229,6 +286,54 @@ struct RasterDrawParams
     std::optional< RasterLensFlares > flaresParams{};
 };
 
+}
+
+void RTGL1::Rasterizer::DrawDecals( VkCommandBuffer               cmd,
+                                    uint32_t                      frameIndex,
+                                    const GlobalUniform&          uniform,
+                                    const TextureManager&         textureManager,
+                                    const float*                  view,
+                                    const float*                  proj,
+                                    const RgFloat2D&              jitter,
+                                    const RenderResolutionHelper& renderResolution )
+{
+    if( collector->GetDecalDrawInfos().empty() )
+    {
+        return;
+    }
+
+    auto label = CmdLabel{ cmd, "Decals" };
+
+    decalManager->CopyRtGBufferToAttachments( cmd, frameIndex, uniform, *storageFramebuffers );
+
+    float jitterredProj[ 16 ];
+    ApplyJitter( jitterredProj, proj, jitter, renderResolution );
+    float defaultViewProj[ 16 ];
+    Matrix::Multiply( defaultViewProj, view, jitterredProj );
+
+    VkDescriptorSet sets[] = {
+        uniform.GetDescSet( frameIndex ),
+        storageFramebuffers->GetDescSet( frameIndex ),
+        textureManager.GetDescSet( frameIndex ),
+    };
+
+    const RasterDrawParams params = {
+        .standalonePipeline       = decalManager->GetDrawPipeline(),
+        .standalonePipelineLayout = decalManager->GetDrawPipelineLayout(),
+        .drawInfos                = collector->GetDecalDrawInfos(),
+        .renderPass               = decalManager->GetRenderPass(),
+        .framebuffer              = decalManager->GetFramebuffer( frameIndex ),
+        .width                    = renderResolution.Width(),
+        .height                   = renderResolution.Height(),
+        .vertexBuffer             = collector->GetVertexBuffer(),
+        .indexBuffer              = collector->GetIndexBuffer(),
+        .descSets                 = sets,
+        .defaultViewProj          = defaultViewProj,
+    };
+
+    Draw( cmd, frameIndex, params );
+
+    decalManager->CopyAttachmentsToRtGBuffer( cmd, frameIndex, uniform, *storageFramebuffers );
 }
 
 void RTGL1::Rasterizer::DrawSkyToAlbedo( VkCommandBuffer               cmd,
@@ -262,7 +367,7 @@ void RTGL1::Rasterizer::DrawSkyToAlbedo( VkCommandBuffer               cmd,
     };
 
     const RasterDrawParams params = {
-        .pipelines       = *rasterPass->GetSkyRasterPipelines(),
+        .pipelines       = rasterPass->GetSkyRasterPipelines().get(),
         .drawInfos       = collector->GetSkyDrawInfos(),
         .renderPass      = rasterPass->GetSkyRenderPass(),
         .framebuffer     = rasterPass->GetSkyFramebuffer( frameIndex ),
@@ -326,7 +431,7 @@ void RTGL1::Rasterizer::DrawToFinalImage( VkCommandBuffer               cmd,
     };
 
     const RasterDrawParams params = {
-        .pipelines       = *rasterPass->GetRasterPipelines(),
+        .pipelines       = rasterPass->GetRasterPipelines().get(),
         .drawInfos       = collector->GetRasterDrawInfos(),
         .renderPass      = rasterPass->GetWorldRenderPass(),
         .framebuffer     = rasterPass->GetWorldFramebuffer( frameIndex ),
@@ -363,7 +468,7 @@ void RTGL1::Rasterizer::DrawToSwapchain( VkCommandBuffer       cmd,
     };
 
     const RasterDrawParams params = {
-        .pipelines       = *swapchainPass->GetSwapchainPipelines(),
+        .pipelines       = swapchainPass->GetSwapchainPipelines().get(),
         .drawInfos       = collector->GetSwapchainDrawInfos(),
         .renderPass      = swapchainPass->GetSwapchainRenderPass(),
         .framebuffer     = swapchainPass->GetSwapchainFramebuffer( imageToDrawIn, frameIndex ),
@@ -434,12 +539,23 @@ void RTGL1::Rasterizer::Draw( VkCommandBuffer         cmd,
 
     if( draw )
     {
-        VkPipeline curPipeline = drawParams.pipelines.BindPipelineIfNew(
-            cmd, VK_NULL_HANDLE, drawParams.drawInfos[ 0 ].pipelineState );
+        auto curPipeline = VkPipeline{ nullptr };
+
+        if( drawParams.pipelines )
+        {
+            curPipeline = drawParams.pipelines->BindPipelineIfNew(
+                cmd, VK_NULL_HANDLE, drawParams.drawInfos[ 0 ].pipelineState );
+        }
+        else
+        {
+            vkCmdBindPipeline(
+                cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, drawParams.standalonePipeline );
+        }
 
         vkCmdBindDescriptorSets( cmd,
                                  VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                 drawParams.pipelines.GetPipelineLayout(),
+                                 drawParams.pipelines ? drawParams.pipelines->GetPipelineLayout()
+                                                      : drawParams.standalonePipelineLayout,
                                  0,
                                  uint32_t( drawParams.descSets.size() ),
                                  drawParams.descSets.data(),
@@ -459,15 +575,20 @@ void RTGL1::Rasterizer::Draw( VkCommandBuffer         cmd,
         for( const auto& info : drawParams.drawInfos )
         {
             SetViewportIfNew( cmd, info, defaultViewport, curViewport );
-            curPipeline =
-                drawParams.pipelines.BindPipelineIfNew( cmd, curPipeline, info.pipelineState );
+
+            if( drawParams.pipelines )
+            {
+                curPipeline =
+                    drawParams.pipelines->BindPipelineIfNew( cmd, curPipeline, info.pipelineState );
+            }
 
             // push const
             {
-                RasterizedPushConst push( info, drawParams.defaultViewProj );
+                auto push = RasterizedPushConst{ info, drawParams.defaultViewProj };
 
                 vkCmdPushConstants( cmd,
-                                    drawParams.pipelines.GetPipelineLayout(),
+                                    drawParams.pipelines ? drawParams.pipelines->GetPipelineLayout()
+                                                         : drawParams.standalonePipelineLayout,
                                     VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                                     0,
                                     sizeof( push ),
@@ -512,10 +633,13 @@ void RTGL1::Rasterizer::OnShaderReload( const ShaderManager* shaderManager )
     swapchainPass->OnShaderReload( shaderManager );
     renderCubemap->OnShaderReload( shaderManager );
     lensFlares->OnShaderReload( shaderManager );
+    decalManager->OnShaderReload( shaderManager );
 }
 
 void RTGL1::Rasterizer::OnFramebuffersSizeChange( const ResolutionState& resolutionState )
 {
+    decalManager->OnFramebuffersSizeChange( resolutionState );
+
     rasterPass->DestroyFramebuffers();
     swapchainPass->DestroyFramebuffers();
 
@@ -526,53 +650,4 @@ void RTGL1::Rasterizer::OnFramebuffersSizeChange( const ResolutionState& resolut
                                     *cmdManager );
     swapchainPass->CreateFramebuffers(
         resolutionState.upscaledWidth, resolutionState.upscaledHeight, storageFramebuffers );
-}
-
-void RTGL1::Rasterizer::CreatePipelineLayouts( VkDescriptorSetLayout* allLayouts,
-                                               size_t                 count,
-                                               VkDescriptorSetLayout  texturesSetLayout )
-{
-    const VkPushConstantRange pushConst = {
-        .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-        .offset     = 0,
-        .size       = sizeof( RasterizedPushConst ),
-    };
-
-    {
-        VkPipelineLayoutCreateInfo layoutInfo = {
-            .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            .setLayoutCount         = static_cast< uint32_t >( count ),
-            .pSetLayouts            = allLayouts,
-            .pushConstantRangeCount = 1,
-            .pPushConstantRanges    = &pushConst,
-        };
-
-        VkResult r =
-            vkCreatePipelineLayout( device, &layoutInfo, nullptr, &rasterPassPipelineLayout );
-        VK_CHECKERROR( r );
-
-        SET_DEBUG_NAME( device,
-                        rasterPassPipelineLayout,
-                        VK_OBJECT_TYPE_PIPELINE_LAYOUT,
-                        "Raster pass Pipeline layout" );
-    }
-
-    {
-        VkPipelineLayoutCreateInfo layoutInfo = {
-            .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-            .setLayoutCount         = 1,
-            .pSetLayouts            = &texturesSetLayout,
-            .pushConstantRangeCount = 1,
-            .pPushConstantRanges    = &pushConst,
-        };
-
-        VkResult r =
-            vkCreatePipelineLayout( device, &layoutInfo, nullptr, &swapchainPassPipelineLayout );
-        VK_CHECKERROR( r );
-
-        SET_DEBUG_NAME( device,
-                        swapchainPassPipelineLayout,
-                        VK_OBJECT_TYPE_PIPELINE_LAYOUT,
-                        "Swapchain pass Pipeline layout" );
-    }
 }

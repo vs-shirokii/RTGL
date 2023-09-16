@@ -22,6 +22,7 @@
 
 #include "CmdLabel.h"
 #include "Matrix.h"
+#include "RasterizedDataCollector.h"
 #include "Utils.h"
 
 #include "Generated/ShaderCommonC.h"
@@ -53,158 +54,6 @@ constexpr VkPrimitiveTopology CUBE_TOPOLOGY     = VK_PRIMITIVE_TOPOLOGY_TRIANGLE
 
     return pipelineLayout;
 }
-
-auto tovec3( const float* p ) -> RgFloat3D
-{
-    return { p[ 0 ], p[ 1 ], p[ 2 ] };
-}
-
-auto GetVertex( const RgMeshPrimitiveInfo& prim, uint32_t i ) -> RgFloat3D
-{
-    if( prim.pIndices && i < prim.indexCount )
-    {
-        auto v = prim.pIndices[ i ];
-        if( prim.pVertices && v < prim.vertexCount )
-        {
-            return tovec3( prim.pVertices[ v ].position );
-        }
-    }
-    else if( prim.pVertices && i < prim.vertexCount )
-    {
-        return tovec3( prim.pVertices[ i ].position );
-    }
-    assert( 0 );
-    return {};
-}
-
-RgFloat3D operator+( const RgFloat3D& a, const RgFloat3D& b )
-{
-    return { a.data[ 0 ] + b.data[ 0 ], a.data[ 1 ] + b.data[ 1 ], a.data[ 2 ] + b.data[ 2 ] };
-}
-
-RgFloat3D operator-( const RgFloat3D& a, const RgFloat3D& b )
-{
-    return { a.data[ 0 ] - b.data[ 0 ], a.data[ 1 ] - b.data[ 1 ], a.data[ 2 ] - b.data[ 2 ] };
-}
-
-RgFloat3D operator/( const RgFloat3D& a, float s )
-{
-    return { a.data[ 0 ] / s, a.data[ 1 ] / s, a.data[ 2 ] / s };
-}
-
-void ExtractBasis( const RgMeshPrimitiveInfo& prim,
-                   RgFloat3D ( &basis )[ 3 ],
-                   RgFloat2D& scale,
-                   RgFloat3D& center )
-{
-    using namespace RTGL1::Utils;
-
-    {
-        RgFloat3D dx, dy;
-        {
-            const RgFloat3D tri[] = {
-                GetVertex( prim, 0 ),
-                GetVertex( prim, 1 ),
-                GetVertex( prim, 2 ),
-            };
-
-            const auto a_0 = tri[ 1 ] - tri[ 0 ];
-            const auto b_0 = tri[ 2 ] - tri[ 0 ];
-
-            const auto a_1 = tri[ 0 ] - tri[ 1 ];
-            const auto b_1 = tri[ 2 ] - tri[ 1 ];
-
-            const auto a_2 = tri[ 1 ] - tri[ 2 ];
-            const auto b_2 = tri[ 0 ] - tri[ 2 ];
-
-            dx       = a_0;
-            dy       = b_0;
-            float dt = Dot( a_0, b_0 );
-
-            // choose a pair with the largest angle
-            if( auto dt_1 = Dot( a_1, b_1 ); dt_1 < dt )
-            {
-                dx = a_1;
-                dy = b_1;
-                dt = dt_1;
-            }
-            if( auto dt_2 = Dot( a_2, b_2 ); dt_2 < dt )
-            {
-                dx = a_2;
-                dy = b_2;
-                dt = dt_2;
-            }
-        }
-
-        const auto dx_len = Length( dx.data );
-        const auto dy_len = Length( dy.data );
-
-        basis[ 0 ] = dx / dx_len;
-        basis[ 1 ] = dy / dy_len;
-        basis[ 2 ] = Cross( basis[ 0 ], basis[ 1 ] );
-
-        scale = { dx_len, dy_len };
-    }
-
-    center = { 0, 0, 0 };
-    for( uint32_t i = 0; i < prim.vertexCount; i++ )
-    {
-        center = center + tovec3( prim.pVertices[ i ].position );
-    }
-    center = center / float( prim.vertexCount );
-}
-
-
-// Transformation from [-0.5, 0.5] cube to a scaled oriented box.
-// Orientation should transform (0,0,1) to decal's normal.
-auto ExtraceDecalTransform( const RgMeshInfo& mesh, const RgMeshPrimitiveInfo& prim ) -> RgTransform
-{
-    RgFloat3D basis[ 3 ];
-    RgFloat2D scaleuv;
-    RgFloat3D center;
-    ExtractBasis( prim, basis, scaleuv, center );
-
-    constexpr float DecalDepth = 0.05f;
-
-    // clang-format off
-    float scale[] = {
-        scaleuv.data[ 0 ], 0, 0, 0,
-        0, scaleuv.data[ 1 ], 0, 0,
-        0, 0, DecalDepth, 0,
-        0, 0, 0, 1,
-    };
-
-    // (0,0,1) transforms to normal
-    float rotate[] = {
-         basis[ 0 ].data[ 0 ], basis[ 1 ].data[ 0 ], basis[ 2 ].data[ 0 ], 0,
-         basis[ 0 ].data[ 1 ], basis[ 1 ].data[ 1 ], basis[ 2 ].data[ 1 ], 0,
-         basis[ 0 ].data[ 2 ], basis[ 1 ].data[ 2 ], basis[ 2 ].data[ 2 ], 0,
-         0, 0, 0, 1,
-    };
-
-    float translate[] = {
-        1, 0, 0, center.data[ 0 ],
-        0, 1, 0, center.data[ 1 ],
-        0, 0, 1, center.data[ 2 ],
-        0, 0, 0, 1,
-    };
-    // clang-format on
-
-    float m[ 16 ];
-    RTGL1::Matrix::Multiply( m, rotate, scale );
-    RTGL1::Matrix::Multiply( m, translate, m );
-
-    float instance[ 16 ];
-    RTGL1::Matrix::ToMat4( instance, mesh.transform );
-    RTGL1::Matrix::Multiply( m, instance, m );
-
-    return { {
-        { m[ 0 * 4 + 0 ], m[ 0 * 4 + 1 ], m[ 0 * 4 + 2 ], m[ 0 * 4 + 3 ] },
-        { m[ 1 * 4 + 0 ], m[ 1 * 4 + 1 ], m[ 1 * 4 + 2 ], m[ 1 * 4 + 3 ] },
-        { m[ 2 * 4 + 0 ], m[ 2 * 4 + 1 ], m[ 2 * 4 + 2 ], m[ 2 * 4 + 3 ] },
-    } };
-}
-
 }
 
 RTGL1::DecalManager::DecalManager( VkDevice                           _device,
@@ -212,26 +61,13 @@ RTGL1::DecalManager::DecalManager( VkDevice                           _device,
                                    std::shared_ptr< Framebuffers >    _storageFramebuffers,
                                    const ShaderManager&               _shaderManager,
                                    const GlobalUniform&               _uniform,
-                                   const TextureManager&              _textureManager )
-    : device( _device ), storageFramebuffers( std::move( _storageFramebuffers ) )
+                                   VkPipelineLayout&&                 _drawPipelineLayout )
+    : device{ _device }
+    , storageFramebuffers{ std::move( _storageFramebuffers ) }
+    , drawPipelineLayout{ _drawPipelineLayout }
 {
-    instanceBuffer = std::make_unique< AutoBuffer >( std::move( _allocator ) );
-    instanceBuffer->Create( DECAL_MAX_COUNT * sizeof( ShDecalInstance ),
-                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                            "Decal instance buffer" );
-
-    CreateDescriptors();
     CreateRenderPass();
 
-    {
-        VkDescriptorSetLayout setLayouts[] = {
-            _uniform.GetDescSetLayout(),
-            storageFramebuffers->GetDescSetLayout(),
-            _textureManager.GetDescSetLayout(),
-            descSetLayout,
-        };
-        pipelineLayout = CreatePipelineLayout( device, setLayouts );
-    }
     {
         VkDescriptorSetLayout setLayouts[] = {
             storageFramebuffers->GetDescSetLayout(),
@@ -245,10 +81,7 @@ RTGL1::DecalManager::DecalManager( VkDevice                           _device,
 
 RTGL1::DecalManager::~DecalManager()
 {
-    vkDestroyDescriptorSetLayout( device, descSetLayout, nullptr );
-    vkDestroyDescriptorPool( device, descPool, nullptr );
-
-    vkDestroyPipelineLayout( device, pipelineLayout, nullptr );
+    vkDestroyPipelineLayout( device, drawPipelineLayout, nullptr );
     vkDestroyPipelineLayout( device, copyingPipelineLayout, nullptr );
     DestroyPipelines();
 
@@ -256,111 +89,12 @@ RTGL1::DecalManager::~DecalManager()
     DestroyFramebuffers();
 }
 
-void RTGL1::DecalManager::PrepareForFrame( uint32_t frameIndex )
+void RTGL1::DecalManager::CopyRtGBufferToAttachments( VkCommandBuffer      cmd,
+                                                      uint32_t             frameIndex,
+                                                      const GlobalUniform& uniform,
+                                                      Framebuffers&        framebuffers )
 {
-    decalCount = 0;
-}
-
-namespace
-{
-uint32_t pack_textureEmissive_emissiveMult( uint32_t texture, float mult )
-{
-    if( texture >= std::numeric_limits< uint16_t >::max() )
-    {
-        assert( 0 );
-        texture = MATERIAL_NO_TEXTURE;
-    }
-
-    auto packedMult = static_cast< uint16_t >( std::clamp( mult, 0.f, 1.f ) *
-                                               std::numeric_limits< uint16_t >::max() );
-
-    return texture << 16u | packedMult;
-}
-}
-
-void RTGL1::DecalManager::Upload( uint32_t                                 frameIndex,
-                                  const RgMeshInfo&                        mesh,
-                                  const RgMeshPrimitiveInfo&               prim,
-                                  const std::shared_ptr< TextureManager >& textureManager )
-{
-    if( decalCount >= DECAL_MAX_COUNT )
-    {
-        assert( 0 );
-        return;
-    }
-
-    if( !prim.pVertices || prim.vertexCount < 3 )
-    {
-        assert( 0 );
-        return;
-    }
-
-    const uint32_t decalIndex = decalCount;
-    decalCount++;
-
-    const MaterialTextures mat = textureManager->GetMaterialTextures( prim.pTextureName );
-
-    ShDecalInstance instance = {
-        .textureAlbedoAlpha           = mat.indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
-        .textureNormal                = mat.indices[ TEXTURE_NORMAL_INDEX ],
-        .textureEmissive_emissiveMult = pack_textureEmissive_emissiveMult(
-            mat.indices[ TEXTURE_EMISSIVE_INDEX ], prim.emissive ),
-        .packedColor = prim.color,
-    };
-    Matrix::ToMat4Transposed( instance.transform, ExtraceDecalTransform( mesh, prim ) );
-
-    {
-        auto* dst = instanceBuffer->GetMappedAs< ShDecalInstance* >( frameIndex );
-        memcpy( &dst[ decalIndex ], &instance, sizeof( ShDecalInstance ) );
-    }
-}
-
-void RTGL1::DecalManager::SubmitForFrame( VkCommandBuffer cmd, uint32_t frameIndex )
-{
-    if( decalCount == 0 )
-    {
-        return;
-    }
-
-    CmdLabel label( cmd, "Copying decal data" );
-
-    instanceBuffer->CopyFromStaging( cmd, frameIndex, decalCount * sizeof( ShDecalInstance ) );
-}
-
-void RTGL1::DecalManager::Draw( VkCommandBuffer                          cmd,
-                                uint32_t                                 frameIndex,
-                                const std::shared_ptr< GlobalUniform >&  uniform,
-                                const std::shared_ptr< Framebuffers >&   framebuffers,
-                                const std::shared_ptr< TextureManager >& textureManager )
-{
-    if( decalCount == 0 )
-    {
-        return;
-    }
-
-    CmdLabel label( cmd, "Decal draw" );
-
-    {
-        VkBufferMemoryBarrier2KHR b = {
-            .sType         = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2_KHR,
-            .srcStageMask  = VK_PIPELINE_STAGE_2_COPY_BIT_KHR,
-            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
-            .dstStageMask  = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT_KHR |
-                            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT_KHR,
-            .dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT_KHR,
-            .buffer        = instanceBuffer->GetDeviceLocal(),
-            .offset        = 0,
-            .size          = decalCount * sizeof( ShDecalInstance ),
-        };
-
-        VkDependencyInfoKHR info = {
-            .sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
-            .bufferMemoryBarrierCount = 1,
-            .pBufferMemoryBarriers    = &b,
-        };
-
-        svkCmdPipelineBarrier2KHR( cmd, &info );
-    }
+    auto label = CmdLabel{ cmd, "CopyRtGBufferToAttachments" };
 
     {
         FramebufferImageIndex fs[] = {
@@ -369,14 +103,14 @@ void RTGL1::DecalManager::Draw( VkCommandBuffer                          cmd,
             FB_IMAGE_INDEX_SCREEN_EMIS_R_T,
         };
 
-        framebuffers->BarrierMultiple( cmd, frameIndex, fs );
+        framebuffers.BarrierMultiple( cmd, frameIndex, fs );
     }
 
     // copy normals from G-buffer to attachment
     {
         VkDescriptorSet sets[] = {
-            framebuffers->GetDescSet( frameIndex ),
-            uniform->GetDescSet( frameIndex ),
+            framebuffers.GetDescSet( frameIndex ),
+            uniform.GetDescSet( frameIndex ),
         };
         vkCmdBindDescriptorSets( cmd,
                                  VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -388,9 +122,9 @@ void RTGL1::DecalManager::Draw( VkCommandBuffer                          cmd,
                                  nullptr );
         vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, copyNormalsToAttachment );
         vkCmdDispatch( cmd,
-                       Utils::GetWorkGroupCount( uniform->GetData()->renderWidth,
+                       Utils::GetWorkGroupCount( uniform.GetData()->renderWidth,
                                                  COMPUTE_DECAL_APPLY_GROUP_SIZE_X ),
-                       Utils::GetWorkGroupCount( uniform->GetData()->renderHeight,
+                       Utils::GetWorkGroupCount( uniform.GetData()->renderHeight,
                                                  COMPUTE_DECAL_APPLY_GROUP_SIZE_X ),
                        1 );
 
@@ -407,7 +141,7 @@ void RTGL1::DecalManager::Draw( VkCommandBuffer                          cmd,
                 .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
                 .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .image = framebuffers->GetImage( FB_IMAGE_INDEX_NORMAL_DECAL, frameIndex ),
+                .image = framebuffers.GetImage( FB_IMAGE_INDEX_NORMAL_DECAL, frameIndex ),
                 .subresourceRange = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
                                       .baseMipLevel   = 0,
                                       .levelCount     = 1,
@@ -427,7 +161,7 @@ void RTGL1::DecalManager::Draw( VkCommandBuffer                          cmd,
                 .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
                 .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .image               = framebuffers->GetImage( FB_IMAGE_INDEX_NORMAL, frameIndex ),
+                .image               = framebuffers.GetImage( FB_IMAGE_INDEX_NORMAL, frameIndex ),
                 .subresourceRange    = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
                                          .baseMipLevel   = 0,
                                          .levelCount     = 1,
@@ -446,7 +180,66 @@ void RTGL1::DecalManager::Draw( VkCommandBuffer                          cmd,
                 .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
                 .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .image = framebuffers->GetImage( FB_IMAGE_INDEX_SCREEN_EMISSION, frameIndex ),
+                .image = framebuffers.GetImage( FB_IMAGE_INDEX_SCREEN_EMISSION, frameIndex ),
+                .subresourceRange = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                      .baseMipLevel   = 0,
+                                      .levelCount     = 1,
+                                      .baseArrayLayer = 0,
+                                      .layerCount     = 1 },
+            },
+        };
+
+        VkDependencyInfoKHR info = {
+            .sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
+            .imageMemoryBarrierCount = std::size( bs ),
+            .pImageMemoryBarriers    = bs,
+        };
+
+        svkCmdPipelineBarrier2KHR( cmd, &info );
+    }
+}
+
+void RTGL1::DecalManager::CopyAttachmentsToRtGBuffer( VkCommandBuffer      cmd,
+                                                      uint32_t             frameIndex,
+                                                      const GlobalUniform& uniform,
+                                                      const Framebuffers&  framebuffers )
+{
+    auto label = CmdLabel{ cmd, "CopyAttachmentsToRtGBuffer" };
+
+    // copy normals back from attachment to G-buffer
+
+    {
+        VkImageMemoryBarrier2KHR bs[] = {
+            {
+                .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                .pNext               = nullptr,
+                .srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                .dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT,
+                .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = framebuffers.GetImage( FB_IMAGE_INDEX_NORMAL_DECAL, frameIndex ),
+                .subresourceRange = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                      .baseMipLevel   = 0,
+                                      .levelCount     = 1,
+                                      .baseArrayLayer = 0,
+                                      .layerCount     = 1 },
+            },
+            {
+                .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                .pNext               = nullptr,
+                .srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                .dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT,
+                .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = framebuffers.GetImage( FB_IMAGE_INDEX_SCREEN_EMISSION, frameIndex ),
                 .subresourceRange = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
                                       .baseMipLevel   = 0,
                                       .levelCount     = 1,
@@ -464,181 +257,77 @@ void RTGL1::DecalManager::Draw( VkCommandBuffer                          cmd,
         svkCmdPipelineBarrier2KHR( cmd, &info );
     }
 
-    assert( passFramebuffers[ frameIndex ] != VK_NULL_HANDLE );
-
-    const VkViewport viewport = {
-        .x        = 0,
-        .y        = 0,
-        .width    = uniform->GetData()->renderWidth,
-        .height   = uniform->GetData()->renderHeight,
-        .minDepth = 0.0f,
-        .maxDepth = 1.0f,
+    VkDescriptorSet sets[] = {
+        framebuffers.GetDescSet( frameIndex ),
+        uniform.GetDescSet( frameIndex ),
     };
+    vkCmdBindDescriptorSets( cmd,
+                             VK_PIPELINE_BIND_POINT_COMPUTE,
+                             copyingPipelineLayout,
+                             0,
+                             std::size( sets ),
+                             sets,
+                             0,
+                             nullptr );
+    vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, copyNormalsToGbuffer );
+    vkCmdDispatch( cmd,
+                   Utils::GetWorkGroupCount( uniform.GetData()->renderWidth,
+                                             COMPUTE_DECAL_APPLY_GROUP_SIZE_X ),
+                   Utils::GetWorkGroupCount( uniform.GetData()->renderHeight,
+                                             COMPUTE_DECAL_APPLY_GROUP_SIZE_X ),
+                   1 );
 
-    const VkRect2D renderArea = {
-        .offset = { .x = 0, .y = 0 },
-        .extent = { .width  = uint32_t( uniform->GetData()->renderWidth ),
-                    .height = uint32_t( uniform->GetData()->renderHeight ) },
-    };
-
-    VkRenderPassBeginInfo beginInfo = {
-        .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-        .renderPass      = renderPass,
-        .framebuffer     = passFramebuffers[ frameIndex ],
-        .renderArea      = renderArea,
-        .clearValueCount = 0,
-    };
-
-    vkCmdBeginRenderPass( cmd, &beginInfo, VK_SUBPASS_CONTENTS_INLINE );
     {
-        vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
-
-        VkDescriptorSet sets[] = {
-            uniform->GetDescSet( frameIndex ),
-            framebuffers->GetDescSet( frameIndex ),
-            textureManager->GetDescSet( frameIndex ),
-            descSet,
+        VkImageMemoryBarrier2KHR bs[] = {
+            {
+                .sType         = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                .pNext         = nullptr,
+                .srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                .dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                                VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                .dstAccessMask =
+                    VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image               = framebuffers.GetImage( FB_IMAGE_INDEX_NORMAL, frameIndex ),
+                .subresourceRange    = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                         .baseMipLevel   = 0,
+                                         .levelCount     = 1,
+                                         .baseArrayLayer = 0,
+                                         .layerCount     = 1 },
+            },
+            {
+                .sType         = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                .pNext         = nullptr,
+                .srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                .dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                                VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                .dstAccessMask =
+                    VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = framebuffers.GetImage( FB_IMAGE_INDEX_SCREEN_EMIS_R_T, frameIndex ),
+                .subresourceRange = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                      .baseMipLevel   = 0,
+                                      .levelCount     = 1,
+                                      .baseArrayLayer = 0,
+                                      .layerCount     = 1 },
+            },
         };
 
-        vkCmdBindDescriptorSets( cmd,
-                                 VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                 pipelineLayout,
-                                 0,
-                                 std::size( sets ),
-                                 sets,
-                                 0,
-                                 nullptr );
-
-        vkCmdSetScissor( cmd, 0, 1, &renderArea );
-        vkCmdSetViewport( cmd, 0, 1, &viewport );
-
-        vkCmdDraw( cmd, CUBE_VERTEX_COUNT, decalCount, 0, 0 );
-    }
-    vkCmdEndRenderPass( cmd );
-
-    // copy normals back from attachment to G-buffer
-    {
-        {
-            VkImageMemoryBarrier2KHR bs[] = {
-                {
-                    .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                    .pNext               = nullptr,
-                    .srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                    .srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-                    .dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                    .dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT,
-                    .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
-                    .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
-                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                    .image = framebuffers->GetImage( FB_IMAGE_INDEX_NORMAL_DECAL, frameIndex ),
-                    .subresourceRange = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-                                          .baseMipLevel   = 0,
-                                          .levelCount     = 1,
-                                          .baseArrayLayer = 0,
-                                          .layerCount     = 1 },
-                },
-                {
-                    .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                    .pNext               = nullptr,
-                    .srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                    .srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-                    .dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                    .dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT,
-                    .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
-                    .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
-                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                    .image = framebuffers->GetImage( FB_IMAGE_INDEX_SCREEN_EMISSION, frameIndex ),
-                    .subresourceRange = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-                                          .baseMipLevel   = 0,
-                                          .levelCount     = 1,
-                                          .baseArrayLayer = 0,
-                                          .layerCount     = 1 },
-                },
-            };
-
-            VkDependencyInfoKHR info = {
-                .sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
-                .imageMemoryBarrierCount = std::size( bs ),
-                .pImageMemoryBarriers    = bs,
-            };
-
-            svkCmdPipelineBarrier2KHR( cmd, &info );
-        }
-
-        VkDescriptorSet sets[] = {
-            framebuffers->GetDescSet( frameIndex ),
-            uniform->GetDescSet( frameIndex ),
+        VkDependencyInfoKHR info = {
+            .sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
+            .imageMemoryBarrierCount = std::size( bs ),
+            .pImageMemoryBarriers    = bs,
         };
-        vkCmdBindDescriptorSets( cmd,
-                                 VK_PIPELINE_BIND_POINT_COMPUTE,
-                                 copyingPipelineLayout,
-                                 0,
-                                 std::size( sets ),
-                                 sets,
-                                 0,
-                                 nullptr );
-        vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, copyNormalsToGbuffer );
-        vkCmdDispatch( cmd,
-                       Utils::GetWorkGroupCount( uniform->GetData()->renderWidth,
-                                                 COMPUTE_DECAL_APPLY_GROUP_SIZE_X ),
-                       Utils::GetWorkGroupCount( uniform->GetData()->renderHeight,
-                                                 COMPUTE_DECAL_APPLY_GROUP_SIZE_X ),
-                       1 );
 
-        {
-            VkImageMemoryBarrier2KHR bs[] = {
-                {
-                    .sType         = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                    .pNext         = nullptr,
-                    .srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                    .srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                    .dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                                    VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
-                    .dstAccessMask =
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                    .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
-                    .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
-                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                    .image            = framebuffers->GetImage( FB_IMAGE_INDEX_NORMAL, frameIndex ),
-                    .subresourceRange = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-                                          .baseMipLevel   = 0,
-                                          .levelCount     = 1,
-                                          .baseArrayLayer = 0,
-                                          .layerCount     = 1 },
-                },
-                {
-                    .sType         = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                    .pNext         = nullptr,
-                    .srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                    .srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                    .dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                                    VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
-                    .dstAccessMask =
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                    .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
-                    .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
-                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                    .image = framebuffers->GetImage( FB_IMAGE_INDEX_SCREEN_EMIS_R_T, frameIndex ),
-                    .subresourceRange = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-                                          .baseMipLevel   = 0,
-                                          .levelCount     = 1,
-                                          .baseArrayLayer = 0,
-                                          .layerCount     = 1 },
-                },
-            };
-
-            VkDependencyInfoKHR info = {
-                .sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
-                .imageMemoryBarrierCount = std::size( bs ),
-                .pImageMemoryBarriers    = bs,
-            };
-
-            svkCmdPipelineBarrier2KHR( cmd, &info );
-        }
+        svkCmdPipelineBarrier2KHR( cmd, &info );
     }
 }
 
@@ -785,7 +474,7 @@ void RTGL1::DecalManager::CreatePipelines( const ShaderManager* shaderManager )
     assert( pipeline == VK_NULL_HANDLE && copyNormalsToAttachment == VK_NULL_HANDLE &&
             copyNormalsToGbuffer == VK_NULL_HANDLE );
     assert( renderPass != VK_NULL_HANDLE );
-    assert( pipelineLayout != VK_NULL_HANDLE && copyingPipelineLayout != VK_NULL_HANDLE );
+    assert( drawPipelineLayout != VK_NULL_HANDLE && copyingPipelineLayout != VK_NULL_HANDLE );
 
     {
         uint32_t copyFromDecalToGbuffer = 0;
@@ -843,10 +532,21 @@ void RTGL1::DecalManager::CreatePipelines( const ShaderManager* shaderManager )
         shaderManager->GetStageInfo( "FragDecal" ),
     };
 
+
+    VkVertexInputBindingDescription vertBinding = {
+        .binding   = 0,
+        .stride    = RasterizedDataCollector::GetVertexStride(),
+        .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
+    };
+
+    auto attrs = RasterizedDataCollector::GetVertexLayout();
+
     VkPipelineVertexInputStateCreateInfo vertexInput = {
         .sType                         = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .vertexBindingDescriptionCount = 0,
-        .vertexAttributeDescriptionCount = 0,
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions    = &vertBinding,
+        .vertexAttributeDescriptionCount = attrs.size(),
+        .pVertexAttributeDescriptions    = attrs.data(),
     };
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly = {
@@ -955,7 +655,7 @@ void RTGL1::DecalManager::CreatePipelines( const ShaderManager* shaderManager )
         .pDepthStencilState  = &depthStencil,
         .pColorBlendState    = &colorBlendState,
         .pDynamicState       = &dynamicInfo,
-        .layout              = pipelineLayout,
+        .layout              = drawPipelineLayout,
         .renderPass          = renderPass,
         .subpass             = 0,
         .basePipelineHandle  = VK_NULL_HANDLE,
@@ -975,79 +675,4 @@ void RTGL1::DecalManager::DestroyPipelines()
     copyNormalsToGbuffer = VK_NULL_HANDLE;
     vkDestroyPipeline( device, copyNormalsToAttachment, nullptr );
     copyNormalsToAttachment = VK_NULL_HANDLE;
-}
-
-void RTGL1::DecalManager::CreateDescriptors()
-{
-    {
-        VkDescriptorPoolSize poolSize = {
-            .type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .descriptorCount = 1,
-        };
-
-        VkDescriptorPoolCreateInfo poolInfo = {
-            .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-            .maxSets       = 1,
-            .poolSizeCount = 1,
-            .pPoolSizes    = &poolSize,
-        };
-
-        VkResult r = vkCreateDescriptorPool( device, &poolInfo, nullptr, &descPool );
-        VK_CHECKERROR( r );
-
-        SET_DEBUG_NAME( device, descPool, VK_OBJECT_TYPE_DESCRIPTOR_POOL, "Decal desc pool" );
-    }
-    {
-        VkDescriptorSetLayoutBinding binding = {
-            .binding         = BINDING_DECAL_INSTANCES,
-            .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .descriptorCount = 1,
-            .stageFlags      = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-        };
-
-        VkDescriptorSetLayoutCreateInfo info = {
-            .sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-            .bindingCount = 1,
-            .pBindings    = &binding,
-        };
-
-        VkResult r = vkCreateDescriptorSetLayout( device, &info, nullptr, &descSetLayout );
-        VK_CHECKERROR( r );
-
-        SET_DEBUG_NAME(
-            device, descSetLayout, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "Decal desc set layout" );
-    }
-
-    {
-        VkDescriptorSetAllocateInfo allocInfo = {
-            .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-            .descriptorPool     = descPool,
-            .descriptorSetCount = 1,
-            .pSetLayouts        = &descSetLayout,
-        };
-
-        VkResult r = vkAllocateDescriptorSets( device, &allocInfo, &descSet );
-        VK_CHECKERROR( r );
-
-        SET_DEBUG_NAME( device, descSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, "Decal desc set" );
-    }
-    {
-        VkDescriptorBufferInfo b = {
-            .buffer = instanceBuffer->GetDeviceLocal(),
-            .offset = 0,
-            .range  = VK_WHOLE_SIZE,
-        };
-
-        VkWriteDescriptorSet w = {
-            .sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstSet          = descSet,
-            .dstBinding      = BINDING_DECAL_INSTANCES,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .pBufferInfo     = &b,
-        };
-
-        vkUpdateDescriptorSets( device, 1, &w, 0, nullptr );
-    }
 }

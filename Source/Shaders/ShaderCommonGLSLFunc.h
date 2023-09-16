@@ -259,15 +259,6 @@ layout(set = DESC_SET_LENS_FLARES, binding = BINDING_LENS_FLARES_DRAW_CMDS) buff
 
 
 
-#ifdef DESC_SET_DECALS
-layout(set = DESC_SET_DECALS, binding = BINDING_DECAL_INSTANCES) buffer DecalInstances_BT
-{
-    ShDecalInstance decalInstances[];
-};
-#endif // DESC_SET_DECALS
-
-
-
 #define CHECKERBOARD_SEPARATOR_DIVISOR 2
 
 #ifdef DESC_SET_GLOBAL_UNIFORM

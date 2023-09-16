@@ -35,7 +35,6 @@
 #define BINDING_LENS_FLARES_CULLING_INPUT (0)
 #define BINDING_LENS_FLARES_DRAW_CMDS (1)
 #define BINDING_DRAW_LENS_FLARES_INSTANCES (0)
-#define BINDING_DECAL_INSTANCES (0)
 #define BINDING_PORTAL_INSTANCES (0)
 #define BINDING_LPM_PARAMS (0)
 #define BINDING_RESTIR_INDIRECT_INITIAL_SAMPLES (0)
@@ -365,15 +364,6 @@ struct ShLensFlareInstance
     uint textureIndex;
     uint emissiveTextureIndex;
     float emissiveMult;
-};
-
-struct ShDecalInstance
-{
-    mat4 transform;
-    uint textureAlbedoAlpha;
-    uint textureNormal;
-    uint textureEmissive_emissiveMult;
-    uint packedColor;
 };
 
 struct ShPortalInstance

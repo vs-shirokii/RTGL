@@ -48,7 +48,6 @@
 #include "Sharpening.h"
 #include "DLSS.h"
 #include "RenderResolutionHelper.h"
-#include "DecalManager.h"
 #include "EffectWipe.h"
 #include "EffectSimple_Instances.h"
 #include "LightGrid.h"
@@ -189,7 +188,6 @@ private:
     std::shared_ptr< RayTracingPipeline >        rtPipeline;
     std::shared_ptr< PathTracer >                pathTracer;
     std::shared_ptr< Rasterizer >                rasterizer;
-    std::shared_ptr< DecalManager >              decalManager;
     std::shared_ptr< PortalList >                portalList;
     std::shared_ptr< LightManager >              lightManager;
     std::shared_ptr< LightGrid >                 lightGrid;

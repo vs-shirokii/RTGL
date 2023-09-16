@@ -36,6 +36,7 @@ enum class GeometryRasterType
     WORLD,
     SKY,
     SWAPCHAIN,
+    DECAL,
 };
 
 enum class PipelineStateFlagBits
@@ -133,9 +134,10 @@ public:
     static uint32_t          GetVertexStride();
     static std::array< VkVertexInputAttributeDescription, 3 > GetVertexLayout();
 
-    const std::vector< DrawInfo >&                            GetRasterDrawInfos() const;
-    const std::vector< DrawInfo >&                            GetSwapchainDrawInfos() const;
-    const std::vector< DrawInfo >&                            GetSkyDrawInfos() const;
+    std::span< const DrawInfo > GetRasterDrawInfos() const { return rasterDrawInfos; }
+    std::span< const DrawInfo > GetSwapchainDrawInfos() const { return swapchainDrawInfos; }
+    std::span< const DrawInfo > GetSkyDrawInfos() const { return skyDrawInfos; }
+    std::span< const DrawInfo > GetDecalDrawInfos() const { return decalDrawInfos; }
 
 protected:
     DrawInfo& PushInfo( GeometryRasterType rasterType );
@@ -153,6 +155,7 @@ private:
     std::vector< DrawInfo >           rasterDrawInfos;
     std::vector< DrawInfo >           swapchainDrawInfos;
     std::vector< DrawInfo >           skyDrawInfos;
+    std::vector< DrawInfo >           decalDrawInfos;
 };
 
 }

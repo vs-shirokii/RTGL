@@ -274,6 +274,9 @@ RTGL1::RasterizedDataCollector::DrawInfo& RTGL1::RasterizedDataCollector::PushIn
         case GeometryRasterType::SWAPCHAIN: {
             return swapchainDrawInfos.emplace_back();
         }
+        case GeometryRasterType::DECAL: {
+            return decalDrawInfos.emplace_back();
+        }
         default: {
             throw RgException( RG_RESULT_GRAPHICS_API_ERROR,
                                "RasterizedDataCollector::PushInfo error" );
@@ -286,6 +289,7 @@ void RTGL1::RasterizedDataCollector::Clear( uint32_t frameIndex )
     rasterDrawInfos.clear();
     swapchainDrawInfos.clear();
     skyDrawInfos.clear();
+    decalDrawInfos.clear();
 
     curVertexCount = 0;
     curIndexCount  = 0;
@@ -305,22 +309,4 @@ VkBuffer RTGL1::RasterizedDataCollector::GetVertexBuffer() const
 VkBuffer RTGL1::RasterizedDataCollector::GetIndexBuffer() const
 {
     return indexBuffer->GetDeviceLocal();
-}
-
-const std::vector< RTGL1::RasterizedDataCollector::DrawInfo >& RTGL1::RasterizedDataCollector::
-    GetRasterDrawInfos() const
-{
-    return rasterDrawInfos;
-}
-
-const std::vector< RTGL1::RasterizedDataCollector::DrawInfo >& RTGL1::RasterizedDataCollector::
-    GetSwapchainDrawInfos() const
-{
-    return swapchainDrawInfos;
-}
-
-const std::vector< RTGL1::RasterizedDataCollector::DrawInfo >& RTGL1::RasterizedDataCollector::
-    GetSkyDrawInfos() const
-{
-    return skyDrawInfos;
 }

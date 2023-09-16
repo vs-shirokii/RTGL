@@ -21,6 +21,7 @@
 #pragma once
 
 #include "Common.h"
+#include "DecalManager.h"
 #include "Framebuffers.h"
 #include "GlobalUniform.h"
 #include "IFramebuffersDependency.h"
@@ -85,6 +86,15 @@ public:
                            const TextureManager& textureManager,
                            const GlobalUniform&  uniform );
 
+    void DrawDecals( VkCommandBuffer               cmd,
+                     uint32_t                      frameIndex,
+                     const GlobalUniform&          uniform,
+                     const TextureManager&         textureManager,
+                     const float*                  view,
+                     const float*                  proj,
+                     const RgFloat2D&              jitter,
+                     const RenderResolutionHelper& renderResolution );
+
     void DrawSkyToAlbedo( VkCommandBuffer               cmd,
                           uint32_t                      frameIndex,
                           const TextureManager&         textureManager,
@@ -124,10 +134,6 @@ public:
 private:
     void Draw( VkCommandBuffer cmd, uint32_t frameIndex, const RasterDrawParams& drawParams );
 
-    void CreatePipelineLayouts( VkDescriptorSetLayout* allLayouts,
-                                size_t                 count,
-                                VkDescriptorSetLayout  texturesSetLayout );
-
 private:
     VkDevice         device;
     VkPipelineLayout rasterPassPipelineLayout;
@@ -145,6 +151,7 @@ private:
     std::shared_ptr< RenderCubemap > renderCubemap;
 
     std::unique_ptr< LensFlares > lensFlares;
+    std::unique_ptr< DecalManager > decalManager;
 };
 
 }

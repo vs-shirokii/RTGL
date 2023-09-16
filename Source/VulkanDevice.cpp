@@ -98,7 +98,6 @@ VkCommandBuffer RTGL1::VulkanDevice::BeginFrame( const RgStartFrameInfo& info )
     textureManager->PrepareForFrame( frameIndex );
     cubemapManager->PrepareForFrame( frameIndex );
     rasterizer->PrepareForFrame( frameIndex );
-    decalManager->PrepareForFrame( frameIndex );
     if( debugWindows )
     {
         if( !debugWindows->PrepareForFrame( frameIndex ) )
@@ -537,7 +536,6 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
     {
         lightGrid->Build( cmd, frameIndex, uniform, blueNoise, lightManager );
 
-        decalManager->SubmitForFrame( cmd, frameIndex );
         portalList->SubmitForFrame( cmd, frameIndex );
 
         float volumetricMaxHistoryLen =
@@ -564,7 +562,14 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
         pathTracer->TracePrimaryRays( params );
 
         // draw decals on top of primary surface
-        decalManager->Draw( cmd, frameIndex, uniform, framebuffers, textureManager );
+        rasterizer->DrawDecals( cmd,
+                                frameIndex,
+                                *uniform,
+                                *textureManager,
+                                cameraInfo.view,
+                                cameraInfo.projection,
+                                jitter,
+                                renderResolution );
 
         if( uniform->GetData()->reflectRefractMaxDepth > 0 )
         {
@@ -961,6 +966,11 @@ namespace
 {
     bool IsRasterized( const RgMeshInfo& mesh, const RgMeshPrimitiveInfo& primitive )
     {
+        if( primitive.flags & RG_MESH_PRIMITIVE_DECAL )
+        {
+            return true;
+        }
+
         if( primitive.flags & RG_MESH_PRIMITIVE_SKY )
         {
             return true;
@@ -1071,14 +1081,18 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
         if( IsRasterized( mesh, prim ) )
         {
             rasterizer->Upload( currentFrameState.GetFrameIndex(),
-                                prim.flags & RG_MESH_PRIMITIVE_SKY ? GeometryRasterType::SKY
-                                                                   : GeometryRasterType::WORLD,
+                                prim.flags & RG_MESH_PRIMITIVE_SKY     ? GeometryRasterType::SKY
+                                : prim.flags & RG_MESH_PRIMITIVE_DECAL ? GeometryRasterType::DECAL
+                                                                       : GeometryRasterType::WORLD,
                                 mesh.transform,
                                 prim,
                                 nullptr,
                                 nullptr );
 
-            logDebugStat( Devmode::DebugPrimMode::Rasterized, &mesh, prim );
+            logDebugStat( prim.flags & RG_MESH_PRIMITIVE_DECAL ? Devmode::DebugPrimMode::Decal
+                                                               : Devmode::DebugPrimMode::Rasterized,
+                          &mesh,
+                          prim );
         }
         else
         {
@@ -1210,23 +1224,7 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
 
     // --- //
 
-    auto uploadPrimitive_FilterDecal = [ this, &uploadPrimitive_WithMeta, &logDebugStat ](
-                                           const RgMeshInfo&          mesh,
-                                           const RgMeshPrimitiveInfo& prim ) {
-        if( prim.flags & RG_MESH_PRIMITIVE_DECAL )
-        {
-            decalManager->Upload( currentFrameState.GetFrameIndex(), mesh, prim, textureManager );
-            logDebugStat( Devmode::DebugPrimMode::Decal, &mesh, prim );
-        }
-        else
-        {
-            uploadPrimitive_WithMeta( mesh, prim );
-        }
-    };
-
-    // --- //
-
-    auto uploadPrimitive_FilterSwapchained = [ this, &uploadPrimitive_FilterDecal, &logDebugStat ](
+    auto uploadPrimitive_FilterSwapchained = [ this, &uploadPrimitive_WithMeta, &logDebugStat ](
                                                  const RgMeshInfo*          mesh,
                                                  const RgMeshPrimitiveInfo& prim ) {
         if( mesh )
@@ -1276,7 +1274,7 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
                 }
             }
 
-            uploadPrimitive_FilterDecal( *mesh, prim );
+            uploadPrimitive_WithMeta( *mesh, prim );
         }
     };
 
