@@ -32,6 +32,7 @@ layout( location = 0 ) flat in uint instanceIndex;
 
 layout( location = 0 ) out vec4 out_albedo;
 layout( location = 1 ) out uint out_normal;
+layout( location = 2 ) out vec3 out_screenEmission;
 
 void main()
 {
@@ -53,9 +54,8 @@ void main()
     const vec2 texCoord = localPosition.xy + 0.5;
 
     {
-        out_albedo =
-            getTextureSample( decal.textureAlbedoAlpha, texCoord ) *
-            unpackUintColor( decal.packedColor );
+        out_albedo = unpackUintColor( decal.packedColor ) *
+                     getTextureSample( decal.textureAlbedoAlpha, texCoord );
     }
 
     if( decal.textureNormal != MATERIAL_NO_TEXTURE )
@@ -73,5 +73,25 @@ void main()
     else
     {
         out_normal = texelFetchEncNormal( pix );
+    }
+
+    {
+        const vec4  baseColor       = unpackUintColor( decal.packedColor );
+        const uint  textureEmissive = decal.textureEmissive_emissiveMult >> 16;
+        const float emissiveMult = float( decal.textureEmissive_emissiveMult & 0xFFFF ) / 65535.f;
+
+        vec3 ldrEmis;
+        if( textureEmissive != MATERIAL_NO_TEXTURE )
+        {
+            ldrEmis = baseColor.rgb *
+                      getTextureSample( textureEmissive, texCoord ).rgb;
+        }
+        else
+        {
+            ldrEmis = out_albedo.rgb;
+        }
+        ldrEmis *= emissiveMult * baseColor.a;
+
+        out_screenEmission = ldrEmis;
     }
 }

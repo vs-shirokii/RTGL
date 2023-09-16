@@ -377,7 +377,7 @@ struct ShDecalInstance
     float transform[16];
     uint32_t textureAlbedoAlpha;
     uint32_t textureNormal;
-    uint32_t textureEmissive;
+    uint32_t textureEmissive_emissiveMult;
     uint32_t packedColor;
 };
 

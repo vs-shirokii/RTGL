@@ -261,6 +261,23 @@ void RTGL1::DecalManager::PrepareForFrame( uint32_t frameIndex )
     decalCount = 0;
 }
 
+namespace
+{
+uint32_t pack_textureEmissive_emissiveMult( uint32_t texture, float mult )
+{
+    if( texture >= std::numeric_limits< uint16_t >::max() )
+    {
+        assert( 0 );
+        texture = MATERIAL_NO_TEXTURE;
+    }
+
+    auto packedMult = static_cast< uint16_t >( std::clamp( mult, 0.f, 1.f ) *
+                                               std::numeric_limits< uint16_t >::max() );
+
+    return texture << 16u | packedMult;
+}
+}
+
 void RTGL1::DecalManager::Upload( uint32_t                                 frameIndex,
                                   const RgMeshInfo&                        mesh,
                                   const RgMeshPrimitiveInfo&               prim,
@@ -284,10 +301,11 @@ void RTGL1::DecalManager::Upload( uint32_t                                 frame
     const MaterialTextures mat = textureManager->GetMaterialTextures( prim.pTextureName );
 
     ShDecalInstance instance = {
-        .textureAlbedoAlpha = mat.indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
-        .textureNormal      = mat.indices[ TEXTURE_NORMAL_INDEX ],
-        .textureEmissive    = mat.indices[ TEXTURE_EMISSIVE_INDEX ],
-        .packedColor        = prim.color,
+        .textureAlbedoAlpha           = mat.indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
+        .textureNormal                = mat.indices[ TEXTURE_NORMAL_INDEX ],
+        .textureEmissive_emissiveMult = pack_textureEmissive_emissiveMult(
+            mat.indices[ TEXTURE_EMISSIVE_INDEX ], prim.emissive ),
+        .packedColor = prim.color,
     };
     Matrix::ToMat4Transposed( instance.transform, ExtraceDecalTransform( mesh, prim ) );
 
@@ -346,10 +364,9 @@ void RTGL1::DecalManager::Draw( VkCommandBuffer                          cmd,
 
     {
         FramebufferImageIndex fs[] = {
-            FB_IMAGE_INDEX_ALBEDO,
-            FB_IMAGE_INDEX_SURFACE_POSITION,
-            FB_IMAGE_INDEX_NORMAL,
-            FB_IMAGE_INDEX_METALLIC_ROUGHNESS,
+            FB_IMAGE_INDEX_ALBEDO,          FB_IMAGE_INDEX_SURFACE_POSITION,
+            FB_IMAGE_INDEX_NORMAL,          FB_IMAGE_INDEX_METALLIC_ROUGHNESS,
+            FB_IMAGE_INDEX_SCREEN_EMIS_R_T,
         };
 
         framebuffers->BarrierMultiple( cmd, frameIndex, fs );
@@ -397,6 +414,7 @@ void RTGL1::DecalManager::Draw( VkCommandBuffer                          cmd,
                                       .baseArrayLayer = 0,
                                       .layerCount     = 1 },
             },
+            // RT normal for manual blending with decal normal
             {
                 .sType        = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
                 .pNext        = nullptr,
@@ -415,6 +433,25 @@ void RTGL1::DecalManager::Draw( VkCommandBuffer                          cmd,
                                          .levelCount     = 1,
                                          .baseArrayLayer = 0,
                                          .layerCount     = 1 },
+            },
+            {
+                .sType         = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                .pNext         = nullptr,
+                .srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                .srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                .dstStageMask  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .dstAccessMask =
+                    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+                .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .image = framebuffers->GetImage( FB_IMAGE_INDEX_SCREEN_EMISSION, frameIndex ),
+                .subresourceRange = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                      .baseMipLevel   = 0,
+                                      .levelCount     = 1,
+                                      .baseArrayLayer = 0,
+                                      .layerCount     = 1 },
             },
         };
 
@@ -482,29 +519,49 @@ void RTGL1::DecalManager::Draw( VkCommandBuffer                          cmd,
     // copy normals back from attachment to G-buffer
     {
         {
-            VkImageMemoryBarrier2KHR b = {
-                .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                .pNext               = nullptr,
-                .srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                .srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-                .dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                .dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT,
-                .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
-                .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
-                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .image = framebuffers->GetImage( FB_IMAGE_INDEX_NORMAL_DECAL, frameIndex ),
-                .subresourceRange = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-                                      .baseMipLevel   = 0,
-                                      .levelCount     = 1,
-                                      .baseArrayLayer = 0,
-                                      .layerCount     = 1 },
+            VkImageMemoryBarrier2KHR bs[] = {
+                {
+                    .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                    .pNext               = nullptr,
+                    .srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                    .srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                    .dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    .dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT,
+                    .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                    .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .image = framebuffers->GetImage( FB_IMAGE_INDEX_NORMAL_DECAL, frameIndex ),
+                    .subresourceRange = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                          .baseMipLevel   = 0,
+                                          .levelCount     = 1,
+                                          .baseArrayLayer = 0,
+                                          .layerCount     = 1 },
+                },
+                {
+                    .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                    .pNext               = nullptr,
+                    .srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                    .srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                    .dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    .dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT,
+                    .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                    .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .image = framebuffers->GetImage( FB_IMAGE_INDEX_SCREEN_EMISSION, frameIndex ),
+                    .subresourceRange = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                          .baseMipLevel   = 0,
+                                          .levelCount     = 1,
+                                          .baseArrayLayer = 0,
+                                          .layerCount     = 1 },
+                },
             };
 
             VkDependencyInfoKHR info = {
                 .sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
-                .imageMemoryBarrierCount = 1,
-                .pImageMemoryBarriers    = &b,
+                .imageMemoryBarrierCount = std::size( bs ),
+                .pImageMemoryBarriers    = bs,
             };
 
             svkCmdPipelineBarrier2KHR( cmd, &info );
@@ -531,30 +588,53 @@ void RTGL1::DecalManager::Draw( VkCommandBuffer                          cmd,
                        1 );
 
         {
-            VkImageMemoryBarrier2KHR b = {
-                .sType         = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                .pNext         = nullptr,
-                .srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                .srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-                .dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                                VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
-                .dstAccessMask       = VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
-                .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
-                .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
-                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                .image               = framebuffers->GetImage( FB_IMAGE_INDEX_NORMAL, frameIndex ),
-                .subresourceRange    = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
-                                         .baseMipLevel   = 0,
-                                         .levelCount     = 1,
-                                         .baseArrayLayer = 0,
-                                         .layerCount     = 1 },
+            VkImageMemoryBarrier2KHR bs[] = {
+                {
+                    .sType         = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                    .pNext         = nullptr,
+                    .srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    .srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                    .dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                                    VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                    .dstAccessMask =
+                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                    .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                    .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .image            = framebuffers->GetImage( FB_IMAGE_INDEX_NORMAL, frameIndex ),
+                    .subresourceRange = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                          .baseMipLevel   = 0,
+                                          .levelCount     = 1,
+                                          .baseArrayLayer = 0,
+                                          .layerCount     = 1 },
+                },
+                {
+                    .sType         = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+                    .pNext         = nullptr,
+                    .srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    .srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                    .dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                                    VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
+                    .dstAccessMask =
+                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+                    .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                    .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .image = framebuffers->GetImage( FB_IMAGE_INDEX_SCREEN_EMIS_R_T, frameIndex ),
+                    .subresourceRange = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                          .baseMipLevel   = 0,
+                                          .levelCount     = 1,
+                                          .baseArrayLayer = 0,
+                                          .layerCount     = 1 },
+                },
             };
 
             VkDependencyInfoKHR info = {
                 .sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
-                .imageMemoryBarrierCount = 1,
-                .pImageMemoryBarriers    = &b,
+                .imageMemoryBarrierCount = std::size( bs ),
+                .pImageMemoryBarriers    = bs,
             };
 
             svkCmdPipelineBarrier2KHR( cmd, &info );
@@ -597,6 +677,16 @@ void RTGL1::DecalManager::CreateRenderPass()
             .initialLayout  = VK_IMAGE_LAYOUT_GENERAL,
             .finalLayout    = VK_IMAGE_LAYOUT_GENERAL,
         },
+        {
+            .format         = ShFramebuffers_Formats[ FB_IMAGE_INDEX_SCREEN_EMISSION ],
+            .samples        = VK_SAMPLE_COUNT_1_BIT,
+            .loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD,
+            .storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
+            .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .initialLayout  = VK_IMAGE_LAYOUT_GENERAL,
+            .finalLayout    = VK_IMAGE_LAYOUT_GENERAL,
+        },
     };
 
     VkAttachmentReference colorRefs[] = {
@@ -606,6 +696,10 @@ void RTGL1::DecalManager::CreateRenderPass()
         },
         {
             .attachment = 1,
+            .layout     = VK_IMAGE_LAYOUT_GENERAL,
+        },
+        {
+            .attachment = 2,
             .layout     = VK_IMAGE_LAYOUT_GENERAL,
         },
     };
@@ -656,6 +750,7 @@ void RTGL1::DecalManager::CreateFramebuffers( uint32_t width, uint32_t height )
         VkImageView vs[] = {
             storageFramebuffers->GetImageView( FB_IMAGE_INDEX_ALBEDO, i ),
             storageFramebuffers->GetImageView( FB_IMAGE_INDEX_NORMAL_DECAL, i ),
+            storageFramebuffers->GetImageView( FB_IMAGE_INDEX_SCREEN_EMISSION, i ),
         };
 
         VkFramebufferCreateInfo info = {
@@ -798,6 +893,7 @@ void RTGL1::DecalManager::CreatePipelines( const ShaderManager* shaderManager )
     };
 
     VkPipelineColorBlendAttachmentState colorBlendAttchs[] = {
+        // albedo
         {
             .blendEnable         = VK_TRUE,
             .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
@@ -809,9 +905,22 @@ void RTGL1::DecalManager::CreatePipelines( const ShaderManager* shaderManager )
             .colorWriteMask =
                 VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | 0,
         },
+        // normal
         {
             .blendEnable    = VK_FALSE,
             .colorWriteMask = VK_COLOR_COMPONENT_R_BIT,
+        },
+        // screenEmission
+        {
+            .blendEnable         = VK_TRUE,
+            .srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
+            .dstColorBlendFactor = VK_BLEND_FACTOR_ONE,
+            .colorBlendOp        = VK_BLEND_OP_ADD,
+            .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+            .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+            .alphaBlendOp        = VK_BLEND_OP_ADD,
+            .colorWriteMask      = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                              VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
         },
     };
 

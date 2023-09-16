@@ -44,10 +44,14 @@ void main()
     {
         imageStore(
             framebufNormal, checkerboardPix, texelFetch( framebufNormalDecal_Sampler, pix, 0 ) );
+        imageStore(
+            framebufScreenEmisRT, pix, texelFetch( framebufScreenEmission_Sampler, pix, 0 ) );
     }
     else
     {
         imageStore(
             framebufNormalDecal, pix, texelFetch( framebufNormal_Sampler, checkerboardPix, 0 ) );
+        imageStore(
+            framebufScreenEmission, pix, texelFetch( framebufScreenEmisRT_Sampler, pix, 0 ) );
     }
 }

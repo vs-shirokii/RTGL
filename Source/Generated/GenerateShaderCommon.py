@@ -695,7 +695,7 @@ DECAL_INSTANCE_STRUCT = [
     (TYPE_FLOAT32,     44,      "transform",                            1),
     (TYPE_UINT32,       1,      "textureAlbedoAlpha",                   1),
     (TYPE_UINT32,       1,      "textureNormal",                        1),
-    (TYPE_UINT32,       1,      "textureEmissive",                      1),
+    (TYPE_UINT32,       1,      "textureEmissive_emissiveMult",         1),
     (TYPE_UINT32,       1,      "packedColor",                          1),
 ]
 
@@ -833,8 +833,10 @@ FRAMEBUFFERS = {
     "AcidFogRT"                         : (TYPE_PACK_11,    COMPONENT_RGB,  0),
     "AcidFog"                           : (TYPE_PACK_11,    COMPONENT_RGB,  0),
     
+    # need separate one for RT, to resolve checkerboarded across multiple pixels
     "ScreenEmisRT"                      : (TYPE_PACK_11,    COMPONENT_RGB,  0),
     "ScreenEmission"                    : (TYPE_PACK_11,    COMPONENT_RGB,  FRAMEBUF_FLAGS_IS_ATTACHMENT),
+
     "BloomInput"                        : (TYPE_PACK_11,    COMPONENT_RGB,  0),
     "Bloom_Mip1"                        : (TYPE_PACK_11,    COMPONENT_RGB,  FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER),
     "Bloom_Mip2"                        : (TYPE_PACK_11,    COMPONENT_RGB,  FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER),

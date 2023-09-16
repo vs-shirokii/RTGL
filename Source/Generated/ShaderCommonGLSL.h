@@ -372,7 +372,7 @@ struct ShDecalInstance
     mat4 transform;
     uint textureAlbedoAlpha;
     uint textureNormal;
-    uint textureEmissive;
+    uint textureEmissive_emissiveMult;
     uint packedColor;
 };
 
