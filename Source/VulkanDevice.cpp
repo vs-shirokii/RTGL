@@ -726,6 +726,14 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
         {
             accum = effectRadialBlur->Apply( args, accum );
         }
+        if( effectVHS->Setup( args, postef.pVHS ) )
+        {
+            accum = effectVHS->Apply( args, accum );
+        }
+        if( effectDither->Setup( args, postef.pDither ) )
+        {
+            accum = effectDither->Apply( args, accum );
+        }
     }
 
     // draw geometry such as HUD into an upscaled framebuf

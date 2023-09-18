@@ -412,6 +412,8 @@ namespace detail
             .pColorTint            = nullptr,
             .pTeleport             = nullptr,
             .pCRT                  = nullptr,
+            .pVHS                  = nullptr,
+            .pDither               = nullptr,
         };
     };
 

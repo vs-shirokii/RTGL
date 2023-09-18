@@ -245,4 +245,56 @@ struct EffectWaves final : public EffectSimple<EffectWaves_PushConst>
     }
 };
 
+
+// ------------------ //
+
+
+struct EffectVHS_PushConst
+{
+    float intensity;
+};
+
+struct EffectVHS final : public EffectSimple< EffectVHS_PushConst >
+{
+    RTGL1_EFFECT_SIMPLE_INHERIT_CONSTRUCTOR( EffectVHS, "EffectVHS" )
+
+    bool Setup( const CommonnlyUsedEffectArguments& args, const RgPostEffectVHS* params )
+    {
+        if( params == nullptr || params->intensity <= 0.0f )
+        {
+            return SetupNull();
+        }
+
+        GetPush().intensity = params->intensity;
+        return EffectSimple::Setup(
+            args, params->isActive, params->transitionDurationIn, params->transitionDurationOut );
+    }
+};
+
+
+// ------------------ //
+
+
+struct EffectDither_PushConst
+{
+    float intensity;
+};
+
+struct EffectDither final : public EffectSimple< EffectDither_PushConst >
+{
+    RTGL1_EFFECT_SIMPLE_INHERIT_CONSTRUCTOR( EffectDither, "EffectDither" )
+
+    bool Setup( const CommonnlyUsedEffectArguments& args, const RgPostEffectDither* params )
+    {
+        if( params == nullptr || params->intensity <= 0.0f )
+        {
+            return SetupNull();
+        }
+
+        GetPush().intensity = params->intensity;
+        return EffectSimple::Setup(
+            args, params->isActive, params->transitionDurationIn, params->transitionDurationOut );
+    }
+};
+
 }

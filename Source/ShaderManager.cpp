@@ -94,6 +94,8 @@ static ShaderModuleDefinition G_SHADERS[] =
     { "EffectHueShift",             "EfHueShift.comp.spv"                   },
     { "EffectCrtDemodulateEncode",  "EfCrtDemodulateEncode.comp.spv"        },
     { "EffectCrtDecode",            "EfCrtDecode.comp.spv"                  },
+    { "EffectVHS",                  "EfVHS.comp.spv"                        },
+    { "EffectDither",               "EfDither.comp.spv"                     },
 };
 
 // clang-format on

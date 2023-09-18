@@ -943,6 +943,22 @@ typedef struct RgPostEffectCRT
     RgBool32    isActive;
 } RgPostEffectCRT;
 
+typedef struct RgPostEffectVHS
+{
+    RgBool32    isActive;
+    float       transitionDurationIn;
+    float       transitionDurationOut;
+    float       intensity;
+} RgPostEffectVHS;
+
+typedef struct RgPostEffectDither
+{
+    RgBool32    isActive;
+    float       transitionDurationIn;
+    float       transitionDurationOut;
+    float       intensity;
+} RgPostEffectDither;
+
 typedef struct RgPostEffectTeleport
 {
     RgBool32    isActive;
@@ -966,6 +982,8 @@ typedef struct RgDrawFramePostEffectsParams
     const RgPostEffectColorTint*            pColorTint;
     const RgPostEffectTeleport*             pTeleport;
     const RgPostEffectCRT*                  pCRT;
+    const RgPostEffectVHS*                  pVHS;
+    const RgPostEffectDither*               pDither;
 } RgDrawFramePostEffectsParams;
 
 typedef enum RgMediaType

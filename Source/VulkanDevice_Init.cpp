@@ -446,6 +446,8 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
     effectTeleport            = CONSTRUCT_SIMPLE_EFFECT( EffectTeleport );
     effectCrtDemodulateEncode = CONSTRUCT_SIMPLE_EFFECT( EffectCrtDemodulateEncode );
     effectCrtDecode           = CONSTRUCT_SIMPLE_EFFECT( EffectCrtDecode );
+    effectVHS                 = CONSTRUCT_SIMPLE_EFFECT( EffectVHS );
+    effectDither              = CONSTRUCT_SIMPLE_EFFECT( EffectDither );
 #undef SIMPLE_EFFECT_CONSTRUCTOR_PARAMS
 
 
@@ -470,6 +472,8 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
     shaderManager->Subscribe( effectTeleport );
     shaderManager->Subscribe( effectCrtDemodulateEncode );
     shaderManager->Subscribe( effectCrtDecode );
+    shaderManager->Subscribe( effectVHS );
+    shaderManager->Subscribe( effectDither );
 
     framebuffers->Subscribe( rasterizer );
     framebuffers->Subscribe( amdFsr2 );
@@ -513,6 +517,8 @@ RTGL1::VulkanDevice::~VulkanDevice()
     effectTeleport.reset();
     effectCrtDemodulateEncode.reset();
     effectCrtDecode.reset();
+    effectVHS.reset();
+    effectDither.reset();
     denoiser.reset();
     uniform.reset();
     scene.reset();
