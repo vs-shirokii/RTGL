@@ -332,28 +332,29 @@ typedef uint32_t RgColor4DPacked32;
 
 typedef enum RgMeshPrimitiveFlagBits
 {
-    RG_MESH_PRIMITIVE_ALPHA_TESTED          = 1,
-    RG_MESH_PRIMITIVE_TRANSLUCENT           = 2,
-    RG_MESH_PRIMITIVE_FIRST_PERSON          = 4,
-    RG_MESH_PRIMITIVE_FIRST_PERSON_VIEWER   = 8,
-    RG_MESH_PRIMITIVE_SKY                   = 16,
-    RG_MESH_PRIMITIVE_MIRROR                = 32,
-    RG_MESH_PRIMITIVE_GLASS                 = 64,
-    RG_MESH_PRIMITIVE_WATER                 = 128,
-    RG_MESH_PRIMITIVE_DONT_GENERATE_NORMALS = 256,
-    RG_MESH_PRIMITIVE_FORCE_EXACT_NORMALS   = 512,
+    RG_MESH_PRIMITIVE_ALPHA_TESTED          = 1 << 0,
+    RG_MESH_PRIMITIVE_TRANSLUCENT           = 1 << 1,
+    RG_MESH_PRIMITIVE_FIRST_PERSON          = 1 << 2,
+    RG_MESH_PRIMITIVE_FIRST_PERSON_VIEWER   = 1 << 3,
+    RG_MESH_PRIMITIVE_SKY                   = 1 << 4,
+    RG_MESH_PRIMITIVE_MIRROR                = 1 << 5,
+    RG_MESH_PRIMITIVE_GLASS                 = 1 << 6,
+    RG_MESH_PRIMITIVE_WATER                 = 1 << 7,
+    RG_MESH_PRIMITIVE_DONT_GENERATE_NORMALS = 1 << 8,
+    RG_MESH_PRIMITIVE_FORCE_EXACT_NORMALS   = 1 << 9,
     // If roughness is too small, act as a mirror (perfect reflection).
-    RG_MESH_PRIMITIVE_MIRROR_IF_SMOOTH      = 1024,
+    RG_MESH_PRIMITIVE_MIRROR_IF_SMOOTH      = 1 << 10,
     // If roughness is too small, act as a glass (perfect reflection/refraction).
-    RG_MESH_PRIMITIVE_GLASS_IF_SMOOTH       = 2048,
+    RG_MESH_PRIMITIVE_GLASS_IF_SMOOTH       = 1 << 11,
     // Ignore refracting geometry behind this primitive.
-    RG_MESH_PRIMITIVE_IGNORE_REFRACT_AFTER  = 4096,
-    RG_MESH_PRIMITIVE_ACID                  = 8192,
-    RG_MESH_PRIMITIVE_THIN_MEDIA            = 16384,
-    RG_MESH_PRIMITIVE_SKY_VISIBILITY        = 32768,
+    RG_MESH_PRIMITIVE_IGNORE_REFRACT_AFTER  = 1 << 12,
+    RG_MESH_PRIMITIVE_ACID                  = 1 << 13,
+    RG_MESH_PRIMITIVE_THIN_MEDIA            = 1 << 14,
+    RG_MESH_PRIMITIVE_SKY_VISIBILITY        = 1 << 15,
     // If set, the first triangle is analyzed to make a decal.
     // Requires vertexCount >= 3.
-    RG_MESH_PRIMITIVE_DECAL                 = 65536,
+    RG_MESH_PRIMITIVE_DECAL                 = 1 << 16,
+    RG_MESH_PRIMITIVE_EXPORT_INVERT_NORMALS = 1 << 17,
 } RgMeshPrimitiveFlagBits;
 typedef uint32_t RgMeshPrimitiveFlags;
 

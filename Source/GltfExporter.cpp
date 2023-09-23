@@ -150,7 +150,8 @@ auto MakeWeghtedNormal( const RgPrimitiveVertex& v0,
 }
 
 void CalculateNormals( std::vector< RgPrimitiveVertex >& verts,
-                       const std::vector< uint32_t >&    indices )
+                       std::vector< uint32_t >&          indices,
+                       bool                              invert )
 {
     auto triCount = [ & ]() {
         return indices.empty() ? verts.size() / 3 : indices.size() / 3;
@@ -168,6 +169,24 @@ void CalculateNormals( std::vector< RgPrimitiveVertex >& verts,
         v.normal[ 1 ] += n.data[ 1 ];
         v.normal[ 2 ] += n.data[ 2 ];
     };
+
+    if( invert )
+    {
+        if( indices.empty() )
+        {
+            for( uint32_t tri = 0; tri < triCount(); tri++ )
+            {
+                std::swap( verts[ tri * 3 + 0 ], verts[ tri * 3 + 2 ] );
+            }
+        }
+        else
+        {
+            for( uint32_t tri = 0; tri < triCount(); tri++ )
+            {
+                std::swap( indices[ tri * 3 + 0 ], indices[ tri * 3 + 2 ] );
+            }
+        }
+    }
 
     // nullify normal
     for( auto& v : verts )
@@ -242,7 +261,8 @@ struct DeepCopyOfPrimitive
 
         if( !( c.flags & RG_MESH_PRIMITIVE_DONT_GENERATE_NORMALS ) )
         {
-            CalculateNormals( pVertices, pIndices );
+            CalculateNormals(
+                pVertices, pIndices, c.flags & RG_MESH_PRIMITIVE_EXPORT_INVERT_NORMALS );
         }
 
         FixupPointers( *this );
