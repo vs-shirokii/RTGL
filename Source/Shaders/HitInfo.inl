@@ -230,12 +230,12 @@ ShHitInfo getHitInfoBounce(
     {
         h.normal = safeNormalize(
             cross( tr.positions[ 1 ] - tr.positions[ 0 ], tr.positions[ 2 ] - tr.positions[ 0 ] ) );
+    }
 
-        // always face ray origin
-        if( dot( h.normal, h.hitPosition - rayOrigin ) > 0 )
-        {
-            h.normal *= -1;
-        }
+    // always face ray origin
+    if( dot( h.normal, h.hitPosition - rayOrigin ) > 0 )
+    {
+        h.normal *= -1;
     }
 
 
