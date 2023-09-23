@@ -34,7 +34,7 @@ void main()
     vec2 c = effect_getCenteredFromPix(pix);
 
     // more distortion toward the edges
-    float t = c.x * c.x * getProgress();
+    float t = abs(c.x * c.x * c.x) * getProgress();
     c.x = mix(c.x, c.x * c.x * sign(c.x), t);
 
     effect_storeToTarget(effect_loadFromSource_Centered(c), pix);
