@@ -193,6 +193,7 @@ namespace Utils
     void        Normalize( float inout[ 3 ] );
     RgFloat3D   Normalize( const RgFloat3D& v );
     RgFloat3D   SafeNormalize( const RgFloat3D& v, const RgFloat3D& fallback );
+    void        SafeNormalize( float ( &v )[ 3 ], const RgFloat3D& fallback );
     void        Negate( float inout[ 3 ] );
     void        Nullify( float inout[ 3 ] );
     void        Cross( const float a[ 3 ], const float b[ 3 ], float r[ 3 ] );

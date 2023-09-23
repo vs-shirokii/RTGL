@@ -111,7 +111,8 @@ public:
 
     auto ExportMaterialTextures( const char*                  materialName,
                                  const std::filesystem::path& folder,
-                                 bool                         overwriteExisting ) const
+                                 bool                         overwriteExisting,
+                                 const std::filesystem::path* lookupFolder ) const
         -> std::array< ExportResult, TEXTURES_PER_MATERIAL_COUNT >;
 
     void ExportOriginalMaterialTextures( const std::filesystem::path& folder ) const;

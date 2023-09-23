@@ -77,7 +77,8 @@ public:
     void AddLight( const LightCopy& light );
 
     void ExportToFiles( const std::filesystem::path& gltfPath,
-                        const TextureManager&        textureManager );
+                        const TextureManager&        textureManager,
+                        const std::filesystem::path& ovrdFolder );
 
     // TODO: allocators, to not pass references
     static void MakeLightsForPrimitiveDynamic( const RgMeshInfo&              mesh,

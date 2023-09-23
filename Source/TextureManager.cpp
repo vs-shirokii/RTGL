@@ -826,9 +826,66 @@ std::array< RgColor4DPacked32, 4 > TextureManager::GetColorForLayers(
     };
 }
 
+namespace
+{
+
+auto TryCopyFromLookupFolder( const std::filesystem::path* srcFolder,
+                              const std::filesystem::path& dstFolder,
+                              const std::filesystem::path& file )
+    -> std::optional< std::filesystem::path >
+{
+    if( srcFolder && exists( *srcFolder ) )
+    {
+        constexpr std::string_view exts[] = { ".tga", ".png" };
+
+        for( auto e : exts )
+        {
+            const auto withNewExtension = std::filesystem::path{ file }.replace_extension( e );
+
+            const auto eSrcPath = *srcFolder / withNewExtension;
+            const auto eDstPath = dstFolder / withNewExtension;
+
+            if( exists( eDstPath ) )
+            {
+                return withNewExtension;
+            }
+
+            if( exists( eSrcPath ) )
+            {
+                if( !exists( eDstPath.parent_path() ) )
+                {
+                    auto ec = std::error_code{};
+                    create_directories( eDstPath.parent_path(), ec );
+                    if( ec )
+                    {
+                        debug::Warning( "std::filesystem::create_directories error: {} (\'{}\')",
+                                        ec.message(),
+                                        eDstPath.parent_path().string() );
+                        return std::nullopt;
+                    }
+                }
+
+                auto ec = std::error_code{};
+                copy_file( eSrcPath, eDstPath, ec );
+                if( !ec )
+                {
+                    debug::Warning( "std::filesystem::copy_file error: {} (\'{}\' - \'{}\')",
+                                    ec.message(),
+                                    eSrcPath.string(),
+                                    eDstPath.string() );
+                    return withNewExtension;
+                }
+            }
+        }
+    }
+    return std::nullopt;
+};
+}
+
 auto TextureManager::ExportMaterialTextures( const char*                  materialName,
                                              const std::filesystem::path& folder,
-                                             bool                         overwriteExisting ) const
+                                             bool                         overwriteExisting,
+                                             const std::filesystem::path* lookupFolder ) const
     -> std::array< ExportResult, TEXTURES_PER_MATERIAL_COUNT >
 {
     std::array< ExportResult, TEXTURES_PER_MATERIAL_COUNT > arr;
@@ -862,14 +919,25 @@ auto TextureManager::ExportMaterialTextures( const char*                  materi
         bool asSrgb = ( i == TEXTURE_ALBEDO_ALPHA_INDEX ) || ( i == TEXTURE_EMISSIVE_INDEX );
         assert( asSrgb == Utils::IsSRGB( info.format ) );
 
-        bool exported = TextureExporter().ExportAsTGA( *memAllocator,
-                                                       *cmdManager,
-                                                       info.image,
-                                                       info.size,
-                                                       info.format,
-                                                       folder / relativeFilePath,
-                                                       asSrgb,
-                                                       overwriteExisting );
+        bool exported;
+
+        if( auto copiedFile = TryCopyFromLookupFolder( lookupFolder, folder, relativeFilePath ) )
+        {
+            exported         = true;
+            relativeFilePath = *copiedFile;
+        }
+        else
+        {
+            exported = TextureExporter().ExportAsTGA( *memAllocator,
+                                                      *cmdManager,
+                                                      info.image,
+                                                      info.size,
+                                                      info.format,
+                                                      folder / relativeFilePath,
+                                                      asSrgb,
+                                                      overwriteExisting );
+        }
+
         if( exported )
         {
             arr[ i ].relativePath = relativeFilePath.string();

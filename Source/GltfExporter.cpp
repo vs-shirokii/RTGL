@@ -133,6 +133,71 @@ std::string GetGltfBinURI( const std::filesystem::path& gltfPath )
 {
     return GetGltfBinPath( gltfPath ).filename().string();
 }
+
+
+auto MakeWeghtedNormal( const RgPrimitiveVertex& v0,
+                        const RgPrimitiveVertex& v1,
+                        const RgPrimitiveVertex& v2 ) -> RgFloat3D
+{
+    const float* a = v0.position;
+    const float* b = v1.position;
+    const float* c = v2.position;
+
+    const auto e1 = RgFloat3D{ b[ 0 ] - a[ 0 ], b[ 1 ] - a[ 1 ], b[ 2 ] - a[ 2 ] };
+    const auto e2 = RgFloat3D{ c[ 0 ] - a[ 0 ], c[ 1 ] - a[ 1 ], c[ 2 ] - a[ 2 ] };
+
+    return RTGL1::Utils::Cross( e1, e2 );
+}
+
+void CalculateNormals( std::vector< RgPrimitiveVertex >& verts,
+                       const std::vector< uint32_t >&    indices )
+{
+    auto triCount = [ & ]() {
+        return indices.empty() ? verts.size() / 3 : indices.size() / 3;
+    };
+
+    auto getTri = [ & ]( uint32_t tri ) -> std::array< uint32_t, 3 > {
+        return indices.empty() ? std::array{ tri * 3 + 0, tri * 3 + 1, tri * 3 + 2 }
+                               : std::array{ indices[ tri * 3 + 0 ],
+                                             indices[ tri * 3 + 1 ],
+                                             indices[ tri * 3 + 2 ] };
+    };
+
+    auto sumNormal = []( RgPrimitiveVertex& v, const RgFloat3D& n ) {
+        v.normal[ 0 ] += n.data[ 0 ];
+        v.normal[ 1 ] += n.data[ 1 ];
+        v.normal[ 2 ] += n.data[ 2 ];
+    };
+
+    // nullify normal
+    for( auto& v : verts )
+    {
+        v.normal[ 0 ] = 0;
+        v.normal[ 1 ] = 0;
+        v.normal[ 2 ] = 0;
+    }
+
+    // sum for each face
+    for( uint32_t t = 0; t < triCount(); t++ )
+    {
+        const auto tri = getTri( t );
+        auto&      v0  = verts[ tri[ 0 ] ];
+        auto&      v1  = verts[ tri[ 1 ] ];
+        auto&      v2  = verts[ tri[ 2 ] ];
+
+        const auto n = MakeWeghtedNormal( v0, v1, v2 );
+        sumNormal( v0, n );
+        sumNormal( v1, n );
+        sumNormal( v2, n );
+    }
+
+    // normalize
+    constexpr auto fallback = RgFloat3D{ 0, 0, 0 };
+    for( auto& v : verts )
+    {
+        RTGL1::Utils::SafeNormalize( v.normal, fallback );
+    }
+}
 }
 
 
@@ -174,6 +239,11 @@ struct DeepCopyOfPrimitive
         pTextureName         = Utils::SafeCstr( c.pTextureName );
         pVertices.assign( fromVertices.begin(), fromVertices.end() );
         pIndices.assign( fromIndices.begin(), fromIndices.end() );
+
+        if( !( c.flags & RG_MESH_PRIMITIVE_DONT_GENERATE_NORMALS ) )
+        {
+            CalculateNormals( pVertices, pIndices );
+        }
 
         FixupPointers( *this );
     }
@@ -668,7 +738,8 @@ struct GltfTextures
 {
     explicit GltfTextures( const std::set< std::string >& sceneMaterials,
                            const std::filesystem::path&   texturesFolder,
-                           const RTGL1::TextureManager&   textureManager )
+                           const RTGL1::TextureManager&   textureManager,
+                           const std::filesystem::path&   texLookupFolder )
     {
         RTGL1::debug::Info( "Exporting textures..." );
 
@@ -725,14 +796,15 @@ struct GltfTextures
             static_assert( RTGL1::TEXTURE_NORMAL_INDEX == 2 );
             static_assert( RTGL1::TEXTURE_EMISSIVE_INDEX == 3 );
             auto [ albedo, orm, normal, emissive ] = textureManager.ExportMaterialTextures(
-                materialName.c_str(), texturesFolder, false );
+                materialName.c_str(), texturesFolder, false, &texLookupFolder );
 
-            auto tryMakeCgltfTexture =
-                [ this, &findSampler, &materialName ](
-                    RTGL1::TextureManager::ExportResult&& r ) -> cgltf_texture* {
+            auto tryMakeCgltfTexture = [ this, &findSampler, &materialName ](
+                                           RTGL1::TextureManager::ExportResult&& r,
+                                           bool nameMustBeMaterialName = false ) -> cgltf_texture* {
                 if( !r.relativePath.empty() )
                 {
                     std::string&   str = strings.increment_and_get();
+                    std::string&   nam = strings.increment_and_get();
                     cgltf_image&   img = images.increment_and_get();
                     cgltf_texture& txd = textures.increment_and_get();
 
@@ -740,8 +812,21 @@ struct GltfTextures
                     str = std::string( RTGL1::TEXTURES_FOLDER_JUNCTION_PREFIX ) + r.relativePath;
                     std::ranges::replace( str, '\\', '/' );
 
+                    if( nameMustBeMaterialName )
+                    {
+                        nam = materialName;
+                    }
+                    else
+                    {
+                        // doesn't matter, but something unique so an editor can distinguish
+                        nam = r.relativePath;
+                        std::ranges::replace( nam, '\\', '_' );
+                        std::ranges::replace( nam, '/', '_' );
+                        std::ranges::replace( nam, '.', '_' );
+                    }
+
                     img = cgltf_image{
-                        .name = const_cast< char* >( materialName.c_str() ),
+                        .name = const_cast< char* >( nam.c_str() ),
                         .uri  = const_cast< char* >( str.c_str() ),
                     };
 
@@ -756,7 +841,7 @@ struct GltfTextures
             };
 
             materialAccess[ materialName ] = TextureSet{
-                .albedo   = tryMakeCgltfTexture( std::move( albedo ) ),
+                .albedo   = tryMakeCgltfTexture( std::move( albedo ), true ),
                 .orm      = tryMakeCgltfTexture( std::move( orm ) ),
                 .normal   = tryMakeCgltfTexture( std::move( normal ) ),
                 .emissive = tryMakeCgltfTexture( std::move( emissive ) ),
@@ -816,6 +901,9 @@ cgltf_material MakeMaterial( const RTGL1::DeepCopyOfPrimitive& rgprim,
         metallicRoughness.roughness_factor = 1.0f;
     }
 
+    // rtgl1 doesn't apply 'emissive' when texture is present
+    const float emisfactor = txd.emissive ? 1.f : rgprim.Emissive();
+
     return cgltf_material{
         .name                        = nullptr,
         .has_pbr_metallic_roughness  = true,
@@ -838,10 +926,10 @@ cgltf_material MakeMaterial( const RTGL1::DeepCopyOfPrimitive& rgprim,
         .volume                      = {},
         .emissive_strength           = {},
         .iridescence                 = {},
-        .normal_texture              = { .texture = txd.normal, .texcoord = 0 },
+        .normal_texture              = { .texture = txd.normal, .texcoord = 0, .scale = 1.f },
         .occlusion_texture           = { .texture = txd.orm, .texcoord = 0 },
         .emissive_texture            = { .texture = txd.emissive, .texcoord = 0 },
-        .emissive_factor             = { rgprim.Emissive(), rgprim.Emissive(), rgprim.Emissive() },
+        .emissive_factor             = { emisfactor, emisfactor, emisfactor },
         .alpha_mode                  = rgprim.AlphaMode(),
         .alpha_cutoff                = 0.5f,
         .double_sided                = false,
@@ -1422,7 +1510,8 @@ void RTGL1::GltfExporter::AddLight( const LightCopy& light )
 }
 
 void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,
-                                         const TextureManager&        textureManager )
+                                         const TextureManager&        textureManager,
+                                         const std::filesystem::path& ovrdFolder )
 {
     if( scene.empty() )
     {
@@ -1452,11 +1541,13 @@ void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,
 
 
     // lock pointers
-    GltfBin      fbin( gltfPath );
-    GltfStorage  storage( scene, sceneLights.size() );
-    GltfTextures textureStorage(
-        sceneMaterials, GetOriginalTexturesFolder( gltfPath ), textureManager );
-    GltfLights lightStorage( sceneLights, storage.lightNodes );
+    auto fbin    = GltfBin{ gltfPath };
+    auto storage = GltfStorage{ scene, sceneLights.size() };
+    auto textureStorage = GltfTextures{ sceneMaterials,
+                                        GetOriginalTexturesFolder( gltfPath ),
+                                        textureManager,
+                                        ovrdFolder / TEXTURES_FOLDER_DEV };
+    auto lightStorage = GltfLights{ sceneLights, storage.lightNodes };
 
 
     // for each RgMesh

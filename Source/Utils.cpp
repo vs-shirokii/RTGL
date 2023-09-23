@@ -320,14 +320,22 @@ RgFloat3D Utils::Normalize( const RgFloat3D& v )
     return dst;
 }
 
+void Utils::SafeNormalize( float ( &v )[ 3 ], const RgFloat3D& fallback )
+{
+    if( TryNormalize( v ) )
+    {
+        return;
+    }
+    
+    v[ 0 ] = fallback.data[ 0 ];
+    v[ 1 ] = fallback.data[ 1 ];
+    v[ 2 ] = fallback.data[ 2 ];
+}
+
 RgFloat3D Utils::SafeNormalize( const RgFloat3D& v, const RgFloat3D& fallback )
 {
     RgFloat3D dst = v;
-    if( !TryNormalize( dst.data ) )
-    {
-        assert( std::abs( Length( fallback.data ) - 1.0f ) < 0.001f );
-        return fallback;
-    }
+    SafeNormalize( dst.data, fallback );
     return dst;
 }
 

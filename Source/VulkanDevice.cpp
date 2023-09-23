@@ -484,7 +484,7 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
     const uint32_t frameIndex = currentFrameState.GetFrameIndex();
 
 
-    sceneImportExport->TryExport( *textureManager );
+    sceneImportExport->TryExport( *textureManager, ovrdFolder );
 
 
     bool mipLodBiasUpdated =

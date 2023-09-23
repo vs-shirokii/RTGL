@@ -158,7 +158,7 @@ public:
                            TextureManager&     textureManager,
                            TextureMetaManager& textureMetaManager,
                            LightManager&       lightManager );
-    void TryExport( const TextureManager& textureManager );
+    void TryExport( const TextureManager& textureManager, const std::filesystem::path& ovrdFolder );
 
     void RequestReimport();
     void OnFileChanged( FileType type, const std::filesystem::path& filepath ) override;

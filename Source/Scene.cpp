@@ -543,11 +543,12 @@ void RTGL1::SceneImportExport::CheckForNewScene( std::string_view    mapName,
     }
 }
 
-void RTGL1::SceneImportExport::TryExport( const TextureManager& textureManager )
+void RTGL1::SceneImportExport::TryExport( const TextureManager&        textureManager,
+                                          const std::filesystem::path& ovrdFolder )
 {
     for( auto& [ path, e ] : exporters )
     {
-        e->ExportToFiles( path, textureManager );
+        e->ExportToFiles( path, textureManager, ovrdFolder );
     }
     exporters.clear();
 }
