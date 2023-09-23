@@ -641,7 +641,6 @@ struct GltfRoot
     std::span< cgltf_accessor >    accessors;
     std::span< cgltf_attribute >   attributes;
     std::span< cgltf_primitive >   primitives;
-    std::span< cgltf_material >    materials;
     cgltf_mesh*                    mesh;
 
     std::vector< std::shared_ptr< RTGL1::DeepCopyOfPrimitive > > source;
@@ -695,7 +694,6 @@ struct GltfStorage
                 .accessors   = r.accessors.ToSpan( allAccessors ),
                 .attributes  = r.attributes.ToSpan( allAttributes ),
                 .primitives  = r.primitives.ToSpan( allPrimitives ),
-                .materials   = r.primitives.ToSpan( allMaterials ),
                 .mesh        = r.mesh.ToPointer( allMeshes ),
                 .source      = prims,
             };
@@ -936,6 +934,28 @@ cgltf_material MakeMaterial( const RTGL1::DeepCopyOfPrimitive& rgprim,
         .unlit                       = false,
         .extras                      = { .data = nullptr },
     };
+}
+
+cgltf_material* FindMaterial( std::span< cgltf_material >       existing,
+                              const RTGL1::DeepCopyOfPrimitive& rgprim,
+                              const GltfTextures&               textureStorage )
+{
+    for( auto& e : existing )
+    {
+        auto txd = textureStorage.Access( rgprim.MaterialName() );
+
+        if( e.has_pbr_metallic_roughness )
+        {
+            if( e.pbr_metallic_roughness.base_color_texture.texture == txd.albedo &&
+                e.pbr_metallic_roughness.metallic_roughness_texture.texture == txd.orm &&
+                e.occlusion_texture.texture == txd.orm && e.normal_texture.texture == txd.normal &&
+                e.emissive_texture.texture == txd.emissive )
+            {
+                return &e;
+            }
+        }
+    }
+    return nullptr;
 }
 
 
@@ -1550,6 +1570,9 @@ void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,
     auto lightStorage = GltfLights{ sceneLights, storage.lightNodes };
 
 
+    auto materialcount = 0u;
+
+
     // for each RgMesh
     for( GltfRoot& root : storage.roots )
     {
@@ -1578,12 +1601,26 @@ void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,
                 std::ranges::move( MakeVertexAttributes( accessorsDst ), vertAttrsDst.begin() );
             }
 
-            root.materials[ i ] = MakeMaterial( rgprim, textureStorage );
+            cgltf_material* mat = nullptr;
+            if( auto found =
+                    FindMaterial( std::span{ storage.allMaterials }.subspan( 0, materialcount ),
+                                  rgprim,
+                                  textureStorage ) )
+            {
+                mat = found;
+            }
+            else
+            {
+                storage.allMaterials[ materialcount ] = MakeMaterial( rgprim, textureStorage );
+
+                mat = &storage.allMaterials[ materialcount ];
+                materialcount++;
+            }
 
             root.primitives[ i ] = cgltf_primitive{
                 .type             = cgltf_primitive_type_triangles,
                 .indices          = GetIndicesAccessor( accessorsDst ),
-                .material         = &root.materials[ i ],
+                .material         = mat,
                 .attributes       = std::data( vertAttrsDst ),
                 .attributes_count = std::size( vertAttrsDst ),
                 .extras           = {},
