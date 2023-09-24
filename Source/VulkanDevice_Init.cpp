@@ -307,8 +307,7 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
         *shaderManager,
         info->allowTexCoordLayer1,
         info->allowTexCoordLayer2,
-        info->allowTexCoordLayer3,
-        ovrdFolder / REPLACEMENTS_FOLDER);
+        info->allowTexCoordLayer3);
 
     sceneImportExport = std::make_shared< SceneImportExport >(
         ovrdFolder / SCENES_FOLDER,

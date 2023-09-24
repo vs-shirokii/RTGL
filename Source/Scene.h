@@ -28,8 +28,6 @@
 #include "TextureMeta.h"
 #include "UniqueID.h"
 
-#include <variant>
-
 namespace RTGL1
 {
 
@@ -53,8 +51,7 @@ public:
                     const ShaderManager&                    shaderManager,
                     bool                                    enableTexCoordLayer1,
                     bool                                    enableTexCoordLayer2,
-                    bool                                    enableTexCoordLayer3,
-                    std::filesystem::path                   replacementsFolder );
+                    bool                                    enableTexCoordLayer3 );
     ~Scene() = default;
 
     Scene( const Scene& other )                = delete;
@@ -70,12 +67,11 @@ public:
                          bool                                    allowGeometryWithSkyFlag,
                          bool                                    disableRTGeometry );
 
-    UploadResult UploadPrimitive( VkCommandBuffer            cmdForTextures,
-                                  uint32_t                   frameIndex,
+    UploadResult UploadPrimitive( uint32_t                   frameIndex,
                                   const RgMeshInfo&          mesh,
                                   const RgMeshPrimitiveInfo& primitive,
-                                  TextureManager&            textureManager,
-                                  const TextureMetaManager&  textureMeta,
+                                  const TextureManager&      textureManager,
+                                  LightManager&              lightManager,
                                   bool                       isStatic );
 
     UploadResult UploadLight( uint32_t         frameIndex,
@@ -94,6 +90,12 @@ public:
                    TextureManager&           textureManager,
                    const TextureMetaManager& textureMeta,
                    LightManager&             lightManager );
+
+    void RereadReplacements( VkCommandBuffer              cmdForTextures,
+                             uint32_t                     frameIndex,
+                             const std::filesystem::path& replacementsFolder,
+                             TextureManager&              textureManager,
+                             const TextureMetaManager&    textureMeta );
 
     const std::shared_ptr< ASManager >&           GetASManager();
     const std::shared_ptr< VertexPreprocessing >& GetVertexPreprocessing();
@@ -125,8 +127,7 @@ private:
     rgl::string_set                         staticMeshNames;
     std::vector< LightCopy >                staticLights;
 
-    std::filesystem::path             replacementsFolder;
-    rgl::string_map< WholeModelFile > replacements;
+    rgl::string_map< WholeModelFile::RawModelData > replacements;
 
     StaticGeometryToken  makingStatic{};
     DynamicGeometryToken makingDynamic{};
@@ -161,6 +162,7 @@ public:
     void TryExport( const TextureManager& textureManager, const std::filesystem::path& ovrdFolder );
 
     void RequestReimport();
+    void RequestReplacementsReimport();
     void OnFileChanged( FileType type, const std::filesystem::path& filepath ) override;
 
     void          RequestExport();
@@ -180,10 +182,12 @@ private:
     std::filesystem::path scenesFolder;
     std::filesystem::path replacementsFolder;
 
-    bool reimportRequested{ false };
+    bool reimportRequested;
+    bool reimportReplacementsRequested;
 
     bool exportRequested{ false };
-    rgl::unordered_map< std::filesystem::path, std::unique_ptr< GltfExporter > > exporters{};
+    std::unique_ptr< GltfExporter > sceneExporter{};
+    rgl::unordered_map< std::filesystem::path, std::unique_ptr< GltfExporter > > replacementExporters{};
 
     std::string currentMap{};
     RgFloat3D   worldUp;

@@ -723,12 +723,19 @@ void RTGL1::VulkanDevice::Dev_Draw() const
         ImGui::Separator();
         ImGui::Dummy( ImVec2( 0, 16 ) );
         {
-            if( ImGui::Button( "Reimport GLTF", { -1, 80 } ) )
+            if( ImGui::Button( "Reimport replacements GLTF", { -1, 80 } ) )
+            {
+                sceneImportExport->RequestReplacementsReimport();
+            }
+
+            ImGui::Dummy( ImVec2( 0, 16 ) );
+
+            if( ImGui::Button( "Reimport map GLTF", { -1, 80 } ) )
             {
                 sceneImportExport->RequestReimport();
             }
 
-            ImGui::Text( "Import path: %s",
+            ImGui::Text( "Map import path: %s",
                          sceneImportExport->dev_GetSceneImportGltfPath().c_str() );
             ImGui::BeginDisabled( !dev.importName.enable );
             {

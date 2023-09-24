@@ -255,7 +255,7 @@ struct DeepCopyOfPrimitive
         static_assert( std::is_trivially_copyable_v< decltype( pIndices )::value_type > );
 
         // deep copy
-        pTextureName         = Utils::SafeCstr( c.pTextureName );
+        pTextureName = Utils::SafeCstr( c.pTextureName );
         pVertices.assign( fromVertices.begin(), fromVertices.end() );
         pIndices.assign( fromIndices.begin(), fromIndices.end() );
 
@@ -289,10 +289,10 @@ struct DeepCopyOfPrimitive
     {
         assert( other.info.vertexCount == other.pVertices.size() );
         assert( other.info.indexCount == other.pIndices.size() );
-        
-        this->pTextureName         = std::move( other.pTextureName );
-        this->pVertices            = std::move( other.pVertices );
-        this->pIndices             = std::move( other.pIndices );
+
+        this->pTextureName = std::move( other.pTextureName );
+        this->pVertices    = std::move( other.pVertices );
+        this->pIndices     = std::move( other.pIndices );
 
         // copy and fix
         this->info             = other.info;
@@ -318,7 +318,7 @@ struct DeepCopyOfPrimitive
     }
 
     std::span< const uint32_t > Indices() const { return { pIndices.begin(), pIndices.end() }; }
-    
+
     std::string_view MaterialName() const { return pTextureName; }
 
     RgFloat4D Color() const { return Utils::UnpackColor4DPacked32( info.color ); }
@@ -344,9 +344,9 @@ struct DeepCopyOfPrimitive
 private:
     static void FixupPointers( DeepCopyOfPrimitive& inout )
     {
-        inout.info.pTextureName         = inout.pTextureName.data();
-        inout.info.pVertices            = inout.pVertices.data();
-        inout.info.pIndices             = inout.pIndices.data();
+        inout.info.pTextureName = inout.pTextureName.data();
+        inout.info.pVertices    = inout.pVertices.data();
+        inout.info.pIndices     = inout.pIndices.data();
 
         assert( inout.info.vertexCount == inout.pVertices.size() );
         assert( inout.info.indexCount == inout.pIndices.size() );
@@ -1400,79 +1400,111 @@ auto MakeLightsForPrimitive( const RgMeshInfo&                      mesh,
 }
 
 
-bool PrepareFolder( const std::filesystem::path& gltfPath )
+bool CreateDir( const std::filesystem::path& folder, bool forceEmpty )
 {
-    using namespace RTGL1;
+    std::error_code ec;
 
-    auto folder = GetGltfFolder( gltfPath );
-
-    auto createEmptyFoldersFor = [ &folder, &gltfPath ]() {
-        // create empty folder for .gltf
-        std::error_code ec;
-
-        std::filesystem::create_directories( folder, ec );
-        if( ec )
-        {
-            debug::Warning( "{}: std::filesystem::create_directories error: {}",
-                            folder.string(),
-                            ec.message() );
-            return false;
-        }
-        assert( std::filesystem::is_directory( folder ) );
-
-        // create junction folder to store original textures
-        auto junction = GetOriginalTexturesFolder( gltfPath );
-
-        // but there's no privilege to create symlinks,
-        // so create a folder that contains texture copies from ovrd/mat or ovrd/matdev
-#if 1
-        std::filesystem::create_directories( junction, ec );
-        if( ec )
-        {
-            debug::Warning( "{}: std::filesystem::create_directories error: {}",
-                            folder.string(),
-                            ec.message() );
-            return false;
-        }
-        assert( std::filesystem::is_directory( folder ) );
-#else
-        auto ovrdTextures = ovrdFolder / TEXTURES_FOLDER_DEV;
-
-        std::filesystem::create_directory_symlink( ovrdTextures, junction, ec );
-        if( ec )
-        {
-            debug::Warning( "{}: std::filesystem::create_directory_symlink error: {}",
-                            junction.string(),
-                            ec.message() );
-            return false;
-        }
-        assert( std::filesystem::is_symlink( junction ) );
-        assert( std::filesystem::equivalent( ovrdTextures, junction ) );
-#endif
-
-        return true;
-    };
-
-    if( !std::filesystem::exists( folder ) )
+    create_directories( folder, ec );
+    if( ec && forceEmpty )
     {
-        return createEmptyFoldersFor();
+        RTGL1::debug::Warning(
+            "std::filesystem::create_directories error: {} - {}", ec.message(), folder.string() );
+        return false;
     }
 
-#ifdef RG_USE_SURFACE_WIN32
+    if( !is_directory( folder ) )
     {
+        RTGL1::debug::Warning( "Expected \'{}\' to be a directory", folder.string() );
+        return false;
+    }
+
+    return true;
+}
+
+
+bool CreateJunction( const std::filesystem::path& junction,
+                     const std::filesystem::path& target,
+                     bool                         forceEmpty )
+{
+    std::error_code ec;
+
+    // but there's no privilege to create symlinks,
+    // so create a folder that contains texture copies from ovrd/mat or ovrd/matdev
+#if 1
+    create_directories( junction, ec );
+    if( ec && forceEmpty )
+    {
+        RTGL1::debug::Warning(
+            "std::filesystem::create_directories error: {} - {}", ec.message(), junction.string() );
+        return false;
+    }
+
+    if( !is_directory( junction ) )
+    {
+        RTGL1::debug::Warning( "Expected \'{}\' to be a directory", junction.string() );
+        return false;
+    }
+#else
+    assert( !target.empty() );
+    std::filesystem::create_directory_symlink( target, junction, ec );
+    if( ec && forceEmpty )
+    {
+        debug::Warning( "std::filesystem::create_directory_symlink error: {} - {}",
+                        ec.message(),
+                        junction.string() );
+        return false;
+    }
+
+    if( !std::filesystem::is_symlink( junction ) )
+    {
+        debug::Warning( "Expected \'{}\' to be a directory", junction.string() );
+        return false;
+    }
+    assert( std::filesystem::equivalent( target, junction ) );
+#endif
+
+    return true;
+}
+
+
+bool PrepareFolder( const std::filesystem::path& gltfPath, bool forceEmpty )
+{
+    auto folder         = GetGltfFolder( gltfPath );
+    auto texturesFolder = GetOriginalTexturesFolder( gltfPath );
+
+    if( forceEmpty && exists( folder ) )
+    {
+#ifdef RG_USE_SURFACE_WIN32
         auto msg = std::format( "Folder already exists:\n{}\n\n"
                                 "Are you sure you want to write ON TOP of its contents?",
                                 std::filesystem::absolute( folder ).string() );
 
-        int msgboxID = MessageBox(
-            nullptr, msg.c_str(), "Overwrite folder", MB_ICONSTOP | MB_YESNO | MB_DEFBUTTON2 );
-
-        return msgboxID == IDYES;
-    }
+        if( MessageBox( nullptr,
+                        msg.c_str(),
+                        "Overwrite folder",
+                        MB_ICONSTOP | MB_YESNO | MB_DEFBUTTON2 ) != IDYES )
+        {
+            return false;
+        }
 #else
-    debug::Warning( "{}: Folder already exists, overwrite disabled", folder.string() );
-    return false;
+        debug::Warning( "Folder already exists, overwrite disabled: {}", folder.string() );
+        return false;
 #endif // RG_USE_SURFACE_WIN32
+    }
+
+    // prepare folder for .gltf file
+    if( !CreateDir( folder, forceEmpty ) )
+    {
+        return false;
+    }
+
+    // create junction folder to store original textures
+    if( !CreateJunction( texturesFolder, {}, forceEmpty ) )
+    {
+        return false;
+    }
+
+    return true;
 }
 
 }
@@ -1551,7 +1583,8 @@ void RTGL1::GltfExporter::AddLight( const LightCopy& light )
 
 void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,
                                          const TextureManager&        textureManager,
-                                         const std::filesystem::path& ovrdFolder )
+                                         const std::filesystem::path& ovrdFolder,
+                                         bool                         isSceneGltf )
 {
     if( scene.empty() )
     {
@@ -1565,7 +1598,7 @@ void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,
         return;
     }
 
-    if( !PrepareFolder( gltfPath ) )
+    if( !PrepareFolder( gltfPath, isSceneGltf ) )
     {
         debug::Warning( "Denied to write to the folder {}",
                         std::filesystem::absolute( GetGltfFolder( gltfPath ) ).string() );
@@ -1581,13 +1614,13 @@ void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,
 
 
     // lock pointers
-    auto fbin    = GltfBin{ gltfPath };
-    auto storage = GltfStorage{ scene, sceneLights.size() };
+    auto fbin           = GltfBin{ gltfPath };
+    auto storage        = GltfStorage{ scene, sceneLights.size() };
     auto textureStorage = GltfTextures{ sceneMaterials,
                                         GetOriginalTexturesFolder( gltfPath ),
                                         textureManager,
                                         ovrdFolder / TEXTURES_FOLDER_DEV };
-    auto lightStorage = GltfLights{ sceneLights, storage.lightNodes };
+    auto lightStorage   = GltfLights{ sceneLights, storage.lightNodes };
 
 
     auto materialcount = 0u;

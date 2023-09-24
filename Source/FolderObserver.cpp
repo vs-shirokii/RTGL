@@ -77,6 +77,7 @@ RTGL1::FolderObserver::FolderObserver( const fs::path &ovrdFolder )
         ovrdFolder / SHADERS_FOLDER,
         ovrdFolder / TEXTURES_FOLDER,
         ovrdFolder / TEXTURES_FOLDER_DEV,
+        ovrdFolder / REPLACEMENTS_FOLDER,
     };
 }
 

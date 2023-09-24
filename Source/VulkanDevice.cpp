@@ -1104,14 +1104,13 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
         }
         else
         {
-            UploadResult r =
-                scene->UploadPrimitive( currentFrameState.GetCmdBufferForMaterials( cmdManager ),
-                                        currentFrameState.GetFrameIndex(),
-                                        mesh,
-                                        prim,
-                                        *textureManager,
-                                        *textureMetaManager,
-                                        false );
+            // upload a primitive, potentially loading replacements
+            UploadResult r = scene->UploadPrimitive( currentFrameState.GetFrameIndex(),
+                                                     mesh,
+                                                     prim,
+                                                     *textureManager,
+                                                     *lightManager,
+                                                     false );
 
             logDebugStat( Devmode::DebugPrimMode::RayTraced, &mesh, prim, r );
 
@@ -1129,6 +1128,7 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
             }
 
 
+            // TODO: remove legacy was to attach lights
             if( auto attachedLight = pnext::find< RgMeshPrimitiveAttachedLightEXT >( &prim ) )
             {
                 if( attachedLight->evenOnDynamic )
@@ -1484,7 +1484,7 @@ void RTGL1::VulkanDevice::UploadLight( const RgLightInfo* pInfo )
     UploadResult r =
         scene->UploadLight( currentFrameState.GetFrameIndex(), light, *lightManager, false );
 
-    if( auto e = sceneImportExport->TryGetExporter( {} ) )
+    if( auto e = sceneImportExport->TryGetExporter( nullptr ) )
     {
         if( r == UploadResult::ExportableDynamic || r == UploadResult::ExportableStatic )
         {

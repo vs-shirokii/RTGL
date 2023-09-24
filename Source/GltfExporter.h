@@ -78,7 +78,8 @@ public:
 
     void ExportToFiles( const std::filesystem::path& gltfPath,
                         const TextureManager&        textureManager,
-                        const std::filesystem::path& ovrdFolder );
+                        const std::filesystem::path& ovrdFolder,
+                        bool                         isSceneGltf );
 
     // TODO: allocators, to not pass references
     static void MakeLightsForPrimitiveDynamic( const RgMeshInfo&              mesh,

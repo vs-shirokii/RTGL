@@ -114,14 +114,22 @@ namespace
         return nullptr;
     }
 
-    const char* NodeName( const cgltf_node& node )
+    auto nodeName( const cgltf_node& n )
     {
-        return node.name ? node.name : "";
+        if( !Utils::IsCstrEmpty( n.name ) )
+        {
+            return std::string_view{ n.name };
+        }
+        return std::string_view{};
     }
 
-    const char* NodeName( const cgltf_node* node )
+    auto nodeName( const cgltf_node* n )
     {
-        return NodeName( *node );
+        if( n )
+        {
+            return nodeName( *n );
+        }
+        return std::string_view{};
     }
 
     const char* CgltfErrorName( cgltf_result r )
@@ -166,8 +174,8 @@ namespace
                                                     std::string_view       msg ) {
             debug::Warning( "{}: Ignoring primitive of ...->{}->{}: Attribute {}: {}",
                             gltfPath,
-                            NodeName( node.parent ),
-                            NodeName( node ),
+                            nodeName( node.parent ),
+                            nodeName( node ),
                             Utils::SafeCstr( attr.name ),
                             msg );
         };
@@ -276,8 +284,8 @@ namespace
                                 "TANGENT - {}. "
                                 "TEXCOORD_0 - {}",
                                 gltfPath,
-                                NodeName( node.parent ),
-                                NodeName( node ),
+                                nodeName( node.parent ),
+                                nodeName( node ),
                                 position,
                                 normal,
                                 tangent,
@@ -289,7 +297,7 @@ namespace
         if( !vertexCount )
         {
             debug::Warning(
-                "{}: Ignoring ...->{}->{}: ", gltfPath, NodeName( node.parent ), NodeName( node ) );
+                "{}: Ignoring ...->{}->{}: ", gltfPath, nodeName( node.parent ), nodeName( node ) );
             return {};
         }
 
@@ -377,8 +385,8 @@ namespace
             debug::Warning( "{}: Ignoring primitive of ...->{}->{}: Indices: Sparse accessors are "
                             "not supported",
                             gltfPath,
-                            NodeName( node.parent ),
-                            NodeName( node ) );
+                            nodeName( node.parent ),
+                            nodeName( node ) );
             return {};
         }
 
@@ -393,8 +401,8 @@ namespace
                 debug::Warning(
                     "{}: Ignoring primitive of ...->{}->{}: Indices: cgltf_accessor_read_uint fail",
                     gltfPath,
-                    NodeName( node.parent ),
-                    NodeName( node ) );
+                    nodeName( node.parent ),
+                    nodeName( node ) );
                 return {};
             }
 
@@ -638,9 +646,21 @@ namespace
         };
     }
 
-    auto ParseNodeAsLight( const cgltf_node& node, uint64_t uniqueId, float oneGameUnitInMeters )
+    auto ParseNodeAsLight( const cgltf_node* srcNode, uint64_t uniqueId, float oneGameUnitInMeters )
         -> std::optional< LightCopy >
     {
+        if( !srcNode || !srcNode->light )
+        {
+            return {};
+        }
+
+        if( srcNode->children_count > 0 )
+        {
+            debug::Warning( "Ignoring child nodes on the light: \'{}\'", srcNode->name );
+        }
+
+        const cgltf_node& node = *srcNode;
+
         constexpr auto candelaToLuminousFlux = []( float lumensPerSteradian ) {
             // to lumens
             return lumensPerSteradian * ( 4 * float( Utils::M_PI ) );
@@ -847,220 +867,222 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
 
     if( mainNode->mesh || mainNode->light )
     {
-        debug::Warning( "{}: Main node ({}) should not have meshes / lights. Ignoring",
-                        gltfPath,
-                        mainNode->name );
+        debug::Warning(
+            "Main node ({}) should not have meshes / lights. {}", gltfPath, nodeName( mainNode ) );
     }
 
 
     auto hashCombine = []< typename T >( size_t seed, const T& v ) {
         return seed ^ ( std::hash< T >{}( v ) + 0x9e3779b9 + ( seed << 6 ) + ( seed >> 2 ) );
     };
-    auto fileNameHash = hashCombine( 0, gltfPath );
+    const auto fileNameHash = hashCombine( 0, gltfPath );
 
 
     auto result = WholeModelFile{};
 
-    // meshes
-    for( cgltf_node* srcNode : std::span( mainNode->children, mainNode->children_count ) )
+    for( cgltf_node* srcNode : std::span{ mainNode->children, mainNode->children_count } )
     {
-        if( !srcNode || !srcNode->mesh )
+        if( !srcNode )
         {
             continue;
         }
 
-        if( Utils::IsCstrEmpty( srcNode->name ) )
+        if( nodeName( srcNode ).empty() )
         {
-            debug::Warning( "{}: Found srcMesh with null name (a child node of {}). Ignoring",
+            debug::Warning( "Ignoring a node with null name: a child of {}->{}",
                             gltfPath,
-                            mainNode->name );
+                            nodeName( mainNode ) );
             continue;
         }
 
         if( srcNode->children_count > 0 )
         {
-            debug::Warning( "{}: Found a child nodes of {}->{}. Ignoring them",
-                            gltfPath,
-                            mainNode->name,
-                            srcNode->name );
+            if( std::ranges::any_of( std::span{ srcNode->children, srcNode->children_count },
+                                     []( const cgltf_node* c ) { return c->mesh; } ) )
+            {
+                debug::Warning( "Ignoring child nodes that contain a mesh: {}->{}->{}",
+                                gltfPath,
+                                nodeName( mainNode ),
+                                nodeName( srcNode ) );
+            }
         }
 
-        if( result.models.contains( srcNode->name ) )
+
+        const auto srcNodeHash = hashCombine( fileNameHash, nodeName( srcNode ) );
+
+
+        // global lights
+        if( auto l = ParseNodeAsLight( srcNode, srcNodeHash, oneGameUnitInMeters ) )
         {
-            debug::Warning( "{}: Multiple nodes with the same name: {} (a child node of {}). "
-                            "Ignoring duplicates",
+            result.lights.push_back( *l );
+        }
+
+
+        // make model
+        if( result.models.contains( nodeName( srcNode ) ) )
+        {
+            debug::Warning( "Ignoring duplicates: multiple nodes with the same name: {}->{}->{}",
                             gltfPath,
-                            srcNode->name,
-                            mainNode->name );
+                            nodeName( mainNode ),
+                            nodeName( srcNode ) );
             continue;
         }
 
-
-        const auto primitiveExtra = json_parser::ReadStringAs< PrimitiveExtraInfo >(
-            Utils::SafeCstr( srcNode->extras.data ) );
-
         const auto [ iter, isNew ] =
-            result.models.emplace( srcNode->name,
+            result.models.emplace( nodeName( srcNode ),
                                    WholeModelFile::RawModelData{
-                                       .uniqueObjectID = hashCombine( fileNameHash, srcNode->name ),
+                                       .uniqueObjectID = srcNodeHash,
                                        .meshTransform  = MakeRgTransformFromGltfNode( *srcNode ),
                                        .primitives     = {},
                                        .localLights    = {},
                                    } );
-
         assert( isNew );
         auto& result_dstModel = iter->second;
 
-        for( uint32_t i = 0; i < srcNode->mesh->primitives_count; i++ )
+
+        // mesh
+        if( srcNode->mesh )
         {
-            const cgltf_primitive& srcPrim = srcNode->mesh->primitives[ i ];
+            const auto primitiveExtra = json_parser::ReadStringAs< PrimitiveExtraInfo >(
+                Utils::SafeCstr( srcNode->extras.data ) );
 
-            auto vertices = GatherVertices( srcPrim, *srcNode, gltfPath );
-            if( vertices.empty() )
+            // primitives
+            for( uint32_t i = 0; i < srcNode->mesh->primitives_count; i++ )
             {
-                continue;
-            }
+                const cgltf_primitive& srcPrim = srcNode->mesh->primitives[ i ];
 
-            auto indices = GatherIndices( srcPrim, *srcNode, gltfPath );
-            if( indices.empty() )
-            {
-                continue;
-            }
-
-
-            RgMeshPrimitiveFlags dstFlags = 0;
-
-            if( srcPrim.material )
-            {
-                if( srcPrim.material->alpha_mode == cgltf_alpha_mode_mask )
+                auto vertices = GatherVertices( srcPrim, *srcNode, gltfPath );
+                if( vertices.empty() )
                 {
-                    dstFlags |= RG_MESH_PRIMITIVE_ALPHA_TESTED;
-                }
-                else if( srcPrim.material->alpha_mode == cgltf_alpha_mode_blend )
-                {
-                    debug::Warning(
-                        "{}: Ignoring primitive of ...->{}->{}: Found blend material, "
-                        "so it requires to be uploaded each frame, and not once on load",
-                        gltfPath,
-                        NodeName( srcNode->parent ),
-                        NodeName( srcNode ) );
                     continue;
-                    dstFlags |= RG_MESH_PRIMITIVE_TRANSLUCENT;
                 }
-            }
+
+                auto indices = GatherIndices( srcPrim, *srcNode, gltfPath );
+                if( indices.empty() )
+                {
+                    continue;
+                }
 
 
-            auto matinfo = UploadTextures( cmdForTextures,
-                                           frameIndex,
-                                           srcPrim.material,
-                                           textureManager,
-                                           gltfFolder,
-                                           gltfPath );
+                RgMeshPrimitiveFlags dstFlags = 0;
 
-            auto dstPrim = RgMeshPrimitiveInfo{
-                .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
-                .pNext                = nullptr,
-                .flags                = dstFlags,
-                .primitiveIndexInMesh = UINT32_MAX,
-                .pVertices            = vertices.data(),
-                .vertexCount          = uint32_t( vertices.size() ),
-                .pIndices             = indices.empty() ? nullptr : indices.data(),
-                .indexCount           = uint32_t( indices.size() ),
-                .pTextureName         = matinfo.pTextureName.c_str(),
-                .textureFrame         = 0,
-                .color                = matinfo.color,
-                .emissive             = matinfo.emissiveMult,
-            };
+                if( srcPrim.material )
+                {
+                    if( srcPrim.material->alpha_mode == cgltf_alpha_mode_mask )
+                    {
+                        dstFlags |= RG_MESH_PRIMITIVE_ALPHA_TESTED;
+                    }
+                    else if( srcPrim.material->alpha_mode == cgltf_alpha_mode_blend )
+                    {
+                        debug::Warning(
+                            "Ignoring primitive of ...->{}->{}: Found blend material, "
+                            "so it requires to be uploaded each frame, and not once on load. {}",
+                            nodeName( srcNode->parent ),
+                            nodeName( srcNode ),
+                            gltfPath );
+                        continue;
+                        dstFlags |= RG_MESH_PRIMITIVE_TRANSLUCENT;
+                    }
+                }
 
 
-            auto extAttachedLight = std::optional< RgMeshPrimitiveAttachedLightEXT >{};
-            auto extPbr           = std::optional< RgMeshPrimitivePBREXT >{};
+                auto matinfo = UploadTextures( cmdForTextures,
+                                               frameIndex,
+                                               srcPrim.material,
+                                               textureManager,
+                                               gltfFolder,
+                                               gltfPath );
 
-            // use texture meta as fallback
-            {
-                textureMeta.Modify( dstPrim, extAttachedLight, extPbr, true );
-            }
-
-            // gltf info has a higher priority, so overwrite
-            {
-                extPbr = RgMeshPrimitivePBREXT{
-                    .sType            = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_PBR_EXT,
-                    .pNext            = nullptr,
-                    .metallicDefault  = matinfo.metallicFactor,
-                    .roughnessDefault = matinfo.roughnessFactor,
+                auto dstPrim = RgMeshPrimitiveInfo{
+                    .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
+                    .pNext                = nullptr,
+                    .flags                = dstFlags,
+                    .primitiveIndexInMesh = UINT32_MAX,
+                    .pVertices            = vertices.data(),
+                    .vertexCount          = uint32_t( vertices.size() ),
+                    .pIndices             = indices.empty() ? nullptr : indices.data(),
+                    .indexCount           = uint32_t( indices.size() ),
+                    .pTextureName         = matinfo.pTextureName.c_str(),
+                    .textureFrame         = 0,
+                    .color                = matinfo.color,
+                    .emissive             = matinfo.emissiveMult,
                 };
 
-                if( primitiveExtra.isGlass )
+
+                auto extAttachedLight = std::optional< RgMeshPrimitiveAttachedLightEXT >{};
+                auto extPbr           = std::optional< RgMeshPrimitivePBREXT >{};
+
+                // use texture meta as fallback
                 {
-                    dstPrim.flags |= RG_MESH_PRIMITIVE_GLASS;
+                    textureMeta.Modify( dstPrim, extAttachedLight, extPbr, true );
                 }
 
-                if( primitiveExtra.isMirror )
+                // gltf info has a higher priority, so overwrite
                 {
-                    dstPrim.flags |= RG_MESH_PRIMITIVE_MIRROR;
+                    extPbr = RgMeshPrimitivePBREXT{
+                        .sType            = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_PBR_EXT,
+                        .pNext            = nullptr,
+                        .metallicDefault  = matinfo.metallicFactor,
+                        .roughnessDefault = matinfo.roughnessFactor,
+                    };
+
+                    if( primitiveExtra.isGlass )
+                    {
+                        dstPrim.flags |= RG_MESH_PRIMITIVE_GLASS;
+                    }
+
+                    if( primitiveExtra.isMirror )
+                    {
+                        dstPrim.flags |= RG_MESH_PRIMITIVE_MIRROR;
+                    }
+
+                    if( primitiveExtra.isWater )
+                    {
+                        dstPrim.flags |= RG_MESH_PRIMITIVE_WATER;
+                    }
+
+                    if( primitiveExtra.isSkyVisibility )
+                    {
+                        dstPrim.flags |= RG_MESH_PRIMITIVE_SKY_VISIBILITY;
+                    }
+
+                    if( primitiveExtra.isAcid )
+                    {
+                        dstPrim.flags |= RG_MESH_PRIMITIVE_ACID;
+                    }
+
+                    if( primitiveExtra.isThinMedia )
+                    {
+                        dstPrim.flags |= RG_MESH_PRIMITIVE_THIN_MEDIA;
+                    }
                 }
 
-                if( primitiveExtra.isWater )
-                {
-                    dstPrim.flags |= RG_MESH_PRIMITIVE_WATER;
-                }
 
-                if( primitiveExtra.isSkyVisibility )
-                {
-                    dstPrim.flags |= RG_MESH_PRIMITIVE_SKY_VISIBILITY;
-                }
-
-                if( primitiveExtra.isAcid )
-                {
-                    dstPrim.flags |= RG_MESH_PRIMITIVE_ACID;
-                }
-
-                if( primitiveExtra.isThinMedia )
-                {
-                    dstPrim.flags |= RG_MESH_PRIMITIVE_THIN_MEDIA;
-                }
+                result_dstModel.primitives.push_back(
+                    WholeModelFile::RawModelData::RawPrimitiveData{
+                        .vertices      = std::move( vertices ),
+                        .indices       = std::move( indices ),
+                        .flags         = dstPrim.flags,
+                        .textureName   = Utils::SafeCstr( dstPrim.pTextureName ),
+                        .color         = dstPrim.color,
+                        .emissive      = dstPrim.emissive,
+                        .attachedLight = extAttachedLight,
+                        .pbr           = extPbr,
+                        .portal        = {},
+                    } );
             }
-
-
-            result_dstModel.primitives.push_back( WholeModelFile::RawModelData::RawPrimitiveData{
-                .vertices      = std::move( vertices ),
-                .indices       = std::move( indices ),
-                .flags         = dstPrim.flags,
-                .textureName   = Utils::SafeCstr( dstPrim.pTextureName ),
-                .color         = dstPrim.color,
-                .emissive      = dstPrim.emissive,
-                .attachedLight = extAttachedLight,
-                .pbr           = extPbr,
-                .portal        = {},
-            } );
-        }
-    }
-
-    uint64_t counter = 0;
-
-    // lights
-    for( cgltf_node* srcNode : std::span( mainNode->children, mainNode->children_count ) )
-    {
-        if( !srcNode || !srcNode->light )
-        {
-            continue;
         }
 
-        if( srcNode->children_count > 0 )
-        {
-            debug::Warning( "{}: Found a child nodes of {}->{}. Ignoring them",
-                            gltfPath,
-                            mainNode->name,
-                            srcNode->name );
-        }
 
-        // TODO: change id
-        uint64_t uniqueId = UINT64_MAX - counter;
-        counter++;
-
-        if( auto l = ParseNodeAsLight( *srcNode, uniqueId, oneGameUnitInMeters ) )
+        // local lights
+        for( const cgltf_node* child : std::span{ mainNode->children, mainNode->children_count } )
         {
-            result.lights.push_back( *l );
+            const auto childHash = hashCombine( srcNodeHash, nodeName( child ) );
+
+            if( auto l = ParseNodeAsLight( srcNode, childHash, oneGameUnitInMeters ) )
+            {
+                result_dstModel.localLights.push_back( *l );
+            }
         }
     }
 
