@@ -430,6 +430,15 @@ bool TextureManager::TryCreateMaterial( VkCommandBuffer              cmd,
         return false;
     }
 
+    // promote material from 'imported' to 'original',
+    // if a game creates a material, so it's not deleted in FreeAllImportedMaterials
+    if( importedMaterials.erase( info.pTextureName ) )
+    {
+        debug::Verbose( R"(Material is promoted from 'Imported' to 'Original': {})",
+                        info.pTextureName );
+    }
+    
+
     if( PreferExistingMaterials )
     {
         if( materials.contains( info.pTextureName ) )
@@ -531,6 +540,11 @@ bool TextureManager::TryCreateImportedMaterial( VkCommandBuffer                 
     {
         assert( 0 );
         return false;
+    }
+
+    if( importedMaterials.contains( materialName ) )
+    {
+        return true;
     }
 
     if( PreferExistingMaterials )
