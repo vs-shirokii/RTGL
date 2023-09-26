@@ -324,7 +324,17 @@ void RTGL1::GeomInfoManager::ResetOnlyStatic()
     for( const auto& idToErase : staticUniqueIds )
     {
         curFrame_IdToInfo.erase( idToErase );
+
+        // clear history
+        for( auto& h : idToPrevInfo )
+        {
+            h.erase( idToErase );
+        }
     }
+    assert( std::ranges::any_of( dynamicUniqueIds, [ & ]( const auto& oneof_dynamicUniqueIds ) {
+        return curFrame_IdToInfo.size() == oneof_dynamicUniqueIds.size();
+    } ) );
+
     staticUniqueIds.clear();
 }
 
