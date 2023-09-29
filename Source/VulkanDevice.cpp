@@ -1084,7 +1084,7 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
 
     auto uploadPrimitive_Core = [ this, &logDebugStat ]( const RgMeshInfo&          mesh,
                                                          const RgMeshPrimitiveInfo& prim ) {
-        assert( !pnext::find< RgMeshPrimitiveForceRasterizedEXT >( &prim ) );
+        assert( !pnext::find< RgMeshPrimitiveSwapchainedEXT >( &prim ) );
 
         if( IsRasterized( mesh, prim ) )
         {
@@ -1243,7 +1243,7 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
             }
         }
 
-        if( auto raster = pnext::find< RgMeshPrimitiveForceRasterizedEXT >( &prim ) )
+        if( auto raster = pnext::find< RgMeshPrimitiveSwapchainedEXT >( &prim ) )
         {
             float vp[ 16 ];
             if( raster->pViewProjection )

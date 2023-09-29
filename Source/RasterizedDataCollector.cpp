@@ -137,6 +137,14 @@ namespace
             }
         }
 
+        if( auto sw = pnext::find< RgMeshPrimitiveSwapchainedEXT >( &info ) )
+        {
+            if( sw->flags & RG_MESH_PRIMITIVE_SWAPCHAINED_DRAW_AS_LINES )
+            {
+                r = r | PipelineStateFlagBits::DRAW_AS_LINES;
+            }
+        }
+
         return r;
     }
 

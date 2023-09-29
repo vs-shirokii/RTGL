@@ -159,7 +159,7 @@ typedef enum RgStructureType
     RG_STRUCTURE_TYPE_MESH_PRIMITIVE_TEXTURE_LAYERS_EXT   = 5,
     RG_STRUCTURE_TYPE_MESH_PRIMITIVE_PBR_EXT              = 6,
     RG_STRUCTURE_TYPE_MESH_PRIMITIVE_ATTACHED_LIGHT_EXT   = 7,
-    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_FORCE_RASTERIZED_EXT = 8,
+    RG_STRUCTURE_TYPE_MESH_PRIMITIVE_SWAPCHAINED_EXT      = 8,
     RG_STRUCTURE_TYPE_LIGHT_INFO                          = 9,
     RG_STRUCTURE_TYPE_LIGHT_DIRECTIONAL_EXT               = 10,
     RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT                 = 11,
@@ -436,16 +436,24 @@ typedef struct RgMeshPrimitiveAttachedLightEXT
     RgBool32                evenOnDynamic;
 } RgMeshPrimitiveAttachedLightEXT;
 
-// Can be linked after RgMeshPrimitiveInfo.
-typedef struct RgMeshPrimitiveForceRasterizedEXT
+typedef enum RgMeshPrimitiveSwapchainedFlagBits
 {
-    RgStructureType         sType;
-    void*                   pNext;
-    const RgViewport*       pViewport;
-    const float*            pView;
-    const float*            pProjection;
-    const float*            pViewProjection;
-} RgMeshPrimitiveForceRasterizedEXT;
+    RG_MESH_PRIMITIVE_SWAPCHAINED_DRAW_AS_LINES = 1,
+} RgMeshPrimitiveSwapchainedFlagBits;
+typedef uint32_t RgMeshPrimitiveSwapchainedFlags;
+
+// To draw directly into a swapchain image, at full resolution.
+// Can be linked after RgMeshPrimitiveInfo.
+typedef struct RgMeshPrimitiveSwapchainedEXT
+{
+    RgStructureType                 sType;
+    void*                           pNext;
+    RgMeshPrimitiveSwapchainedFlags flags;
+    const RgViewport*               pViewport;
+    const float*                    pView;
+    const float*                    pProjection;
+    const float*                    pViewProjection;
+} RgMeshPrimitiveSwapchainedEXT;
 
 // Primitive is an indexed or non-indexed geometry with a material.
 typedef struct RgMeshPrimitiveInfo

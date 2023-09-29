@@ -76,7 +76,7 @@ namespace detail
     template<> constexpr auto TypeToStructureType< RgMeshPrimitiveTextureLayersEXT      > = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_TEXTURE_LAYERS_EXT    ;
     template<> constexpr auto TypeToStructureType< RgMeshPrimitivePBREXT                > = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_PBR_EXT               ;
     template<> constexpr auto TypeToStructureType< RgMeshPrimitiveAttachedLightEXT      > = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_ATTACHED_LIGHT_EXT    ;
-    template<> constexpr auto TypeToStructureType< RgMeshPrimitiveForceRasterizedEXT    > = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_FORCE_RASTERIZED_EXT  ;
+    template<> constexpr auto TypeToStructureType< RgMeshPrimitiveSwapchainedEXT        > = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_SWAPCHAINED_EXT       ;
     template<> constexpr auto TypeToStructureType< RgLensFlareInfo                      > = RG_STRUCTURE_TYPE_LENS_FLARE_INFO                      ;
     template<> constexpr auto TypeToStructureType< RgLightInfo                          > = RG_STRUCTURE_TYPE_LIGHT_INFO                           ;
     template<> constexpr auto TypeToStructureType< RgLightAdditionalEXT                 > = RG_STRUCTURE_TYPE_LIGHT_ADDITIONAL_EXT                 ;
@@ -118,7 +118,7 @@ namespace detail
     static_assert( CheckMembers< RgMeshPrimitiveTextureLayersEXT >() );
     static_assert( CheckMembers< RgMeshPrimitivePBREXT >() );
     static_assert( CheckMembers< RgMeshPrimitiveAttachedLightEXT >() );
-    static_assert( CheckMembers< RgMeshPrimitiveForceRasterizedEXT >() );
+    static_assert( CheckMembers< RgMeshPrimitiveSwapchainedEXT >() );
     static_assert( CheckMembers< RgLensFlareInfo >() );
     static_assert( CheckMembers< RgLightInfo >() );
     static_assert( CheckMembers< RgLightAdditionalEXT >() );
@@ -145,7 +145,7 @@ namespace detail
     template<> struct LinkRootHelper< RgMeshPrimitiveTextureLayersEXT    >{ using Root = RgMeshPrimitiveInfo; };
     template<> struct LinkRootHelper< RgMeshPrimitivePBREXT              >{ using Root = RgMeshPrimitiveInfo; };
     template<> struct LinkRootHelper< RgMeshPrimitiveAttachedLightEXT    >{ using Root = RgMeshPrimitiveInfo; };
-    template<> struct LinkRootHelper< RgMeshPrimitiveForceRasterizedEXT  >{ using Root = RgMeshPrimitiveInfo; };
+    template<> struct LinkRootHelper< RgMeshPrimitiveSwapchainedEXT      >{ using Root = RgMeshPrimitiveInfo; };
     template<> struct LinkRootHelper< RgOriginalTextureDetailsEXT        >{ using Root = RgOriginalTextureInfo; };
     template<> struct LinkRootHelper< RgLightAdditionalEXT               >{ using Root = RgLightInfo; };
     template<> struct LinkRootHelper< RgLightDirectionalEXT              >{ using Root = RgLightInfo; };
