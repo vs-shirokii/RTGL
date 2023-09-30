@@ -1075,11 +1075,11 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
 
 
         // local lights
-        for( const cgltf_node* child : std::span{ mainNode->children, mainNode->children_count } )
+        for( const cgltf_node* child : std::span{ srcNode->children, srcNode->children_count } )
         {
             const auto childHash = hashCombine( srcNodeHash, nodeName( child ) );
 
-            if( auto l = ParseNodeAsLight( srcNode, childHash, oneGameUnitInMeters ) )
+            if( auto l = ParseNodeAsLight( child, childHash, oneGameUnitInMeters ) )
             {
                 result_dstModel.localLights.push_back( *l );
             }

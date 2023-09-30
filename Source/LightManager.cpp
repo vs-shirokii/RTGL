@@ -96,10 +96,43 @@ RTGL1::LightManager::~LightManager()
 namespace
 {
 
-RTGL1::ShLightEncoded EncodeAsDirectionalLight( const RgLightDirectionalEXT& info, float mult )
+RgFloat3D ApplyTransformToPosition( const RgTransform* transform, const RgFloat3D& pos )
 {
-    RgFloat3D direction = info.direction;
-    RTGL1::Utils::Normalize( direction.data );
+    if( transform )
+    {
+        const auto& m = transform->matrix;
+        const auto& p = pos.data;
+        return RgFloat3D{
+            m[ 0 ][ 0 ] * p[ 0 ] + m[ 0 ][ 1 ] * p[ 1 ] + m[ 0 ][ 2 ] * p[ 2 ] + m[ 0 ][ 3 ],
+            m[ 1 ][ 0 ] * p[ 0 ] + m[ 1 ][ 1 ] * p[ 1 ] + m[ 1 ][ 2 ] * p[ 2 ] + m[ 1 ][ 3 ],
+            m[ 2 ][ 0 ] * p[ 0 ] + m[ 2 ][ 1 ] * p[ 1 ] + m[ 2 ][ 2 ] * p[ 2 ] + m[ 2 ][ 3 ],
+        };
+    }
+    return pos;
+}
+
+RgFloat3D ApplyTransformToDirection( const RgTransform *transform, const RgFloat3D &dir )
+{
+    if( transform )
+    {
+        const auto& m = transform->matrix;
+        const auto& d = dir.data;
+        return RgFloat3D{
+            m[ 0 ][ 0 ] * d[ 0 ] + m[ 0 ][ 1 ] * d[ 1 ] + m[ 0 ][ 2 ] * d[ 2 ],
+            m[ 1 ][ 0 ] * d[ 0 ] + m[ 1 ][ 1 ] * d[ 1 ] + m[ 1 ][ 2 ] * d[ 2 ],
+            m[ 2 ][ 0 ] * d[ 0 ] + m[ 2 ][ 1 ] * d[ 1 ] + m[ 2 ][ 2 ] * d[ 2 ],
+        };
+    }
+    return dir;
+}
+
+RTGL1::ShLightEncoded EncodeAsDirectionalLight( const RgLightDirectionalEXT& info,
+                                                float                        mult,
+                                                const RgTransform*           transform )
+{
+    assert( !transform ); // not expected
+
+    RgFloat3D direction = RTGL1::Utils::Normalize( info.direction );
 
     float angularRadius = 0.5f * RTGL1::Utils::DegToRad( info.angularDiameterDegrees );
     auto  fcolor        = RTGL1::Utils::UnpackColor4DPacked32< RgFloat3D >( info.color );
@@ -121,8 +154,12 @@ RTGL1::ShLightEncoded EncodeAsDirectionalLight( const RgLightDirectionalEXT& inf
     return lt;
 }
 
-RTGL1::ShLightEncoded EncodeAsSphereLight( const RgLightSphericalEXT& info, float mult )
+RTGL1::ShLightEncoded EncodeAsSphereLight( const RgLightSphericalEXT& info,
+                                           float                      mult,
+                                           const RgTransform*         transform )
 {
+    RgFloat3D pos = ApplyTransformToPosition( transform, info.position );
+
     float radius = std::max( RTGL1::MIN_SPHERE_RADIUS, info.radius );
     // disk is visible from the point
     float area = float( RTGL1::RG_PI ) * radius * radius;
@@ -137,9 +174,9 @@ RTGL1::ShLightEncoded EncodeAsSphereLight( const RgLightSphericalEXT& info, floa
     lt.color[ 1 ] = fcolor.data[ 1 ] * info.intensity / area * mult;
     lt.color[ 2 ] = fcolor.data[ 2 ] * info.intensity / area * mult;
 
-    lt.data_0[ 0 ] = info.position.data[ 0 ];
-    lt.data_0[ 1 ] = info.position.data[ 1 ];
-    lt.data_0[ 2 ] = info.position.data[ 2 ];
+    lt.data_0[ 0 ] = pos.data[ 0 ];
+    lt.data_0[ 1 ] = pos.data[ 1 ];
+    lt.data_0[ 2 ] = pos.data[ 2 ];
 
     lt.data_0[ 3 ] = radius;
 
@@ -148,8 +185,11 @@ RTGL1::ShLightEncoded EncodeAsSphereLight( const RgLightSphericalEXT& info, floa
 
 RTGL1::ShLightEncoded EncodeAsTriangleLight( const RgLightPolygonalEXT& info,
                                              const RgFloat3D&           unnormalizedNormal,
-                                             float                      mult )
+                                             float                      mult,
+                                             const RgTransform*         transform )
 {
+    assert( !transform ); // not implemented
+
     RgFloat3D n   = unnormalizedNormal;
     float     len = RTGL1::Utils::Length( n.data );
     n.data[ 0 ] /= len;
@@ -188,10 +228,15 @@ RTGL1::ShLightEncoded EncodeAsTriangleLight( const RgLightPolygonalEXT& info,
     return lt;
 }
 
-RTGL1::ShLightEncoded EncodeAsSpotLight( const RgLightSpotEXT& info, float mult )
+RTGL1::ShLightEncoded EncodeAsSpotLight( const RgLightSpotEXT& info,
+                                         float                 mult,
+                                         const RgTransform*    transform )
 {
-    RgFloat3D direction = info.direction;
-    RTGL1::Utils::Normalize( direction.data );
+    RgFloat3D pos = ApplyTransformToPosition( transform, info.position );
+
+    RgFloat3D direction =
+        ApplyTransformToDirection( transform, RTGL1::Utils::Normalize( info.direction ) );
+    assert( std::abs( RTGL1::Utils::Length( direction.data ) - 1.0f ) < 0.001f );
 
     float radius = std::max( RTGL1::MIN_SPHERE_RADIUS, info.radius );
     float area   = float( RTGL1::RG_PI ) * radius * radius;
@@ -216,9 +261,9 @@ RTGL1::ShLightEncoded EncodeAsSpotLight( const RgLightSpotEXT& info, float mult 
     lt.color[ 1 ] = fcolor.data[ 1 ] * info.intensity / area * mult;
     lt.color[ 2 ] = fcolor.data[ 2 ] * info.intensity / area * mult;
 
-    lt.data_0[ 0 ] = info.position.data[ 0 ];
-    lt.data_0[ 1 ] = info.position.data[ 1 ];
-    lt.data_0[ 2 ] = info.position.data[ 2 ];
+    lt.data_0[ 0 ] = pos.data[ 0 ];
+    lt.data_0[ 1 ] = pos.data[ 1 ];
+    lt.data_0[ 2 ] = pos.data[ 2 ];
 
     lt.data_0[ 3 ] = radius;
 
@@ -381,7 +426,9 @@ float CalculateLightStyle( const std::optional< RgLightAdditionalEXT >& extra,
 
 }
 
-void RTGL1::LightManager::Add( uint32_t frameIndex, const LightCopy& light )
+void RTGL1::LightManager::Add( uint32_t           frameIndex,
+                               const LightCopy&   light,
+                               const RgTransform* transform )
 {
     std::visit(
         ext::overloaded{
@@ -397,10 +444,11 @@ void RTGL1::LightManager::Add( uint32_t frameIndex, const LightCopy& light )
                     return;
                 }
 
-                AddInternal( frameIndex,
-                             light.base.uniqueID,
-                             EncodeAsDirectionalLight(
-                                 lext, CalculateLightStyle( light.additional, lightstyles ) ) );
+                AddInternal(
+                    frameIndex,
+                    light.base.uniqueID,
+                    EncodeAsDirectionalLight(
+                        lext, CalculateLightStyle( light.additional, lightstyles ), transform ) );
             },
             [ & ]( const RgLightSphericalEXT& lext ) {
                 if( IsLightColorTooDim( lext ) )
@@ -408,10 +456,11 @@ void RTGL1::LightManager::Add( uint32_t frameIndex, const LightCopy& light )
                     return;
                 }
 
-                AddInternal( frameIndex,
-                             light.base.uniqueID,
-                             EncodeAsSphereLight(
-                                 lext, CalculateLightStyle( light.additional, lightstyles ) ) );
+                AddInternal(
+                    frameIndex,
+                    light.base.uniqueID,
+                    EncodeAsSphereLight(
+                        lext, CalculateLightStyle( light.additional, lightstyles ), transform ) );
             },
             [ & ]( const RgLightSpotEXT& lext ) {
                 if( IsLightColorTooDim( lext ) )
@@ -419,10 +468,11 @@ void RTGL1::LightManager::Add( uint32_t frameIndex, const LightCopy& light )
                     return;
                 }
 
-                AddInternal( frameIndex,
-                             light.base.uniqueID,
-                             EncodeAsSpotLight(
-                                 lext, CalculateLightStyle( light.additional, lightstyles ) ) );
+                AddInternal(
+                    frameIndex,
+                    light.base.uniqueID,
+                    EncodeAsSpotLight(
+                        lext, CalculateLightStyle( light.additional, lightstyles ), transform ) );
             },
             [ & ]( const RgLightPolygonalEXT& lext ) {
                 if( IsLightColorTooDim( lext ) )
@@ -441,7 +491,8 @@ void RTGL1::LightManager::Add( uint32_t frameIndex, const LightCopy& light )
                     light.base.uniqueID,
                     EncodeAsTriangleLight( lext,
                                            unnormalizedNormal,
-                                           CalculateLightStyle( light.additional, lightstyles ) ) );
+                                           CalculateLightStyle( light.additional, lightstyles ),
+                                           transform ) );
             },
         },
         light.extension );

@@ -74,10 +74,11 @@ public:
                                   LightManager&              lightManager,
                                   bool                       isStatic );
 
-    UploadResult UploadLight( uint32_t         frameIndex,
-                              const LightCopy& light,
-                              LightManager&    lightManager,
-                              bool             isStatic );
+    UploadResult UploadLight( uint32_t           frameIndex,
+                              const LightCopy&   light,
+                              LightManager&      lightManager,
+                              bool               isStatic,
+                              const RgTransform* transform = nullptr );
 
     void SubmitStaticLights( uint32_t          frameIndex,
                              LightManager&     lightManager,

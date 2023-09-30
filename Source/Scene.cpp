@@ -297,10 +297,20 @@ RTGL1::UploadResult RTGL1::Scene::UploadPrimitive( uint32_t                   fr
                 assert( r != UploadResult::Fail );
             }
 
-            for( const auto& localLight : replacement->localLights )
+            for( auto localLight : replacement->localLights )
             {
                 assert( localLight.base.uniqueID != 0 && localLight.base.isExportable );
-                UploadLight( frameIndex, localLight, lightManager, false );
+
+                auto hashCombine = []< typename T >( size_t seed, const T& v ) {
+                    return seed ^
+                           ( std::hash< T >{}( v ) + 0x9e3779b9 + ( seed << 6 ) + ( seed >> 2 ) );
+                };
+
+                localLight.base.uniqueID =
+                    hashCombine( localLight.base.uniqueID, mesh.uniqueObjectID );
+                localLight.base.isExportable = false;
+
+                UploadLight( frameIndex, localLight, lightManager, false, &mesh.transform );
             }
 
             alreadyReplacedUniqueObjectIDs.insert( mesh.uniqueObjectID );
@@ -315,11 +325,14 @@ RTGL1::UploadResult RTGL1::Scene::UploadPrimitive( uint32_t                   fr
                : ( mesh.isExportable ? UploadResult::ExportableDynamic : UploadResult::Dynamic );
 }
 
-RTGL1::UploadResult RTGL1::Scene::UploadLight( uint32_t         frameIndex,
-                                               const LightCopy& light,
-                                               LightManager&    lightManager,
-                                               bool             isStatic )
+RTGL1::UploadResult RTGL1::Scene::UploadLight( uint32_t           frameIndex,
+                                               const LightCopy&   light,
+                                               LightManager&      lightManager,
+                                               bool               isStatic,
+                                               const RgTransform* transform )
 {
+    assert( !isStatic || ( isStatic && !transform ) );
+
     bool isExportable = light.base.isExportable;
 
     if( !isStatic )
@@ -341,7 +354,7 @@ RTGL1::UploadResult RTGL1::Scene::UploadLight( uint32_t         frameIndex,
     // adding static to light manager is done separately in SubmitStaticLights
     if( !isStatic )
     {
-        lightManager.Add( frameIndex, light );
+        lightManager.Add( frameIndex, light, transform );
     }
 
     return isStatic ? ( isExportable ? UploadResult::ExportableStatic : UploadResult::Static )
