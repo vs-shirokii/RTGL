@@ -25,6 +25,7 @@
 #include "Generated/ShaderCommonC.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <ranges>
 
@@ -311,10 +312,11 @@ void RTGL1::VulkanDevice::Dev_Draw() const
             }
 
             ImGui::Checkbox( "Freelook", &modifiers.customEnable );
-            ImGui::TextUnformatted( "Freelook:\n"
-                                    "    * WASD - to move\n"
-                                    "    * Alt - hold to rotate\n"
-                                    "NOTE: inputs are read only from this window, and not from the game's one" );
+            ImGui::TextUnformatted(
+                "Freelook:\n"
+                "    * WASD - to move\n"
+                "    * Alt - hold to rotate\n"
+                "NOTE: inputs are read only from this window, and not from the game's one" );
             if( modifiers.customEnable )
             {
                 if( ImGui::IsKeyPressed( ImGuiKey_LeftAlt ) )
@@ -723,11 +725,12 @@ void RTGL1::VulkanDevice::Dev_Draw() const
         ImGui::Separator();
         ImGui::Dummy( ImVec2( 0, 16 ) );
         {
+            ImGui::BeginDisabled( dev.buttonRecording );
             if( ImGui::Button( "Reimport replacements GLTF", { -1, 80 } ) )
             {
                 sceneImportExport->RequestReplacementsReimport();
             }
-            ImGui::Dummy( ImVec2( 0, 16 ) );
+            ImGui::Dummy( ImVec2( 0, 8 ) );
             if( ImGui::Button( "Reimport map GLTF", { -1, 80 } ) )
             {
                 sceneImportExport->RequestReimport();
@@ -743,6 +746,7 @@ void RTGL1::VulkanDevice::Dev_Draw() const
             ImGui::EndDisabled();
             ImGui::SameLine();
             ImGui::Checkbox( "Custom##import", &dev.importName.enable );
+            ImGui::EndDisabled();
         }
         ImGui::Dummy( ImVec2( 0, 16 ) );
         ImGui::Separator();
@@ -751,11 +755,46 @@ void RTGL1::VulkanDevice::Dev_Draw() const
             ImGui::PushStyleColor( ImGuiCol_Button, ImVec4( 0.98f, 0.59f, 0.26f, 0.40f ) );
             ImGui::PushStyleColor( ImGuiCol_ButtonHovered, ImVec4( 0.98f, 0.59f, 0.26f, 1.00f ) );
             ImGui::PushStyleColor( ImGuiCol_ButtonActive, ImVec4( 0.98f, 0.53f, 0.06f, 1.00f ) );
-            if( ImGui::Button( "Export replacements GLTF", { -1, 80 } ) )
             {
-                sceneImportExport->RequestExportReplacements();
+                const auto halfWidth = ( ImGui::GetContentRegionAvail().x -
+                                         ImGui::GetCurrentWindow()->WindowPadding.x ) *
+                                       0.5f;
+                if( dev.buttonRecording )
+                {
+                    ImGui::BeginDisabled( true );
+                    ImGui::Button( "Replacements are being recorded...", { halfWidth, 80 } );
+                    ImGui::EndDisabled();
+                }
+                else
+                {
+                    if( ImGui::Button( "Export replacements GLTF\n from this frame",
+                                       { halfWidth, 80 } ) )
+                    {
+                        sceneImportExport->RequestReplacementsExport_OneFrame();
+                    }
+                }
+                ImGui::SameLine();
+                if( dev.buttonRecording )
+                {
+                    if( ImGui::Button( "Stop recording\nand Export into GLTF", { halfWidth, 80 } ) )
+                    {
+                        sceneImportExport->RequestReplacementsExport_RecordEnd();
+                        dev.buttonRecording = false;
+                    }
+                }
+                else
+                {
+                    if( ImGui::Button( "Start recording\nreplacements into GLTF",
+                                       { halfWidth, 80 } ) )
+                    {
+                        sceneImportExport->RequestReplacementsExport_RecordBegin();
+                        dev.buttonRecording = true;
+                    }
+                }
             }
-            ImGui::Checkbox( "Allow export of existing replacements", &devmode->allowExportOfExistingReplacements );
+            ImGui::BeginDisabled( dev.buttonRecording );
+            ImGui::Checkbox( "Allow export of existing replacements",
+                             &devmode->allowExportOfExistingReplacements );
             ImGui::Dummy( ImVec2( 0, 16 ) );
             if( ImGui::Button( "Export map GLTF", { -1, 80 } ) )
             {
@@ -773,11 +812,13 @@ void RTGL1::VulkanDevice::Dev_Draw() const
             ImGui::EndDisabled();
             ImGui::SameLine();
             ImGui::Checkbox( "Custom##export", &dev.exportName.enable );
+            ImGui::EndDisabled();
         }
         ImGui::Dummy( ImVec2( 0, 16 ) );
         ImGui::Separator();
         ImGui::Dummy( ImVec2( 0, 16 ) );
         {
+            ImGui::BeginDisabled( dev.buttonRecording );
             ImGui::Checkbox( "Custom import/export world space", &dev.worldTransform.enable );
             ImGui::BeginDisabled( !dev.worldTransform.enable );
             {
@@ -788,6 +829,7 @@ void RTGL1::VulkanDevice::Dev_Draw() const
                     std::format( "1 unit = {} meters", dev.worldTransform.scale ).c_str(),
                     &dev.worldTransform.scale );
             }
+            ImGui::EndDisabled();
             ImGui::EndDisabled();
         }
         ImGui::EndTabItem();

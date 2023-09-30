@@ -168,7 +168,9 @@ public:
     void OnFileChanged( FileType type, const std::filesystem::path& filepath ) override;
 
     void          RequestExport();
-    void          RequestExportReplacements();
+    void          RequestReplacementsExport_OneFrame();
+    void          RequestReplacementsExport_RecordBegin();
+    void          RequestReplacementsExport_RecordEnd();
     GltfExporter* TryGetExporter( bool isReplacement );
 
     std::string_view GetImportMapName() const;
@@ -188,8 +190,16 @@ private:
     bool reimportRequested;
     bool reimportReplacementsRequested;
 
+    enum class ExportState
+    {
+        None,
+        OneFrame,
+        Recording,
+        FinilizeIntoFile,
+    };
+
     bool                            exportRequested{ false };
-    bool                            exportReplacementsRequested{ false };
+    ExportState                     exportReplacementsRequest{ ExportState::None };
     std::unique_ptr< GltfExporter > sceneExporter{};
     std::unique_ptr< GltfExporter > replacementsExporter{};
 
@@ -230,6 +240,8 @@ public:
                 scale   = s.worldScale;
             }
         } worldTransform;
+
+        bool buttonRecording{ false };
     } dev;
 
     auto dev_GetSceneImportGltfPath() -> std::string;

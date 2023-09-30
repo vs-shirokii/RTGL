@@ -686,16 +686,26 @@ void RTGL1::SceneImportExport::PrepareForFrame()
 {
     if( exportRequested )
     {
+        assert( !sceneExporter );
         sceneExporter =
             std::make_unique< GltfExporter >( MakeWorldTransform(), GetWorldScale(), true );
+        exportRequested = false;
     }
-    if( exportReplacementsRequested )
+
+    if( exportReplacementsRequest == ExportState::OneFrame )
     {
+        assert( !replacementsExporter );
         replacementsExporter =
             std::make_unique< GltfExporter >( MakeWorldTransform(), GetWorldScale(), false );
     }
-    exportRequested             = false;
-    exportReplacementsRequested = false;
+    else if( exportReplacementsRequest == ExportState::Recording )
+    {
+        if( !replacementsExporter )
+        {
+            replacementsExporter =
+                std::make_unique< GltfExporter >( MakeWorldTransform(), GetWorldScale(), false );
+        }
+    }
 }
 
 void RTGL1::SceneImportExport::CheckForNewScene( std::string_view    mapName,
@@ -750,7 +760,8 @@ void RTGL1::SceneImportExport::TryExport( const TextureManager&        textureMa
         sceneExporter.reset();
     }
 
-    if( replacementsExporter )
+    if( replacementsExporter && ( exportReplacementsRequest == ExportState::FinilizeIntoFile ||
+                                  exportReplacementsRequest == ExportState::OneFrame ) )
     {
         auto setname = FindNextReplaceFileNameInFolder( replacementsFolder );
         if( !setname.empty() )
@@ -760,8 +771,9 @@ void RTGL1::SceneImportExport::TryExport( const TextureManager&        textureMa
                 textureManager,
                 ovrdFolder,
                 false );
-            replacementsExporter.reset();
         }
+        replacementsExporter.reset();
+        exportReplacementsRequest = ExportState::None;
     }
 }
 
@@ -881,7 +893,26 @@ void RTGL1::SceneImportExport::RequestExport()
     exportRequested = true;
 }
 
-void RTGL1::SceneImportExport::RequestExportReplacements()
+void RTGL1::SceneImportExport::RequestReplacementsExport_OneFrame()
 {
-    exportReplacementsRequested = true;
+    if( exportReplacementsRequest == ExportState::None )
+    {
+        exportReplacementsRequest = ExportState::OneFrame;
+    }
+}
+
+void RTGL1::SceneImportExport::RequestReplacementsExport_RecordBegin()
+{
+    if( exportReplacementsRequest == ExportState::None )
+    {
+        exportReplacementsRequest = ExportState::Recording;
+    }
+}
+
+void RTGL1::SceneImportExport::RequestReplacementsExport_RecordEnd()
+{
+    if( exportReplacementsRequest == ExportState::Recording )
+    {
+        exportReplacementsRequest = ExportState::FinilizeIntoFile;
+    }
 }
