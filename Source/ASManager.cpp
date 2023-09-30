@@ -723,7 +723,7 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
             }
             else
             {
-                assert( 0 );
+                // assert( 0 );
             }
         }
     }
