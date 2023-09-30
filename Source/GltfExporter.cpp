@@ -383,8 +383,12 @@ private:
 
 
 
-RTGL1::GltfExporter::GltfExporter( const RgTransform& _worldTransform, float _oneGameUnitInMeters )
-    : worldTransform( _worldTransform ), oneGameUnitInMeters( _oneGameUnitInMeters )
+RTGL1::GltfExporter::GltfExporter( const RgTransform& _worldTransform,
+                                   float              _oneGameUnitInMeters,
+                                   bool               _allowDuplicates )
+    : worldTransform( _worldTransform )
+    , oneGameUnitInMeters( _oneGameUnitInMeters )
+    , allowDuplicates( _allowDuplicates )
 {
 }
 
@@ -1531,6 +1535,17 @@ void RTGL1::GltfExporter::AddPrimitive( const RgMeshInfo&          mesh,
         return;
     }
 
+    if( !allowDuplicates )
+    {
+        for( const auto& node : scene.values() | std::views::keys )
+        {
+            if( node.name == mesh.pMeshName )
+            {
+                return;
+            }
+        }
+    }
+
     scene[ GltfMeshNode{
                mesh.pMeshName,
                mesh.transform,
@@ -1546,6 +1561,8 @@ void RTGL1::GltfExporter::AddPrimitive( const RgMeshInfo&          mesh,
 void RTGL1::GltfExporter::AddPrimitiveLights( const RgMeshInfo&          mesh,
                                               const RgMeshPrimitiveInfo& primitive )
 {
+    assert( allowDuplicates ); // not implemented
+
     if( auto* attachedLight = pnext::find< RgMeshPrimitiveAttachedLightEXT >( &primitive ) )
     {
         for( const AnyLightEXT& ext :
@@ -1578,6 +1595,7 @@ void RTGL1::GltfExporter::MakeLightsForPrimitiveDynamic( const RgMeshInfo&      
 
 void RTGL1::GltfExporter::AddLight( const LightCopy& light )
 {
+    assert( allowDuplicates ); // not implemented
     sceneLights.push_back( light );
 }
 
@@ -1603,6 +1621,22 @@ void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,
         debug::Warning( "Denied to write to the folder {}",
                         std::filesystem::absolute( GetGltfFolder( gltfPath ) ).string() );
         return;
+    }
+
+    if( !isSceneGltf )
+    {
+        if( exists( gltfPath ) )
+        {
+            debug::Warning( "Won't export .gltf, as corresponding file already exists: {}",
+                            absolute( gltfPath ).string() );
+            return;
+        }
+        if( exists( GetGltfBinPath( gltfPath ) ) )
+        {
+            debug::Warning( "Won't export .gltf, as corresponding .bin file already exists: {}",
+                            absolute( GetGltfBinPath( gltfPath ) ).string() );
+            return;
+        }
     }
 
 

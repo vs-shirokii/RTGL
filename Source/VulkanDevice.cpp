@@ -1115,16 +1115,19 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
             logDebugStat( Devmode::DebugPrimMode::RayTraced, &mesh, prim, r );
 
 
-            if( auto e = sceneImportExport->TryGetExporter(
-                    mesh.flags & RG_MESH_INFO_EXPORT_AS_SEPARATE_FILE ? mesh.pMeshName : nullptr ) )
+            if( auto e = sceneImportExport->TryGetExporter( mesh.flags &
+                                                            RG_MESH_INFO_EXPORT_AS_SEPARATE_FILE ) )
             {
                 if( r == UploadResult::ExportableDynamic || r == UploadResult::ExportableStatic )
                 {
                     e->AddPrimitive( mesh, prim );
                 }
 
-                // SHIPPING_HACK: add lights even for non-exportable geometry
-                e->AddPrimitiveLights( mesh, prim );
+                // SHIPPING_HACK: add lights to the scene gltf even for non-exportable geometry
+                if( !( mesh.flags & RG_MESH_INFO_EXPORT_AS_SEPARATE_FILE ) )
+                {
+                    e->AddPrimitiveLights( mesh, prim );
+                }
             }
 
 
@@ -1484,7 +1487,7 @@ void RTGL1::VulkanDevice::UploadLight( const RgLightInfo* pInfo )
     UploadResult r =
         scene->UploadLight( currentFrameState.GetFrameIndex(), light, *lightManager, false );
 
-    if( auto e = sceneImportExport->TryGetExporter( nullptr ) )
+    if( auto e = sceneImportExport->TryGetExporter( false ) )
     {
         if( r == UploadResult::ExportableDynamic || r == UploadResult::ExportableStatic )
         {

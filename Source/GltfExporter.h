@@ -64,7 +64,7 @@ using MeshesToTheirPrimitives =
 class GltfExporter
 {
 public:
-    explicit GltfExporter( const RgTransform& worldTransform, float oneGameUnitInMeters );
+    explicit GltfExporter( const RgTransform& worldTransform, float oneGameUnitInMeters, bool allowDuplicates );
     ~GltfExporter() = default;
 
     GltfExporter( const GltfExporter& other )                = delete;
@@ -95,5 +95,6 @@ private:
 
     RgTransform worldTransform;
     float       oneGameUnitInMeters;
+    bool        allowDuplicates;
 };
 }

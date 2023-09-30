@@ -30,7 +30,7 @@
 
 namespace
 {
-template< bool IsForScene = true >
+template< bool WithSeparateFolder = true >
 auto MakeGltfPath( const std::filesystem::path& base, std::string_view meshName )
     -> std::filesystem::path
 {
@@ -39,7 +39,7 @@ auto MakeGltfPath( const std::filesystem::path& base, std::string_view meshName 
     std::ranges::replace( exportName, '\\', '_' );
     std::ranges::replace( exportName, '/', '_' );
 
-    if( IsForScene )
+    if( WithSeparateFolder )
     {
         return base / exportName / ( exportName + ".gltf" );
     }
@@ -54,6 +54,84 @@ auto SanitizePathToShow( const std::filesystem::path& p )
     auto s = p.string();
     std::ranges::replace( s, '\\', '/' );
     return s;
+}
+
+constexpr auto REPLACE_SET_MAX_INDEX = 999;
+
+auto asNumber( const std::string_view& str ) -> std::optional< uint32_t >
+{
+    if( str.empty() )
+    {
+        return {};
+    }
+
+    uint32_t num = 0;
+    for( char c : str )
+    {
+        if( c >= '0' && c <= '9' )
+        {
+            auto i = c - '0';
+            num    = num * 10 + i;
+
+            // overflow
+            if( num > REPLACE_SET_MAX_INDEX )
+            {
+                return REPLACE_SET_MAX_INDEX + 1;
+            }
+        }
+        else
+        {
+            return {};
+        }
+    }
+    return num;
+}
+
+auto FindNextReplaceFileNameInFolder( const std::filesystem::path& folder ) -> std::string
+{
+    constexpr auto prefix = std::string_view{ "set_" };
+
+    if( !exists( folder ) )
+    {
+        return std::string{ prefix } + '0';
+    }
+
+    if( !is_directory( folder ) )
+    {
+        RTGL1::debug::Warning( R"(Export fail: expected '{}' to be a folder)",
+                               SanitizePathToShow( folder ) );
+        return {};
+    }
+
+    uint32_t largest = 0;
+
+    for( const auto& entry : std::filesystem::directory_iterator{ folder } )
+    {
+        if( entry.is_regular_file() )
+        {
+            const auto namestorage = entry.path().stem().string();
+            const auto name        = std::string_view{ namestorage };
+
+            if( name.starts_with( prefix ) )
+            {
+                if( auto i = asNumber( name.substr( prefix.length() ) ) )
+                {
+                    largest = std::max( largest, *i );
+                }
+            }
+        }
+    }
+
+    if( largest + 1 > REPLACE_SET_MAX_INDEX )
+    {
+        RTGL1::debug::Warning( "Couldn't find next file name in folder: {}. Last index is {}{}",
+                               SanitizePathToShow( folder ),
+                               prefix,
+                               REPLACE_SET_MAX_INDEX );
+        return {};
+    }
+
+    return std::string{ prefix } + std::to_string( largest + 1 );
 }
 }
 
@@ -565,9 +643,16 @@ void RTGL1::SceneImportExport::PrepareForFrame()
 {
     if( exportRequested )
     {
-        sceneExporter = std::make_unique< GltfExporter >( MakeWorldTransform(), GetWorldScale() );
+        sceneExporter =
+            std::make_unique< GltfExporter >( MakeWorldTransform(), GetWorldScale(), true );
     }
-    exportRequested = false;
+    if( exportReplacementsRequested )
+    {
+        replacementsExporter =
+            std::make_unique< GltfExporter >( MakeWorldTransform(), GetWorldScale(), false );
+    }
+    exportRequested             = false;
+    exportReplacementsRequested = false;
 }
 
 void RTGL1::SceneImportExport::CheckForNewScene( std::string_view    mapName,
@@ -580,7 +665,6 @@ void RTGL1::SceneImportExport::CheckForNewScene( std::string_view    mapName,
 {
     if( currentMap != mapName || reimportRequested || reimportReplacementsRequested )
     {
-
         currentMap                    = mapName;
         reimportRequested             = false;
         reimportReplacementsRequested = false;
@@ -616,16 +700,26 @@ void RTGL1::SceneImportExport::TryExport( const TextureManager&        textureMa
 {
     if( sceneExporter )
     {
-        sceneExporter->ExportToFiles(
-            MakeGltfPath( scenesFolder, GetExportMapName() ), textureManager, ovrdFolder, true );
+        sceneExporter->ExportToFiles( MakeGltfPath< true >( scenesFolder, GetExportMapName() ),
+                                      textureManager,
+                                      ovrdFolder,
+                                      true );
         sceneExporter.reset();
     }
 
-    for( auto& [ path, e ] : replacementExporters )
+    if( replacementsExporter )
     {
-        e->ExportToFiles( path, textureManager, ovrdFolder, false );
+        auto setname = FindNextReplaceFileNameInFolder( replacementsFolder );
+        if( !setname.empty() )
+        {
+            replacementsExporter->ExportToFiles(
+                MakeGltfPath< false >( replacementsFolder, setname ),
+                textureManager,
+                ovrdFolder,
+                false );
+            replacementsExporter.reset();
+        }
     }
-    replacementExporters.clear();
 }
 
 void RTGL1::SceneImportExport::OnFileChanged( FileType type, const std::filesystem::path& filepath )
@@ -646,34 +740,16 @@ void RTGL1::SceneImportExport::OnFileChanged( FileType type, const std::filesyst
     }
 }
 
-RTGL1::GltfExporter* RTGL1::SceneImportExport::TryGetExporter( const char* customExportFileName )
+RTGL1::GltfExporter* RTGL1::SceneImportExport::TryGetExporter( bool isReplacement )
 {
-    if( !sceneExporter )
+    if( isReplacement )
     {
-        return nullptr;
+        return replacementsExporter.get();
     }
-
-    if( !Utils::IsCstrEmpty( customExportFileName ) )
+    else
     {
-        const auto replacementsPath =
-            MakeGltfPath< false >( replacementsFolder, customExportFileName );
-
-        auto found = replacementExporters.find( replacementsPath );
-        if( found != replacementExporters.end() )
-        {
-            return found->second.get();
-        }
-        else
-        {
-            auto [ iter, isNew ] = replacementExporters.emplace(
-                replacementsPath,
-                std::make_unique< GltfExporter >( MakeWorldTransform(), GetWorldScale() ) );
-
-            return iter->second.get();
-        }
+        return sceneExporter.get();
     }
-
-    return sceneExporter.get();
 }
 
 const RgFloat3D& RTGL1::SceneImportExport::GetWorldUp() const
@@ -760,4 +836,9 @@ std::string_view RTGL1::SceneImportExport::GetExportMapName() const
 void RTGL1::SceneImportExport::RequestExport()
 {
     exportRequested = true;
+}
+
+void RTGL1::SceneImportExport::RequestExportReplacements()
+{
+    exportReplacementsRequested = true;
 }

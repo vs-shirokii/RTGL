@@ -166,7 +166,8 @@ public:
     void OnFileChanged( FileType type, const std::filesystem::path& filepath ) override;
 
     void          RequestExport();
-    GltfExporter* TryGetExporter( const char* customExportFileName );
+    void          RequestExportReplacements();
+    GltfExporter* TryGetExporter( bool isReplacement );
 
     std::string_view GetImportMapName() const;
     std::string_view GetExportMapName() const;
@@ -185,9 +186,10 @@ private:
     bool reimportRequested;
     bool reimportReplacementsRequested;
 
-    bool exportRequested{ false };
+    bool                            exportRequested{ false };
+    bool                            exportReplacementsRequested{ false };
     std::unique_ptr< GltfExporter > sceneExporter{};
-    rgl::unordered_map< std::filesystem::path, std::unique_ptr< GltfExporter > > replacementExporters{};
+    std::unique_ptr< GltfExporter > replacementsExporter{};
 
     std::string currentMap{};
     RgFloat3D   worldUp;
