@@ -31,6 +31,7 @@
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
 
+#include <filesystem>
 #include <string>
 
 #include "CmdLabel.h"
@@ -199,6 +200,11 @@ VkSemaphore CreateSwapchainSemaphore(VkDevice device)
     return semaphore;
 }
 
+constexpr const char* FontsToFind[] = {
+    R"(C:\Windows\Fonts\CascadiaMono.ttf)",
+    R"(C:\Windows\Fonts\consola.ttf)",
+};
+
 } // anonymous
 
 RTGL1::DebugWindows::DebugWindows( VkInstance                               _instance,
@@ -239,10 +245,27 @@ RTGL1::DebugWindows::DebugWindows( VkInstance                               _ins
 
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
+    #if 0
     if( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
     {
         style.WindowRounding                = 0.0f;
         style.Colors[ ImGuiCol_WindowBg ].w = 1.0f;
+    }
+    #endif
+    style.WindowRounding    = 4.f;
+    style.ChildRounding     = 4.f;
+    style.PopupRounding     = 4.f;
+    style.FrameRounding     = 4.f;
+    style.ScrollbarRounding = 4.f;
+    style.GrabRounding      = 4.f;
+    style.TabRounding       = 4.f;
+
+    for( const char* f : FontsToFind )
+    {
+        if( exists( std::filesystem::path{ f } ) )
+        {
+            io.Fonts->AddFontFromFileTTF( f, 15.f );
+        }
     }
     
     ImGui_ImplGlfw_InitForVulkan( customWindow, true );
