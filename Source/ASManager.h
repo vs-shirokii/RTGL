@@ -58,6 +58,9 @@ public:
     void                              SubmitStaticGeometry( StaticGeometryToken& token );
 
 
+    void ClearReplacements();
+
+
     [[nodiscard]] DynamicGeometryToken BeginDynamicGeometry( VkCommandBuffer cmd,
                                                              uint32_t        frameIndex );
     void                               SubmitDynamicGeometry( DynamicGeometryToken& token,
@@ -103,18 +106,17 @@ private:
     void UpdateBufferDescriptors( uint32_t frameIndex );
     void UpdateASDescriptors( uint32_t frameIndex );
 
-    // TODO: rename to BuiltAS
-    struct TlasInstance
+    struct BuiltAS
     {
         VertexCollectorFilterTypeFlags flags;
         BLASComponent                  blas;
         VertexCollector::UploadResult  geometry;
     };
 
-    static auto MakeVkTLAS( const TlasInstance& tlasInstance,
-                            uint32_t            rayCullMaskWorld,
-                            bool                allowGeometryWithSkyFlag,
-                            const RgTransform&  transform )
+    static auto MakeVkTLAS( const BuiltAS&     builtAS,
+                            uint32_t           rayCullMaskWorld,
+                            bool               allowGeometryWithSkyFlag,
+                            const RgTransform& transform )
         -> std::optional< VkAccelerationStructureInstanceKHR >;
 
 private:
@@ -138,20 +140,20 @@ private:
     std::shared_ptr< TextureManager >       textureMgr;
     std::shared_ptr< GeomInfoManager >      geomInfoMgr;
 
-    rgl::string_map< std::vector< std::shared_ptr< TlasInstance > > > builtReplacements;
+    rgl::string_map< std::vector< std::shared_ptr< BuiltAS > > > builtReplacements;
 
     std::unique_ptr< ChunkedStackAllocator > allocTlas;
     std::unique_ptr< ChunkedStackAllocator > allocStaticGeom;
     std::unique_ptr< ChunkedStackAllocator > allocDynamicGeom;
 
-    std::vector< std::shared_ptr< TlasInstance > > builtStaticInstances;
-    std::vector< std::shared_ptr< TlasInstance > > builtDynamicInstances[ MAX_FRAMES_IN_FLIGHT ];
+    std::vector< std::shared_ptr< BuiltAS > > builtStaticInstances;
+    std::vector< std::shared_ptr< BuiltAS > > builtDynamicInstances[ MAX_FRAMES_IN_FLIGHT ];
 
     // Exists only in the current frame
     struct Object
     {
         // should be weak_ptr
-        TlasInstance*     builtInstance;
+        BuiltAS*          builtInstance;
         PrimitiveUniqueID uniqueID;
         RgTransform       transform;
         bool              isStatic;

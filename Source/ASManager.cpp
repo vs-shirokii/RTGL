@@ -622,7 +622,6 @@ RTGL1::StaticGeometryToken RTGL1::ASManager::BeginStaticGeometry()
 
     // destroy previous static
     builtStaticInstances.clear();
-    builtReplacements.clear();
     allocStaticGeom->Reset();
 
     erase_if( curFrame_objects, []( const Object& o ) { return o.isStatic; } );
@@ -652,6 +651,11 @@ void RTGL1::ASManager::SubmitStaticGeometry( StaticGeometryToken& token )
     // submit and wait
     cmdManager->Submit( cmd, staticCopyFence );
     Utils::WaitAndResetFence( device, staticCopyFence );
+}
+
+void RTGL1::ASManager::ClearReplacements()
+{
+    builtReplacements.clear();
 }
 
 RTGL1::DynamicGeometryToken RTGL1::ASManager::BeginDynamicGeometry( VkCommandBuffer cmd,
@@ -707,7 +711,7 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
     }
 
 
-    auto builtInstance = std::shared_ptr< TlasInstance >{};
+    auto builtInstance = std::shared_ptr< BuiltAS >{};
 
     if( isReplacement )
     {
@@ -745,7 +749,7 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
 
         // NOTE: dedicated allocation, so pointers in asBuilder
         //       are valid until end of the frame
-        auto newlyBuilt = new TlasInstance{
+        auto newlyBuilt = new BuiltAS{
             .flags    = geomFlags,
             .blas     = BLASComponent{ device },
             .geometry = *uploadedData,
@@ -773,7 +777,7 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
         }
 
 
-        builtInstance = std::shared_ptr< TlasInstance >{ newlyBuilt };
+        builtInstance = std::shared_ptr< BuiltAS >{ newlyBuilt };
 
         // save a built instance to a corresponding storage
         if( isReplacement )
@@ -889,7 +893,7 @@ void RTGL1::ASManager::SubmitDynamicGeometry( DynamicGeometryToken& token,
     }
 }
 
-auto RTGL1::ASManager::MakeVkTLAS( const TlasInstance& tlasInstance,
+auto RTGL1::ASManager::MakeVkTLAS( const BuiltAS& builtAS,
                                    uint32_t            rayCullMaskWorld,
                                    bool                allowGeometryWithSkyFlag,
                                    const RgTransform&  transform )
@@ -906,7 +910,7 @@ auto RTGL1::ASManager::MakeVkTLAS( const TlasInstance& tlasInstance,
     };
 
 
-    if( tlasInstance.blas.GetAS() == VK_NULL_HANDLE )
+    if( builtAS.blas.GetAS() == VK_NULL_HANDLE )
     {
         assert( 0 );
         return {};
@@ -919,10 +923,10 @@ auto RTGL1::ASManager::MakeVkTLAS( const TlasInstance& tlasInstance,
         .mask                                   = 0,
         .instanceShaderBindingTableRecordOffset = 0,
         .flags                                  = 0,
-        .accelerationStructureReference         = tlasInstance.blas.GetASAddress(),
+        .accelerationStructureReference         = builtAS.blas.GetASAddress(),
     };
 
-    const auto filter = tlasInstance.flags;
+    const auto filter = builtAS.flags;
 
 
     if( filter & FT::PV_FIRST_PERSON )

@@ -434,6 +434,7 @@ void RTGL1::Scene::RereadReplacements( VkCommandBuffer              cmdForTextur
     namespace fs = std::filesystem;
 
     replacements.clear();
+    asManager->ClearReplacements();
 
     if( !exists( replacementsFolder ) )
     {

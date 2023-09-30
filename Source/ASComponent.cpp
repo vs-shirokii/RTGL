@@ -35,11 +35,6 @@ RTGL1::TLASComponent::TLASComponent( VkDevice _device, const char* _debugName )
 {
 }
 
-RTGL1::ASComponent::~ASComponent()
-{
-    DestroyAS();
-}
-
 auto RTGL1::ASComponent::CreateAS( VkBuffer buf, VkDeviceSize offset, VkDeviceSize size ) const
     -> VkAccelerationStructureKHR
 {

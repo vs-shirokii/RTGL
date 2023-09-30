@@ -35,7 +35,7 @@ protected:
     explicit ASComponent( VkDevice device, const char* debugName );
 
 public:
-    virtual ~ASComponent() = 0;
+    virtual ~ASComponent() { DestroyAS(); }
 
     ASComponent( const ASComponent& other )                = delete;
     ASComponent( ASComponent&& other ) noexcept            = delete;
@@ -69,8 +69,13 @@ protected:
 
 struct BLASComponent final : public ASComponent
 {
-public:
     explicit BLASComponent( VkDevice device, const char* debugName = nullptr );
+    ~BLASComponent() override                            = default;
+
+    BLASComponent( const BLASComponent& )                = delete;
+    BLASComponent( BLASComponent&& ) noexcept            = delete;
+    BLASComponent& operator=( const BLASComponent& )     = delete;
+    BLASComponent& operator=( BLASComponent&& ) noexcept = delete;
 
 protected:
     VkAccelerationStructureTypeKHR GetType() const override
@@ -84,6 +89,12 @@ struct TLASComponent final : public ASComponent
 {
 public:
     explicit TLASComponent( VkDevice device, const char* debugName = nullptr );
+    ~TLASComponent() override = default;
+
+    TLASComponent( const TLASComponent& )                = delete;
+    TLASComponent( TLASComponent&& ) noexcept            = delete;
+    TLASComponent& operator=( const TLASComponent& )     = delete;
+    TLASComponent& operator=( TLASComponent&& ) noexcept = delete;
 
 protected:
     VkAccelerationStructureTypeKHR GetType() const override
