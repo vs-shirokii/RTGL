@@ -434,7 +434,6 @@ void RTGL1::Scene::RereadReplacements( VkCommandBuffer              cmdForTextur
     namespace fs = std::filesystem;
 
     replacements.clear();
-    asManager->ClearReplacements();
 
     if( !exists( replacementsFolder ) )
     {
@@ -579,16 +578,17 @@ void RTGL1::SceneImportExport::CheckForNewScene( std::string_view    mapName,
                                                  TextureMetaManager& textureMeta,
                                                  LightManager&       lightManager )
 {
-    if( currentMap != mapName || reimportRequested )
+    if( currentMap != mapName || reimportRequested || reimportReplacementsRequested )
     {
-        reimportRequested = false;
-        debug::Verbose( "Starting new scene..." );
 
-        currentMap = mapName;
+        currentMap                    = mapName;
+        reimportRequested             = false;
+        reimportReplacementsRequested = false;
 
         // before importer, as it relies on texture properties
         textureMeta.RereadFromFiles( GetImportMapName() );
 
+        debug::Verbose( "Starting new scene..." );
         {
             auto staticScene = GltfImporter{ MakeGltfPath( scenesFolder, GetImportMapName() ),
                                              MakeWorldTransform(),
@@ -598,16 +598,15 @@ void RTGL1::SceneImportExport::CheckForNewScene( std::string_view    mapName,
                 cmd, frameIndex, staticScene, textureManager, textureMeta, lightManager );
         }
         debug::Verbose( "New scene is ready" );
-    }
 
-    if( reimportReplacementsRequested )
-    {
-        reimportReplacementsRequested = false;
+        // NOTE: RereadReplacements must happen with NewScene,
+        //       as replacement AS depend on static AS infrastructure
+
         debug::Verbose( "Reading replacements..." );
-
-        scene.RereadReplacements(
-            cmd, frameIndex, replacementsFolder, textureManager, textureMeta );
-
+        {
+            scene.RereadReplacements(
+                cmd, frameIndex, replacementsFolder, textureManager, textureMeta );
+        }
         debug::Verbose( "Replacements are ready" );
     }
 }

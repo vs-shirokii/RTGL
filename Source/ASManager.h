@@ -58,9 +58,6 @@ public:
     void                              SubmitStaticGeometry( StaticGeometryToken& token );
 
 
-    void ClearReplacements();
-
-
     [[nodiscard]] DynamicGeometryToken BeginDynamicGeometry( VkCommandBuffer cmd,
                                                              uint32_t        frameIndex );
     void                               SubmitDynamicGeometry( DynamicGeometryToken& token,

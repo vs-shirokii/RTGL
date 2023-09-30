@@ -622,6 +622,8 @@ RTGL1::StaticGeometryToken RTGL1::ASManager::BeginStaticGeometry()
 
     // destroy previous static
     builtStaticInstances.clear();
+    // and replacements, because they depend on allocator / vertex collector of static
+    builtReplacements.clear();
     allocStaticGeom->Reset();
 
     erase_if( curFrame_objects, []( const Object& o ) { return o.isStatic; } );
@@ -651,11 +653,6 @@ void RTGL1::ASManager::SubmitStaticGeometry( StaticGeometryToken& token )
     // submit and wait
     cmdManager->Submit( cmd, staticCopyFence );
     Utils::WaitAndResetFence( device, staticCopyFence );
-}
-
-void RTGL1::ASManager::ClearReplacements()
-{
-    builtReplacements.clear();
 }
 
 RTGL1::DynamicGeometryToken RTGL1::ASManager::BeginDynamicGeometry( VkCommandBuffer cmd,
