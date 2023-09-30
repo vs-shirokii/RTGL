@@ -28,6 +28,8 @@
 
 #include "Generated/ShaderCommonC.h"
 
+#include <ranges>
+
 namespace
 {
 template< bool WithSeparateFolder = true >
@@ -515,35 +517,64 @@ void RTGL1::Scene::NewScene( VkCommandBuffer           cmd,
     debug::Info( "Static geometry was rebuilt" );
 }
 
+namespace
+{
+auto GetGltfFilesSortedAlphabetically( const std::filesystem::path& folder )
+    -> std::set< std::filesystem::path >
+{
+    using namespace RTGL1;
+    namespace fs = std::filesystem;
+
+    if( !exists( folder ) || !is_directory( folder ) )
+    {
+        return {};
+    }
+
+    auto gltfs = std::set< std::filesystem::path >{};
+
+    try
+    {
+        for( const fs::directory_entry& entry : fs::directory_iterator{ folder } )
+        {
+            if( entry.is_regular_file() && MakeFileType( entry.path() ) == RTGL1::FileType::GLTF )
+            {
+                gltfs.insert( entry.path() );
+            }
+        }
+    }
+    catch( const std::filesystem::filesystem_error& e )
+    {
+        debug::Error( R"(directory_iterator failure: '{}'. path1: '{}'. path2: '{}')",
+                      e.what(),
+                      e.path1().string(),
+                      e.path2().string() );
+        return {};
+    }
+
+    return gltfs;
+}
+}
+
 void RTGL1::Scene::RereadReplacements( VkCommandBuffer              cmdForTextures,
                                        uint32_t                     frameIndex,
                                        const std::filesystem::path& replacementsFolder,
                                        TextureManager&              textureManager,
                                        const TextureMetaManager&    textureMeta )
 {
-    namespace fs = std::filesystem;
-
     replacements.clear();
 
-    if( !exists( replacementsFolder ) )
-    {
-        return;
-    }
+    const auto gltfs = GetGltfFilesSortedAlphabetically( replacementsFolder );
 
-    for( const fs::directory_entry& entry : fs::directory_iterator{ replacementsFolder } )
+    // reverse alphabetical -- last ones have more priority
+    for( const auto& path : std::ranges::reverse_view{ gltfs } )
     {
-        if( !entry.is_regular_file() || MakeFileType( entry.path() ) != FileType::GLTF )
-        {
-            continue;
-        }
-
-        if( auto i = GltfImporter{ entry.path(), RG_TRANSFORM_IDENTITY, 1.0f } )
+        if( auto i = GltfImporter{ path, RG_TRANSFORM_IDENTITY, 1.0f } )
         {
             auto wholeGltf = i.ParseFile( cmdForTextures, frameIndex, textureManager, textureMeta );
 
             if( !wholeGltf.lights.empty() )
             {
-                debug::Warning( "Ignoring non-attached lights from \'{}\'", entry.path().string() );
+                debug::Warning( "Ignoring non-attached lights from \'{}\'", path.string() );
             }
 
             for( const auto& [ meshName, mesh ] : wholeGltf.models )
@@ -557,7 +588,7 @@ void RTGL1::Scene::RereadReplacements( VkCommandBuffer              cmdForTextur
                         debug::Warning( "Replacement is empty, it doesn't have "
                                         "any primitives or lights: \'{}\' - \'{}\'",
                                         meshName,
-                                        entry.path().string() );
+                                        path.string() );
                     }
                 }
                 else
@@ -565,7 +596,7 @@ void RTGL1::Scene::RereadReplacements( VkCommandBuffer              cmdForTextur
                     debug::Warning( "Ignoring a replacement as it was already read "
                                     "from another .gltf file. \'{}\' - \'{}\'",
                                     meshName,
-                                    entry.path().string() );
+                                    path.string() );
                 }
             }
         }
