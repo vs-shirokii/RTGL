@@ -36,7 +36,7 @@ vec3 applyTint(vec3 color)
 {
     vec3 tint = vec3(push.custom.r, push.custom.g, push.custom.b);
     
-    float t = push.custom.intensity * clamp(getLuminance(color), 0.05, 1.0) * getProgress();
+    float t = push.custom.intensity * 0.1 * getProgress();
     return mix(color, tint, t);
 }
 
