@@ -91,6 +91,7 @@ struct Devmode
     } cameraOvrd;
 
     bool ignoreExternalGeometry{ false };
+    bool allowExportOfExistingReplacements{ false };
 
     bool materialsTableEnable{ false };
 

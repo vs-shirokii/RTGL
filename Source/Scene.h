@@ -103,6 +103,8 @@ public:
     std::optional< uint64_t > TryGetVolumetricLight(
         const RgDrawFrameIlluminationParams& params ) const;
 
+    bool ReplacementExists( const RgMeshInfo& mesh ) const;
+
 private:
     [[nodiscard]] bool StaticMeshExists( const RgMeshInfo& mesh ) const;
     [[nodiscard]] bool StaticLightExists( const LightCopy& light ) const;

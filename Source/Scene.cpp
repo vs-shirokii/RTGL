@@ -201,6 +201,18 @@ void RTGL1::Scene::SubmitForFrame( VkCommandBuffer                         cmd,
                           disableRTGeometry );
 }
 
+bool RTGL1::Scene::ReplacementExists( const RgMeshInfo& mesh ) const
+{
+    if( mesh.isExportable && !Utils::IsCstrEmpty( mesh.pMeshName ) )
+    {
+        if( mesh.flags & RG_MESH_INFO_EXPORT_AS_SEPARATE_FILE )
+        {
+            return find_p( replacements, mesh.pMeshName );
+        }
+    }
+    return false;
+}
+
 RTGL1::UploadResult RTGL1::Scene::UploadPrimitive( uint32_t                   frameIndex,
                                                    const RgMeshInfo&          mesh,
                                                    const RgMeshPrimitiveInfo& primitive,

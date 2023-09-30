@@ -1118,7 +1118,24 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
             if( auto e = sceneImportExport->TryGetExporter( mesh.flags &
                                                             RG_MESH_INFO_EXPORT_AS_SEPARATE_FILE ) )
             {
-                if( r == UploadResult::ExportableDynamic || r == UploadResult::ExportableStatic )
+                auto allowMeshExport = [ & ]( const RgMeshInfo& m ) {
+                    if( r != UploadResult::ExportableDynamic &&
+                        r != UploadResult::ExportableStatic )
+                    {
+                        return false;
+                    }
+                    if( scene->ReplacementExists( m ) )
+                    {
+                        if( devmode && devmode->allowExportOfExistingReplacements )
+                        {
+                            return true;
+                        }
+                        return false;
+                    }
+                    return true;
+                };
+
+                if( allowMeshExport( mesh ) )
                 {
                     e->AddPrimitive( mesh, prim );
                 }
@@ -1131,7 +1148,7 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
             }
 
 
-            // TODO: remove legacy was to attach lights
+            // TODO: remove legacy way to attach lights
             if( auto attachedLight = pnext::find< RgMeshPrimitiveAttachedLightEXT >( &prim ) )
             {
                 if( attachedLight->evenOnDynamic )

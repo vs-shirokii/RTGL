@@ -755,6 +755,7 @@ void RTGL1::VulkanDevice::Dev_Draw() const
             {
                 sceneImportExport->RequestExportReplacements();
             }
+            ImGui::Checkbox( "Allow export of existing replacements", &devmode->allowExportOfExistingReplacements );
             ImGui::Dummy( ImVec2( 0, 16 ) );
             if( ImGui::Button( "Export map GLTF", { -1, 80 } ) )
             {
