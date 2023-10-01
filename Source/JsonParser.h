@@ -152,49 +152,19 @@ namespace json_parser
         auto ReadPrimitiveExtraInfo( const std::string_view& data ) -> PrimitiveExtraInfo;
     }
 
+    // clang-format off
+    template< typename T > auto ReadFileAs( const std::filesystem::path& path ) = delete;
+    template<> inline auto ReadFileAs< TextureMetaArray >( const std::filesystem::path& path ) { return detail::ReadTextureMetaArray( path ); }
+    template<> inline auto ReadFileAs< SceneMetaArray   >( const std::filesystem::path& path ) { return detail::ReadSceneMetaArray( path ); }
+    template<> inline auto ReadFileAs< LibraryConfig    >( const std::filesystem::path& path ) { return detail::ReadLibraryConfig( path ); }
 
-
-    template< typename T >
-    auto ReadFileAs( const std::filesystem::path& path ) = delete;
-
-    template<>
-    inline auto ReadFileAs< TextureMetaArray >( const std::filesystem::path& path )
-    {
-        return detail::ReadTextureMetaArray( path );
-    }
-
-    template<>
-    inline auto ReadFileAs< SceneMetaArray >( const std::filesystem::path& path )
-    {
-        return detail::ReadSceneMetaArray( path );
-    }
-
-    template<>
-    inline auto ReadFileAs< LibraryConfig >( const std::filesystem::path& path )
-    {
-        return detail::ReadLibraryConfig( path );
-    }
-
-
-
-    template< typename T >
-    auto ReadStringAs( const std::string_view& str ) = delete;
-
-    template<>
-    inline auto ReadStringAs< RgLightAdditionalEXT >( const std::string_view& data )
-    {
-        return detail::ReadLightExtraInfo( data );
-    }
-
-    template<>
-    inline auto ReadStringAs< PrimitiveExtraInfo >( const std::string_view& data )
-    {
-        return detail::ReadPrimitiveExtraInfo( data );
-    }
-
-
+    template< typename T > auto ReadStringAs( const std::string_view& str ) = delete;
+    template<> inline auto ReadStringAs< RgLightAdditionalEXT >( const std::string_view& data ) { return detail::ReadLightExtraInfo( data ); }
+    template<> inline auto ReadStringAs< PrimitiveExtraInfo   >( const std::string_view& data ) { return detail::ReadPrimitiveExtraInfo( data ); }
+    // clang-format on
 
     std::string MakeJsonString( const RgLightAdditionalEXT& info );
+    std::string MakeJsonString( const PrimitiveExtraInfo& info );
 }
 
 }

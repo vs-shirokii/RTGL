@@ -313,7 +313,30 @@ std::string RTGL1::json_parser::MakeJsonString( const RgLightAdditionalEXT& info
     }
     catch( std::exception& e )
     {
-        debug::Warning( "Json write fail on RgLightExtraInfo:\n{}", e.what() );
+        debug::Warning( "Json write fail on RgLightAdditionalEXT:\n{}", e.what() );
+    }
+
+    return {};
+}
+
+std::string RTGL1::json_parser::MakeJsonString( const PrimitiveExtraInfo& info )
+{
+    try
+    {
+        std::string str;
+
+        glz::write< glz::opts{
+            .error_on_unknown_keys = false,
+            .no_except             = false,
+            .prettify              = true,
+            .indentation_width     = 4,
+        } >( info, str );
+
+        return str;
+    }
+    catch( std::exception& e )
+    {
+        debug::Warning( "Json write fail on PrimitiveExtraInfo:\n{}", e.what() );
     }
 
     return {};
