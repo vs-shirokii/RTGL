@@ -58,12 +58,60 @@ namespace
 #undef MAT
     }
 
-    RgTransform MakeRgTransformFromGltfNode( const cgltf_node& node )
+    RgTransform MakeRgTransform( const cgltf_node& node )
     {
         float mat[ 16 ];
         cgltf_node_transform_local( &node, mat );
 
         return ColumnsToRows( mat );
+    }
+
+    // based on cgltf_node_transform_world
+    RgTransform MakeRgTransformRelativeTo( const cgltf_node* target, const cgltf_node* relativeTo )
+    {
+        // clang-format off
+        cgltf_float lm[ 16 ] = {
+            1,0,0,0,
+            0,1,0,0,
+            0,0,1,0,
+            0,0,0,1,
+        };
+        // clang-format on
+
+        const cgltf_node* cur = target;
+        while( cur )
+        {
+            if( cur == relativeTo )
+            {
+                break;
+            }
+
+            float pm[ 16 ];
+            cgltf_node_transform_local( cur, pm );
+
+            for( int i = 0; i < 4; ++i )
+            {
+                float l0 = lm[ i * 4 + 0 ];
+                float l1 = lm[ i * 4 + 1 ];
+                float l2 = lm[ i * 4 + 2 ];
+
+                float r0 = l0 * pm[ 0 ] + l1 * pm[ 4 ] + l2 * pm[ 8 ];
+                float r1 = l0 * pm[ 1 ] + l1 * pm[ 5 ] + l2 * pm[ 9 ];
+                float r2 = l0 * pm[ 2 ] + l1 * pm[ 6 ] + l2 * pm[ 10 ];
+
+                lm[ i * 4 + 0 ] = r0;
+                lm[ i * 4 + 1 ] = r1;
+                lm[ i * 4 + 2 ] = r2;
+            }
+
+            lm[ 12 ] += pm[ 12 ];
+            lm[ 13 ] += pm[ 13 ];
+            lm[ 14 ] += pm[ 14 ];
+
+            cur = cur->parent;
+        }
+
+        return ColumnsToRows( lm );
     }
 
     void ApplyInverseWorldTransform( cgltf_node& mainNode, const RgTransform& worldTransform )
@@ -128,13 +176,12 @@ namespace
         return n ? nodeName( *n ) : std::string_view{};
     }
 
-    bool IsAlmostIdentity( const cgltf_node& n )
+    bool IsAlmostIdentity( const RgTransform& tr )
     {
         auto areclose = []( float a, float b ) {
-            return std::abs( a - b ) < 0.0001f;
+            return std::abs( a - b ) < 0.000001f;
         };
 
-        const RgTransform tr = MakeRgTransformFromGltfNode( n );
         for( int i = 0; i < 3; i++ )
         {
             for( int j = 0; j < 4; j++ )
@@ -148,15 +195,20 @@ namespace
         return true;
     }
 
-    template<typename Func>
-    void ForEachNodeRecursively( Func&& func, const cgltf_node* src )
+    template< bool IsTopLevel = true, typename Func >
+    void ForEachChildNodeRecursively( Func&& func, const cgltf_node* src )
     {
         if( src )
         {
-            func( *src );
+            // do not process global parent
+            if( !IsTopLevel )
+            {
+                func( *src );
+            }
+
             for( const cgltf_node* child : std::span{ src->children, src->children_count } )
             {
-                ForEachNodeRecursively( func, child );
+                ForEachChildNodeRecursively< false >( func, child );
             }
         }
     }
@@ -677,8 +729,10 @@ namespace
         };
     }
 
-    auto ParseNodeAsLight( const cgltf_node* srcNode, uint64_t uniqueId, float oneGameUnitInMeters )
-        -> std::optional< LightCopy >
+    auto ParseNodeAsLight( const cgltf_node*  srcNode,
+                           uint64_t           uniqueId,
+                           float              oneGameUnitInMeters,
+                           const RgTransform& relativeTransform ) -> std::optional< LightCopy >
     {
         if( !srcNode || !srcNode->light )
         {
@@ -702,18 +756,16 @@ namespace
                 Utils::SafeCstr( extradata ) );
         };
 
-        RgTransform tr = MakeRgTransformFromGltfNode( node );
-
-        RgFloat3D position = {
-            tr.matrix[ 0 ][ 3 ],
-            tr.matrix[ 1 ][ 3 ],
-            tr.matrix[ 2 ][ 3 ],
+        const auto position = RgFloat3D{
+            relativeTransform.matrix[ 0 ][ 3 ],
+            relativeTransform.matrix[ 1 ][ 3 ],
+            relativeTransform.matrix[ 2 ][ 3 ],
         };
 
-        RgFloat3D direction = {
-            -tr.matrix[ 0 ][ 2 ],
-            -tr.matrix[ 1 ][ 2 ],
-            -tr.matrix[ 2 ][ 2 ],
+        const auto direction = RgFloat3D{
+            -relativeTransform.matrix[ 0 ][ 2 ],
+            -relativeTransform.matrix[ 1 ][ 2 ],
+            -relativeTransform.matrix[ 2 ][ 2 ],
         };
 
         RgColor4DPacked32 packedColor =
@@ -931,9 +983,11 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
 
 
         // global lights
-        if( auto l = ParseNodeAsLight( srcNode, srcNodeHash, oneGameUnitInMeters ) )
+        if( auto l = ParseNodeAsLight(
+                srcNode, srcNodeHash, oneGameUnitInMeters, MakeRgTransform( *srcNode ) ) )
         {
             result.lights.push_back( *l );
+            continue;
         }
 
 
@@ -951,7 +1005,7 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
             result.models.emplace( nodeName( srcNode ),
                                    WholeModelFile::RawModelData{
                                        .uniqueObjectID = srcNodeHash,
-                                       .meshTransform  = MakeRgTransformFromGltfNode( *srcNode ),
+                                       .meshTransform  = MakeRgTransform( *srcNode ),
                                        .primitives     = {},
                                        .localLights    = {},
                                    } );
@@ -960,10 +1014,11 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
 
 
         // mesh
-        auto appendMeshPrimitives =
+        auto AppendMeshPrimitives =
             [ this, &cmdForTextures, &frameIndex, &textureManager, &textureMeta ](
                 std::vector< WholeModelFile::RawModelData::RawPrimitiveData >& target,
-                const cgltf_node*                                              atnode ) {
+                const cgltf_node*                                              atnode,
+                const RgTransform*                                             transform ) {
                 if( !atnode || !atnode->mesh )
                 {
                     return;
@@ -977,12 +1032,23 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
                 {
                     const cgltf_primitive& srcPrim = atnode->mesh->primitives[ i ];
 
+
                     auto vertices = GatherVertices(
                         srcPrim, gltfPath, nodeName( atnode ), nodeName( atnode->parent ) );
                     if( vertices.empty() )
                     {
                         continue;
                     }
+                    if( transform )
+                    {
+                        for( auto& v : vertices )
+                        {
+                            ApplyTransformToPosition( transform, v.position );
+                            ApplyTransformToDirection( transform, v.normal );
+                            ApplyTransformToDirection( transform, v.tangent );
+                        }
+                    }
+
 
                     auto indices = GatherIndices(
                         srcPrim, gltfPath, nodeName( atnode ), nodeName( atnode->parent ) );
@@ -1100,34 +1166,28 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
                     } );
                 }
             };
-        appendMeshPrimitives( result_dstModel.primitives, srcNode );
-        ForEachNodeRecursively(
-            [ this, &appendMeshPrimitives, &result_dstModel ]( const cgltf_node& child ) {
-                if( child.mesh && !IsAlmostIdentity( child ) )
-                {
-                    debug::Warning( "Expect incorrect transform on ...->{}->{}: "
-                                    "Nodes attached to {} must have identity transformation. {}",
-                                    nodeName( child.parent ),
-                                    nodeName( child ),
-                                    nodeName( child.parent ),
-                                    gltfPath );
-                }
 
-                appendMeshPrimitives( result_dstModel.primitives, &child );
+        AppendMeshPrimitives( result_dstModel.primitives, srcNode, nullptr );
+
+        ForEachChildNodeRecursively(
+            [ & ]( const cgltf_node& child ) {
+                const auto childHash         = hashCombine( srcNodeHash, nodeName( child ) );
+                const auto relativeTransform = MakeRgTransformRelativeTo( &child, srcNode );
+
+                // child meshes
+                AppendMeshPrimitives( result_dstModel.primitives,
+                                      &child,
+                                      IsAlmostIdentity( relativeTransform ) ? nullptr
+                                                                            : &relativeTransform );
+
+                // local lights
+                if( auto l = ParseNodeAsLight(
+                        &child, childHash, oneGameUnitInMeters, relativeTransform ) )
+                {
+                    result_dstModel.localLights.push_back( *l );
+                }
             },
             srcNode );
-
-
-        // local lights
-        for( const cgltf_node* child : std::span{ srcNode->children, srcNode->children_count } )
-        {
-            const auto childHash = hashCombine( srcNodeHash, nodeName( child ) );
-
-            if( auto l = ParseNodeAsLight( child, childHash, oneGameUnitInMeters ) )
-            {
-                result_dstModel.localLights.push_back( *l );
-            }
-        }
     }
 
     return result;

@@ -359,6 +359,58 @@ namespace Utils
     // clang-format on
 };
 
+
+template< size_t N >
+    requires( N >= 3 )
+void ApplyTransformToPosition( const RgTransform* transform, float ( &pos )[ N ] )
+{
+    if( transform )
+    {
+        const auto& m     = transform->matrix;
+        const float out[] = {
+            m[ 0 ][ 0 ] * pos[ 0 ] + m[ 0 ][ 1 ] * pos[ 1 ] + m[ 0 ][ 2 ] * pos[ 2 ] + m[ 0 ][ 3 ],
+            m[ 1 ][ 0 ] * pos[ 0 ] + m[ 1 ][ 1 ] * pos[ 1 ] + m[ 1 ][ 2 ] * pos[ 2 ] + m[ 1 ][ 3 ],
+            m[ 2 ][ 0 ] * pos[ 0 ] + m[ 2 ][ 1 ] * pos[ 1 ] + m[ 2 ][ 2 ] * pos[ 2 ] + m[ 2 ][ 3 ],
+        };
+        pos[ 0 ] = out[ 0 ];
+        pos[ 1 ] = out[ 1 ];
+        pos[ 2 ] = out[ 2 ];
+    }
+}
+
+template< size_t N >
+    requires( N >= 3 )
+void ApplyTransformToDirection( const RgTransform* transform, float ( &dir )[ N ] )
+{
+    if( transform )
+    {
+        const auto& m     = transform->matrix;
+        const float out[] = {
+            m[ 0 ][ 0 ] * dir[ 0 ] + m[ 0 ][ 1 ] * dir[ 1 ] + m[ 0 ][ 2 ] * dir[ 2 ],
+            m[ 1 ][ 0 ] * dir[ 0 ] + m[ 1 ][ 1 ] * dir[ 1 ] + m[ 1 ][ 2 ] * dir[ 2 ],
+            m[ 2 ][ 0 ] * dir[ 0 ] + m[ 2 ][ 1 ] * dir[ 1 ] + m[ 2 ][ 2 ] * dir[ 2 ],
+        };
+        dir[ 0 ] = out[ 0 ];
+        dir[ 1 ] = out[ 1 ];
+        dir[ 2 ] = out[ 2 ];
+    }
+}
+
+inline RgFloat3D ApplyTransformToPosition( const RgTransform* transform, const RgFloat3D& pos )
+{
+    RgFloat3D r = pos;
+    ApplyTransformToPosition( transform, r.data );
+    return r;
+}
+
+inline RgFloat3D ApplyTransformToDirection( const RgTransform* transform, const RgFloat3D& dir )
+{
+    RgFloat3D r = dir;
+    ApplyTransformToDirection( transform, r.data );
+    return r;
+}
+
+
 template< typename T >
 constexpr T clamp( const T& v, const T& v_min, const T& v_max )
 {

@@ -96,36 +96,6 @@ RTGL1::LightManager::~LightManager()
 namespace
 {
 
-RgFloat3D ApplyTransformToPosition( const RgTransform* transform, const RgFloat3D& pos )
-{
-    if( transform )
-    {
-        const auto& m = transform->matrix;
-        const auto& p = pos.data;
-        return RgFloat3D{
-            m[ 0 ][ 0 ] * p[ 0 ] + m[ 0 ][ 1 ] * p[ 1 ] + m[ 0 ][ 2 ] * p[ 2 ] + m[ 0 ][ 3 ],
-            m[ 1 ][ 0 ] * p[ 0 ] + m[ 1 ][ 1 ] * p[ 1 ] + m[ 1 ][ 2 ] * p[ 2 ] + m[ 1 ][ 3 ],
-            m[ 2 ][ 0 ] * p[ 0 ] + m[ 2 ][ 1 ] * p[ 1 ] + m[ 2 ][ 2 ] * p[ 2 ] + m[ 2 ][ 3 ],
-        };
-    }
-    return pos;
-}
-
-RgFloat3D ApplyTransformToDirection( const RgTransform *transform, const RgFloat3D &dir )
-{
-    if( transform )
-    {
-        const auto& m = transform->matrix;
-        const auto& d = dir.data;
-        return RgFloat3D{
-            m[ 0 ][ 0 ] * d[ 0 ] + m[ 0 ][ 1 ] * d[ 1 ] + m[ 0 ][ 2 ] * d[ 2 ],
-            m[ 1 ][ 0 ] * d[ 0 ] + m[ 1 ][ 1 ] * d[ 1 ] + m[ 1 ][ 2 ] * d[ 2 ],
-            m[ 2 ][ 0 ] * d[ 0 ] + m[ 2 ][ 1 ] * d[ 1 ] + m[ 2 ][ 2 ] * d[ 2 ],
-        };
-    }
-    return dir;
-}
-
 RTGL1::ShLightEncoded EncodeAsDirectionalLight( const RgLightDirectionalEXT& info,
                                                 float                        mult,
                                                 const RgTransform*           transform )
@@ -158,7 +128,7 @@ RTGL1::ShLightEncoded EncodeAsSphereLight( const RgLightSphericalEXT& info,
                                            float                      mult,
                                            const RgTransform*         transform )
 {
-    RgFloat3D pos = ApplyTransformToPosition( transform, info.position );
+    RgFloat3D pos = RTGL1::ApplyTransformToPosition( transform, info.position );
 
     float radius = std::max( RTGL1::MIN_SPHERE_RADIUS, info.radius );
     // disk is visible from the point
@@ -232,10 +202,10 @@ RTGL1::ShLightEncoded EncodeAsSpotLight( const RgLightSpotEXT& info,
                                          float                 mult,
                                          const RgTransform*    transform )
 {
-    RgFloat3D pos = ApplyTransformToPosition( transform, info.position );
+    RgFloat3D pos = RTGL1::ApplyTransformToPosition( transform, info.position );
 
     RgFloat3D direction =
-        ApplyTransformToDirection( transform, RTGL1::Utils::Normalize( info.direction ) );
+        RTGL1::ApplyTransformToDirection( transform, RTGL1::Utils::Normalize( info.direction ) );
     assert( std::abs( RTGL1::Utils::Length( direction.data ) - 1.0f ) < 0.001f );
 
     float radius = std::max( RTGL1::MIN_SPHERE_RADIUS, info.radius );
