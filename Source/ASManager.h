@@ -110,10 +110,11 @@ private:
         VertexCollector::UploadResult  geometry;
     };
 
-    static auto MakeVkTLAS( const BuiltAS&     builtAS,
-                            uint32_t           rayCullMaskWorld,
-                            bool               allowGeometryWithSkyFlag,
-                            const RgTransform& transform )
+    static auto MakeVkTLAS( const BuiltAS&                 builtAS,
+                            uint32_t                       rayCullMaskWorld,
+                            bool                           allowGeometryWithSkyFlag,
+                            const RgTransform&             instanceTransform,
+                            VertexCollectorFilterTypeFlags instanceFlags )
         -> std::optional< VkAccelerationStructureInstanceKHR >;
 
 private:
@@ -150,10 +151,12 @@ private:
     struct Object
     {
         // should be weak_ptr
-        BuiltAS*          builtInstance;
-        PrimitiveUniqueID uniqueID;
-        RgTransform       transform;
-        bool              isStatic;
+        BuiltAS*                       builtInstance;
+        bool                           isStatic;
+        // per instance params
+        PrimitiveUniqueID              uniqueID;
+        RgTransform                    transform;
+        VertexCollectorFilterTypeFlags instanceFlags;
     };
     std::vector< Object > curFrame_objects;
 

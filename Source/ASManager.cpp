@@ -801,9 +801,10 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
     // register the built instance as an instance in this frame
     curFrame_objects.push_back( Object{
         .builtInstance = builtInstance.get(),
+        .isStatic      = isStatic,
         .uniqueID      = uniqueID,
         .transform     = mesh.transform,
-        .isStatic      = isStatic,
+        .instanceFlags = geomFlags,
     } );
 
     // make geom info
@@ -890,10 +891,11 @@ void RTGL1::ASManager::SubmitDynamicGeometry( DynamicGeometryToken& token,
     }
 }
 
-auto RTGL1::ASManager::MakeVkTLAS( const BuiltAS& builtAS,
-                                   uint32_t            rayCullMaskWorld,
-                                   bool                allowGeometryWithSkyFlag,
-                                   const RgTransform&  transform )
+auto RTGL1::ASManager::MakeVkTLAS( const BuiltAS&                 builtAS,
+                                   uint32_t                       rayCullMaskWorld,
+                                   bool                           allowGeometryWithSkyFlag,
+                                   const RgTransform&             instanceTransform,
+                                   VertexCollectorFilterTypeFlags instanceFlags )
     -> std::optional< VkAccelerationStructureInstanceKHR >
 {
     using FT = VertexCollectorFilterTypeFlagBits;
@@ -915,7 +917,7 @@ auto RTGL1::ASManager::MakeVkTLAS( const BuiltAS& builtAS,
 
 
     auto instance = VkAccelerationStructureInstanceKHR{
-        .transform                              = rgToVkTransform( transform ),
+        .transform                              = rgToVkTransform( instanceTransform ),
         .instanceCustomIndex                    = 0,
         .mask                                   = 0,
         .instanceShaderBindingTableRecordOffset = 0,
@@ -923,7 +925,9 @@ auto RTGL1::ASManager::MakeVkTLAS( const BuiltAS& builtAS,
         .accelerationStructureReference         = builtAS.blas.GetASAddress(),
     };
 
-    const auto filter = builtAS.flags;
+    // inherit some bits from an instance
+    const auto filter =
+        builtAS.flags | ( instanceFlags & ( FT::PV_FIRST_PERSON | FT::PV_FIRST_PERSON_VIEWER ) );
 
 
     if( filter & FT::PV_FIRST_PERSON )
@@ -1056,7 +1060,8 @@ void RTGL1::ASManager::BuildTLAS( VkCommandBuffer cmd,
             auto vkTlas = MakeVkTLAS( *obj.builtInstance,
                                       uniformData_rayCullMaskWorld,
                                       allowGeometryWithSkyFlag,
-                                      obj.transform );
+                                      obj.transform,
+                                      obj.instanceFlags );
 
             if( !vkTlas )
             {
