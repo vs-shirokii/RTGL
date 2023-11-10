@@ -207,7 +207,7 @@ bool RTGL1::Scene::ReplacementExists( const RgMeshInfo& mesh ) const
 {
     if( mesh.isExportable && !Utils::IsCstrEmpty( mesh.pMeshName ) )
     {
-        if( mesh.flags & RG_MESH_INFO_EXPORT_AS_SEPARATE_FILE )
+        if( mesh.flags & RG_MESH_EXPORT_AS_SEPARATE_FILE )
         {
             return find_p( replacements, mesh.pMeshName );
         }
@@ -238,7 +238,7 @@ RTGL1::UploadResult RTGL1::Scene::UploadPrimitive( uint32_t                   fr
                 return UploadResult::ExportableStatic;
             }
 
-            if( mesh.flags & RG_MESH_INFO_EXPORT_AS_SEPARATE_FILE )
+            if( mesh.flags & RG_MESH_EXPORT_AS_SEPARATE_FILE )
             {
                 replacement = find_p( replacements, mesh.pMeshName );
             }

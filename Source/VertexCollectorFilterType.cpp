@@ -95,11 +95,11 @@ FL RTGL1::VertexCollectorFilterTypeFlags_GetForGeometry( const RgMeshInfo&      
     }
 
 
-    if( primitive.flags & RG_MESH_PRIMITIVE_FIRST_PERSON )
+    if( mesh.flags & RG_MESH_FIRST_PERSON )
     {
         flags |= FL( FT::PV_FIRST_PERSON );
     }
-    else if( primitive.flags & RG_MESH_PRIMITIVE_FIRST_PERSON_VIEWER )
+    else if( mesh.flags & RG_MESH_FIRST_PERSON_VIEWER )
     {
         flags |= FL( FT::PV_FIRST_PERSON_VIEWER );
     }

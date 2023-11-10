@@ -334,33 +334,33 @@ typedef enum RgMeshPrimitiveFlagBits
 {
     RG_MESH_PRIMITIVE_ALPHA_TESTED          = 1 << 0,
     RG_MESH_PRIMITIVE_TRANSLUCENT           = 1 << 1,
-    RG_MESH_PRIMITIVE_FIRST_PERSON          = 1 << 2,
-    RG_MESH_PRIMITIVE_FIRST_PERSON_VIEWER   = 1 << 3,
-    RG_MESH_PRIMITIVE_SKY                   = 1 << 4,
-    RG_MESH_PRIMITIVE_MIRROR                = 1 << 5,
-    RG_MESH_PRIMITIVE_GLASS                 = 1 << 6,
-    RG_MESH_PRIMITIVE_WATER                 = 1 << 7,
-    RG_MESH_PRIMITIVE_DONT_GENERATE_NORMALS = 1 << 8,
-    RG_MESH_PRIMITIVE_FORCE_EXACT_NORMALS   = 1 << 9,
+    RG_MESH_PRIMITIVE_SKY                   = 1 << 2,
+    RG_MESH_PRIMITIVE_MIRROR                = 1 << 3,
+    RG_MESH_PRIMITIVE_GLASS                 = 1 << 4,
+    RG_MESH_PRIMITIVE_WATER                 = 1 << 5,
+    RG_MESH_PRIMITIVE_DONT_GENERATE_NORMALS = 1 << 6,
+    RG_MESH_PRIMITIVE_FORCE_EXACT_NORMALS   = 1 << 7,
     // If roughness is too small, act as a mirror (perfect reflection).
-    RG_MESH_PRIMITIVE_MIRROR_IF_SMOOTH      = 1 << 10,
+    RG_MESH_PRIMITIVE_MIRROR_IF_SMOOTH      = 1 << 8,
     // If roughness is too small, act as a glass (perfect reflection/refraction).
-    RG_MESH_PRIMITIVE_GLASS_IF_SMOOTH       = 1 << 11,
+    RG_MESH_PRIMITIVE_GLASS_IF_SMOOTH       = 1 << 9,
     // Ignore refracting geometry behind this primitive.
-    RG_MESH_PRIMITIVE_IGNORE_REFRACT_AFTER  = 1 << 12,
-    RG_MESH_PRIMITIVE_ACID                  = 1 << 13,
-    RG_MESH_PRIMITIVE_THIN_MEDIA            = 1 << 14,
-    RG_MESH_PRIMITIVE_SKY_VISIBILITY        = 1 << 15,
+    RG_MESH_PRIMITIVE_IGNORE_REFRACT_AFTER  = 1 << 10,
+    RG_MESH_PRIMITIVE_ACID                  = 1 << 11,
+    RG_MESH_PRIMITIVE_THIN_MEDIA            = 1 << 12,
+    RG_MESH_PRIMITIVE_SKY_VISIBILITY        = 1 << 13,
     // If set, the first triangle is analyzed to make a decal.
     // Requires vertexCount >= 3.
-    RG_MESH_PRIMITIVE_DECAL                 = 1 << 16,
-    RG_MESH_PRIMITIVE_EXPORT_INVERT_NORMALS = 1 << 17,
+    RG_MESH_PRIMITIVE_DECAL                 = 1 << 14,
+    RG_MESH_PRIMITIVE_EXPORT_INVERT_NORMALS = 1 << 15,
 } RgMeshPrimitiveFlagBits;
 typedef uint32_t RgMeshPrimitiveFlags;
 
 typedef enum RgMeshInfoFlagBits
 {
-    RG_MESH_INFO_EXPORT_AS_SEPARATE_FILE    = 1,
+    RG_MESH_EXPORT_AS_SEPARATE_FILE = 1 << 0,
+    RG_MESH_FIRST_PERSON            = 1 << 1,
+    RG_MESH_FIRST_PERSON_VIEWER     = 1 << 2,
 } RgMeshInfoFlagBits;
 typedef uint32_t RgMeshInfoFlags;
 

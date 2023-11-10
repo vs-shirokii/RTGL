@@ -1116,7 +1116,7 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
 
 
             if( auto e = sceneImportExport->TryGetExporter( mesh.flags &
-                                                            RG_MESH_INFO_EXPORT_AS_SEPARATE_FILE ) )
+                                                            RG_MESH_EXPORT_AS_SEPARATE_FILE ) )
             {
                 auto allowMeshExport = [ & ]( const RgMeshInfo& m ) {
                     if( r != UploadResult::ExportableDynamic &&
@@ -1141,7 +1141,7 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
                 }
 
                 // SHIPPING_HACK: add lights to the scene gltf even for non-exportable geometry
-                if( !( mesh.flags & RG_MESH_INFO_EXPORT_AS_SEPARATE_FILE ) )
+                if( !( mesh.flags & RG_MESH_EXPORT_AS_SEPARATE_FILE ) )
                 {
                     e->AddPrimitiveLights( mesh, prim );
                 }
@@ -1292,7 +1292,7 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
             {
                 throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
             }
-            if( mesh->flags & RG_MESH_INFO_EXPORT_AS_SEPARATE_FILE )
+            if( mesh->flags & RG_MESH_EXPORT_AS_SEPARATE_FILE )
             {
                 if( !mesh->isExportable )
                 {
