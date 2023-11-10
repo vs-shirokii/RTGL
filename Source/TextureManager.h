@@ -117,6 +117,8 @@ public:
 
     void ExportOriginalMaterialTextures( const std::filesystem::path& folder ) const;
 
+    bool ShouldExportAsExternal( const char* materialName ) const;
+
 
     void OnFileChanged( FileType type, const std::filesystem::path& filepath ) override;
 
@@ -225,6 +227,8 @@ private:
     std::string postfixes[ TEXTURES_PER_MATERIAL_COUNT ];
 
     bool forceNormalMapFilterLinear;
+
+    rgl::string_set forceExportAsExternal;
 
 public:
     struct Debug_MaterialInfo

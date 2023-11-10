@@ -655,12 +655,19 @@ typedef enum RgFormat
     RG_FORMAT_B8G8R8A8_SRGB    = 50,
 } RgFormat;
 
+typedef enum RgOriginalTextureInfoFlagBits
+{
+    RG_ORIGINAL_TEXTURE_INFO_FORCE_EXPORT_AS_EXTERNAL = 1,
+} RgOriginalTextureInfoFlagBits;
+typedef uint32_t RgOriginalTextureInfoFlags;
+
 // Can be linked after RgOriginalTextureInfo.
 typedef struct RgOriginalTextureDetailsEXT
 {
-    RgStructureType         sType;
-    void*                   pNext;
-    RgFormat                format;
+    RgStructureType            sType;
+    void*                      pNext;
+    RgOriginalTextureInfoFlags flags;
+    RgFormat                   format;
 } RgOriginalTextureDetailsEXT;
 
 typedef struct RgOriginalTextureInfo

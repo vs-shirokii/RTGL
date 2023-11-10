@@ -121,7 +121,7 @@ std::filesystem::path GetGltfFolder( const std::filesystem::path& gltfPath )
 
 std::filesystem::path GetOriginalTexturesFolder( const std::filesystem::path& gltfPath )
 {
-    return GetGltfFolder( gltfPath ) / RTGL1::TEXTURES_FOLDER_JUNCTION_PREFIX;
+    return GetGltfFolder( gltfPath ) / RTGL1::TEXTURES_FOLDER_JUNCTION;
 }
 
 std::filesystem::path GetGltfBinPath( std::filesystem::path gltfPath )
@@ -759,7 +759,7 @@ struct GltfStorage
 struct GltfTextures
 {
     explicit GltfTextures( const std::set< std::string >& sceneMaterials,
-                           const std::filesystem::path&   texturesFolder,
+                           const std::filesystem::path&   gltfPath,
                            const RTGL1::TextureManager&   textureManager,
                            const std::filesystem::path&   texLookupFolder )
     {
@@ -804,6 +804,13 @@ struct GltfTextures
         };
 
 
+        const auto originalsFolder = std::string{ RTGL1::TEXTURES_FOLDER_JUNCTION_PREFIX };
+        const auto externalFolder  = std::string{ "ext/" };
+
+        const auto originalsFolderExportPath = GetGltfFolder( gltfPath ) / originalsFolder;
+        const auto externalFolderExportPath  = GetGltfFolder( gltfPath ) / externalFolder;
+
+
         // resolve
         for( const auto& materialName : sceneMaterials )
         {
@@ -812,17 +819,22 @@ struct GltfTextures
                 continue;
             }
 
+            const bool asExternal = textureManager.ShouldExportAsExternal( materialName.c_str() );
+
             static_assert( RTGL1::TEXTURES_PER_MATERIAL_COUNT == 4 );
             static_assert( RTGL1::TEXTURE_ALBEDO_ALPHA_INDEX == 0 );
             static_assert( RTGL1::TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_INDEX == 1 );
             static_assert( RTGL1::TEXTURE_NORMAL_INDEX == 2 );
             static_assert( RTGL1::TEXTURE_EMISSIVE_INDEX == 3 );
             auto [ albedo, orm, normal, emissive ] = textureManager.ExportMaterialTextures(
-                materialName.c_str(), texturesFolder, false, &texLookupFolder );
+                materialName.c_str(),
+                asExternal ? externalFolderExportPath : originalsFolderExportPath,
+                false,
+                &texLookupFolder );
 
-            auto tryMakeCgltfTexture = [ this, &findSampler, &materialName ](
-                                           RTGL1::TextureManager::ExportResult&& r,
-                                           bool nameMustBeMaterialName = false ) -> cgltf_texture* {
+            auto tryMakeCgltfTexture = [ & ]( RTGL1::TextureManager::ExportResult&& r,
+                                              bool nameMustBeMaterialName =
+                                                  false ) -> cgltf_texture* {
                 if( !r.relativePath.empty() )
                 {
                     std::string&   str = strings.increment_and_get();
@@ -831,7 +843,7 @@ struct GltfTextures
                     cgltf_texture& txd = textures.increment_and_get();
 
                     // need to protect a string, to avoid dangling pointers
-                    str = std::string( RTGL1::TEXTURES_FOLDER_JUNCTION_PREFIX ) + r.relativePath;
+                    str = ( asExternal ? externalFolder : originalsFolder ) + r.relativePath;
                     std::ranges::replace( str, '\\', '/' );
 
                     if( nameMustBeMaterialName )
@@ -1648,13 +1660,11 @@ void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,
 
 
     // lock pointers
-    auto fbin           = GltfBin{ gltfPath };
-    auto storage        = GltfStorage{ scene, sceneLights.size() };
-    auto textureStorage = GltfTextures{ sceneMaterials,
-                                        GetOriginalTexturesFolder( gltfPath ),
-                                        textureManager,
-                                        ovrdFolder / TEXTURES_FOLDER_DEV };
-    auto lightStorage   = GltfLights{ sceneLights, storage.lightNodes };
+    auto fbin    = GltfBin{ gltfPath };
+    auto storage = GltfStorage{ scene, sceneLights.size() };
+    auto textureStorage =
+        GltfTextures{ sceneMaterials, gltfPath, textureManager, ovrdFolder / TEXTURES_FOLDER_DEV };
+    auto lightStorage = GltfLights{ sceneLights, storage.lightNodes };
 
 
     auto materialcount = 0u;

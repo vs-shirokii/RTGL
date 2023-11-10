@@ -437,7 +437,7 @@ bool TextureManager::TryCreateMaterial( VkCommandBuffer              cmd,
         debug::Verbose( R"(Material is promoted from 'Imported' to 'Original': {})",
                         info.pTextureName );
     }
-    
+
 
     if( PreferExistingMaterials )
     {
@@ -484,6 +484,16 @@ bool TextureManager::TryCreateMaterial( VkCommandBuffer              cmd,
     };
     static_assert( std::size( swizzlings ) == TEXTURES_PER_MATERIAL_COUNT );
     static_assert( TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_INDEX == 1 );
+
+
+
+    if( details )
+    {
+        if( details->flags & RG_ORIGINAL_TEXTURE_INFO_FORCE_EXPORT_AS_EXTERNAL )
+        {
+            forceExportAsExternal.insert( info.pTextureName );
+        }
+    }
 
 
     MakeMaterial( cmd, frameIndex, info.pTextureName, ovrd, samplers, swizzlings );
@@ -747,6 +757,8 @@ bool TextureManager::TryDestroyMaterial( uint32_t frameIndex, const char* materi
 
     DestroyMaterialTextures( frameIndex, it->second );
     materials.erase( it );
+
+    forceExportAsExternal.erase( materialName );
 
     return true;
 }
@@ -1027,4 +1039,13 @@ std::vector< TextureManager::Debug_MaterialInfo > TextureManager::Debug_GetMater
         } );
     }
     return r;
+}
+
+bool TextureManager::ShouldExportAsExternal( const char* materialName ) const
+{
+    if( Utils::IsCstrEmpty( materialName ) )
+    {
+        return false;
+    }
+    return forceExportAsExternal.contains( materialName );
 }
