@@ -54,6 +54,8 @@ RTGL1::ASManager::ASManager( VkDevice                                _device,
                              std::shared_ptr< MemoryAllocator >      _allocator,
                              std::shared_ptr< CommandBufferManager > _cmdManager,
                              std::shared_ptr< GeomInfoManager >      _geomInfoManager,
+                             uint64_t                                _maxReplacementsVerts,
+                             uint64_t                                _maxDynamicVerts,
                              bool                                    _enableTexCoordLayer1,
                              bool                                    _enableTexCoordLayer2,
                              bool                                    _enableTexCoordLayer3 )
@@ -102,48 +104,48 @@ RTGL1::ASManager::ASManager( VkDevice                                _device,
             allocator, usage, asAlignment, "TLAS common buffer" );
     }
 
+    _maxReplacementsVerts = _maxReplacementsVerts > 0 ? _maxReplacementsVerts : 2097152;
     {
-        const uint32_t maxVertsPerLayer[] = {
-            MAX_STATIC_VERTEX_COUNT,
-            _enableTexCoordLayer1 ? uint32_t{ MAX_STATIC_VERTEX_COUNT } : 0,
-            _enableTexCoordLayer2 ? uint32_t{ MAX_STATIC_VERTEX_COUNT } : 0,
-            _enableTexCoordLayer3 ? uint32_t{ MAX_STATIC_VERTEX_COUNT } : 0,
+        const size_t maxVertsPerLayer[] = {
+            _maxReplacementsVerts,
+            _enableTexCoordLayer1 ? _maxReplacementsVerts : 0,
+            _enableTexCoordLayer2 ? _maxReplacementsVerts : 0,
+            _enableTexCoordLayer3 ? _maxReplacementsVerts : 0,
         };
+        const size_t maxIndices = _maxReplacementsVerts * 3;
 
         collectorStatic = std::make_unique< VertexCollector >(
-            device, *allocator, maxVertsPerLayer, false, "Static" );
+            device, *allocator, maxVertsPerLayer, maxIndices, false, "Static" );
     }
+
+    _maxDynamicVerts = _maxDynamicVerts > 0 ? _maxDynamicVerts : 2097152;
     {
-        const uint32_t maxVertsPerLayer[] = {
-            MAX_DYNAMIC_VERTEX_COUNT,
-            _enableTexCoordLayer1 ? uint32_t{ MAX_DYNAMIC_VERTEX_COUNT } : 0,
-            _enableTexCoordLayer2 ? uint32_t{ MAX_DYNAMIC_VERTEX_COUNT } : 0,
-            _enableTexCoordLayer3 ? uint32_t{ MAX_DYNAMIC_VERTEX_COUNT } : 0,
+        const size_t maxVertsPerLayer[] = {
+            _maxDynamicVerts,
+            _enableTexCoordLayer1 ? _maxDynamicVerts : 0,
+            _enableTexCoordLayer2 ? _maxDynamicVerts : 0,
+            _enableTexCoordLayer3 ? _maxDynamicVerts : 0,
         };
+        const size_t maxIndices = _maxDynamicVerts * 3;
 
-        for( auto& c : collectorDynamic )
-        {
-            if( !collectorDynamic[ 0 ] )
-            {
-                c = std::make_unique< VertexCollector >(
-                    device, *allocator, maxVertsPerLayer, true, "Dynamic" );
-                continue;
-            }
+        collectorDynamic[ 0 ] = std::make_unique< VertexCollector >(
+            device, *allocator, maxVertsPerLayer, maxIndices, true, "Dynamic 0" );
 
-            // share buffers with 0
-            c = VertexCollector::CreateWithSameDeviceLocalBuffers(
-                *( collectorDynamic[ 0 ] ), *allocator, "Dynamic" );
-        }
+        // share device-local buffer with 0
+        collectorDynamic[ 1 ] = VertexCollector::CreateWithSameDeviceLocalBuffers(
+            *( collectorDynamic[ 0 ] ), *allocator, "Dynamic 1" );
+
+        assert( std::size( collectorDynamic ) == 2 );
     }
 
     previousDynamicPositions.Init( *allocator,
-                                   MAX_DYNAMIC_VERTEX_COUNT * sizeof( ShVertex ),
+                                   _maxDynamicVerts * sizeof( ShVertex ),
                                    VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                                        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                                    "Previous frame's vertex data" );
     previousDynamicIndices.Init( *allocator,
-                                 MAX_DYNAMIC_VERTEX_COUNT * sizeof( uint32_t ),
+                                 _maxDynamicVerts * sizeof( uint32_t ),
                                  VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,

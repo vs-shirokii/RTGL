@@ -225,10 +225,6 @@ def BIT( i ):
     return "1 << " + str( i )
 
 CONST = {
-    "MAX_STATIC_VERTEX_COUNT"               : 1 << 20,
-    "MAX_DYNAMIC_VERTEX_COUNT"              : 1 << 21,
-    "MAX_INDEXED_PRIMITIVE_COUNT"           : 1 << 20,
-   
     "MAX_INSTANCE_COUNT"                    : 1 << 16,
     "MAX_GEOM_INFO_COUNT"                   : 1 << 17,
     

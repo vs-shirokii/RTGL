@@ -65,7 +65,8 @@ auto MakeUsage( bool isDynamic, bool accelStructureRead )
 
 RTGL1::VertexCollector::VertexCollector( VkDevice         _device,
                                          MemoryAllocator& _allocator,
-                                         const uint32_t ( &_maxVertsPerLayer )[ 4 ],
+                                         const size_t ( &_maxVertsPerLayer )[ 4 ],
+                                         const size_t     _maxIndices,
                                          bool             _isDynamic,
                                          std::string_view _debugName )
     : device{ _device }
@@ -74,7 +75,7 @@ RTGL1::VertexCollector::VertexCollector( VkDevice         _device,
                    MakeUsage( _isDynamic, true ),
                    MakeName( "Vertices", _debugName ) }
     , bufIndices{ _allocator,
-                  MAX_INDEXED_PRIMITIVE_COUNT * 3,
+                  _maxIndices,
                   MakeUsage( _isDynamic, true ),
                   MakeName( "Indices", _debugName ) }
     , bufTexcoordLayer1{ _allocator,
@@ -168,27 +169,19 @@ auto RTGL1::VertexCollector::Upload( VertexCollectorFilterTypeFlags geomFlags,
     }
 
 
-    if( !( geomFlags & FT::CF_DYNAMIC ) )
     {
-        if( curVertexCount >= MAX_STATIC_VERTEX_COUNT )
+        if( curVertexCount >= bufVertices.ElementCount() )
         {
-            debug::Error( "Too many static vertices: the limit is {}", MAX_STATIC_VERTEX_COUNT );
+            debug::Error( geomFlags & FT::CF_DYNAMIC ? "Too many dynamic vertices: the limit is {}"
+                                                     : "Too many static vertices: the limit is {}",
+                          bufVertices.ElementCount() );
             return {};
         }
-    }
-    else
-    {
-        if( curVertexCount >= MAX_DYNAMIC_VERTEX_COUNT )
+        if( curIndexCount >= bufIndices.ElementCount() )
         {
-            debug::Error( "Too many dynamic vertices: the limit is {}", MAX_DYNAMIC_VERTEX_COUNT );
+            debug::Error( "Too many indices: the limit is {}", bufIndices.ElementCount() );
             return {};
         }
-    }
-
-    if( curIndexCount >= MAX_INDEXED_PRIMITIVE_COUNT * 3 )
-    {
-        debug::Error( "Too many indices: the limit is {}", MAX_INDEXED_PRIMITIVE_COUNT * 3 );
-        return {};
     }
 
 

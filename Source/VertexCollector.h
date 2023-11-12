@@ -47,7 +47,8 @@ class VertexCollector
 public:
     explicit VertexCollector( VkDevice         device,
                               MemoryAllocator& allocator,
-                              const uint32_t ( &maxVertsPerLayer )[ 4 ],
+                              const size_t ( &maxVertsPerLayer )[ 4 ],
+                              const size_t     maxIndices,
                               bool             isDynamic,
                               std::string_view debugName );
 
@@ -164,19 +165,19 @@ private:
 
     public:
         explicit SharedDeviceLocal( MemoryAllocator&   allocator,
-                                    uint32_t           maxElements,
+                                    size_t             maxElements,
                                     VkBufferUsageFlags usage,
                                     std::string_view   name )
         {
             if( maxElements > 0 )
             {
-                deviceLocal = std::make_shared< Buffer >();
-                deviceLocal->Init( allocator,
-                                   sizeof( T ) * maxElements,
-                                   usage,
-                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                                   MakeName( name, false ).c_str() );
-                Init( deviceLocal, allocator, name );
+                auto newDeviceLocal = std::make_shared< Buffer >();
+                newDeviceLocal->Init( allocator,
+                                      sizeof( T ) * maxElements,
+                                      usage,
+                                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                      MakeName( name, false ).c_str() );
+                Init( newDeviceLocal, allocator, name );
             }
         }
 
@@ -191,6 +192,12 @@ private:
         }
 
         [[nodiscard]] bool IsInitialized() const { return deviceLocal != nullptr; }
+        [[nodiscard]] auto ElementCount() const
+        {
+            assert( deviceLocal->GetSize() == staging.GetSize() );
+            assert( deviceLocal->GetSize() % sizeof( T ) == 0 );
+            return deviceLocal->GetSize() / sizeof( T );
+        }
 
         ~SharedDeviceLocal()
         {

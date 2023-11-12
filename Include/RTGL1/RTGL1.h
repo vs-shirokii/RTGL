@@ -249,6 +249,13 @@ typedef struct RgInstanceCreateInfo
     uint32_t                    primaryRaysMaxAlbedoLayers;
     uint32_t                    indirectIlluminationMaxAlbedoLayers;
 
+    // How many vertices to allocate for static and replacements (load once) geometry.
+    // Bytes allocated in VRAM: 2 * replacementsMaxVertexCount * sizeof(RgPrimitiveVertex)
+    uint64_t                    replacementsMaxVertexCount;
+    // How many vertices to allocate for dynamic (load each frame) geometry.
+    // Bytes allocated in VRAM: 3 * dynamicMaxVertexCount * sizeof(RgPrimitiveVertex)
+    uint64_t                    dynamicMaxVertexCount;
+
     RgBool32                    rayCullBackFacingTriangles;
     // Allow RG_GEOMETRY_VISIBILITY_TYPE_SKY.
     // If true, RG_GEOMETRY_VISIBILITY_TYPE_WORLD_2 must not be used.

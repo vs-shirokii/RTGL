@@ -49,6 +49,8 @@ public:
                     std::shared_ptr< CommandBufferManager > cmdManager,
                     const GlobalUniform&                    uniform,
                     const ShaderManager&                    shaderManager,
+                    uint64_t                                maxReplacementsVerts,
+                    uint64_t                                maxDynamicVerts,
                     bool                                    enableTexCoordLayer1,
                     bool                                    enableTexCoordLayer2,
                     bool                                    enableTexCoordLayer3 );

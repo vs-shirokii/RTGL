@@ -305,6 +305,8 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
         cmdManager, 
         *uniform, 
         *shaderManager,
+        info->replacementsMaxVertexCount,
+        info->dynamicMaxVertexCount,
         info->allowTexCoordLayer1,
         info->allowTexCoordLayer2,
         info->allowTexCoordLayer3);

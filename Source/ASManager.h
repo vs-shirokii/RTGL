@@ -41,6 +41,8 @@ public:
                std::shared_ptr< MemoryAllocator >      allocator,
                std::shared_ptr< CommandBufferManager > cmdManager,
                std::shared_ptr< GeomInfoManager >      geomInfoManager,
+               uint64_t                                maxReplacementsVerts,
+               uint64_t                                maxDynamicVerts,
                bool                                    enableTexCoordLayer1,
                bool                                    enableTexCoordLayer2,
                bool                                    enableTexCoordLayer3 );
