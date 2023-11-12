@@ -147,6 +147,23 @@ auto RTGL1::VertexCollector::Upload( VertexCollectorFilterTypeFlags geomFlags,
     const bool     useIndices    = prim.indexCount != 0 && prim.pIndices != nullptr;
     const uint32_t triangleCount = useIndices ? prim.indexCount / 3 : prim.vertexCount / 3;
 
+
+
+    if( curVertexCount + prim.vertexCount >= bufVertices.ElementCount() )
+    {
+        debug::Error( geomFlags & FT::CF_DYNAMIC ? "Too many dynamic vertices: the limit is {}"
+                                                 : "Too many static vertices: the limit is {}",
+                      bufVertices.ElementCount() );
+        return {};
+    }
+    if( curIndexCount + ( useIndices ? prim.indexCount : 0 ) >= bufIndices.ElementCount() )
+    {
+        debug::Error( "Too many indices: the limit is {}", bufIndices.ElementCount() );
+        return {};
+    }
+
+
+
     // clang-format off
     curVertexCount          = vertIndex   + ( prim.vertexCount );
     curIndexCount           = indIndex    + ( useIndices ? prim.indexCount : 0 );
@@ -155,7 +172,6 @@ auto RTGL1::VertexCollector::Upload( VertexCollectorFilterTypeFlags geomFlags,
     curTexCoordCount_Layer2 = texcIndex_2 + ( GeomInfoManager::LayerExists( prim, 2 ) ? prim.vertexCount : 0 );
     curTexCoordCount_Layer3 = texcIndex_3 + ( GeomInfoManager::LayerExists( prim, 3 ) ? prim.vertexCount : 0 );
     // clang-format on
-
 
     if( resultRanges )
     {
@@ -166,22 +182,6 @@ auto RTGL1::VertexCollector::Upload( VertexCollectorFilterTypeFlags geomFlags,
             .texCoord2 = MakeRangeFromOverallCount( texcIndex_2, curTexCoordCount_Layer2 ),
             .texCoord3 = MakeRangeFromOverallCount( texcIndex_3, curTexCoordCount_Layer3 ),
         };
-    }
-
-
-    {
-        if( curVertexCount >= bufVertices.ElementCount() )
-        {
-            debug::Error( geomFlags & FT::CF_DYNAMIC ? "Too many dynamic vertices: the limit is {}"
-                                                     : "Too many static vertices: the limit is {}",
-                          bufVertices.ElementCount() );
-            return {};
-        }
-        if( curIndexCount >= bufIndices.ElementCount() )
-        {
-            debug::Error( "Too many indices: the limit is {}", bufIndices.ElementCount() );
-            return {};
-        }
     }
 
 
