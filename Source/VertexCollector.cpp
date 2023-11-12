@@ -265,8 +265,8 @@ void RTGL1::VertexCollector::CopyVertexDataToStaging( const RgMeshPrimitiveInfo&
         static_assert( std::is_same_v< decltype( info.pVertices ), const RgPrimitiveVertex* > );
         static_assert( sizeof( ShVertex ) == sizeof( RgPrimitiveVertex ) );
         static_assert( offsetof( ShVertex, position ) == offsetof( RgPrimitiveVertex, position ) );
-        static_assert( offsetof( ShVertex, normal ) == offsetof( RgPrimitiveVertex, normal ) );
-        static_assert( offsetof( ShVertex, tangent ) == offsetof( RgPrimitiveVertex, tangent ) );
+        static_assert( offsetof( ShVertex, normalPacked ) ==
+                       offsetof( RgPrimitiveVertex, normalPacked ) );
         static_assert( offsetof( ShVertex, texCoord ) == offsetof( RgPrimitiveVertex, texCoord ) );
         static_assert( offsetof( ShVertex, color ) == offsetof( RgPrimitiveVertex, color ) );
 

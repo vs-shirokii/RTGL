@@ -157,7 +157,7 @@ vec3 getStaticVerticesPositions(uint index)
 
 vec3 getStaticVerticesNormals(uint index)
 {
-    return g_staticVertices[index].normal.xyz;
+    return decodeNormal(g_staticVertices[index].normalPacked);
 }
 
 vec3 getDynamicVerticesPositions(uint index)
@@ -167,18 +167,18 @@ vec3 getDynamicVerticesPositions(uint index)
 
 vec3 getDynamicVerticesNormals(uint index)
 {
-    return g_dynamicVertices[index].normal.xyz;
+    return decodeNormal(g_dynamicVertices[index].normalPacked);
 }
 
 #ifdef VERTEX_BUFFER_WRITEABLE
 void setStaticVerticesNormals(uint index, vec3 value)
 {
-    g_staticVertices[index].normal = vec4(value, 0.0);
+    g_staticVertices[index].normalPacked = encodeNormal(value);
 }
 
 void setDynamicVerticesNormals(uint index, vec3 value)
 {
-    g_dynamicVertices[index].normal = vec4(value, 0.0);
+    g_dynamicVertices[index].normalPacked = encodeNormal(value);
 }
 #endif // VERTEX_BUFFER_WRITEABLE
 
@@ -276,9 +276,9 @@ ShTriangle makeTriangle(const ShVertex a, const ShVertex b, const ShVertex c)
     tr.positions[1] = b.position.xyz;
     tr.positions[2] = c.position.xyz;
 
-    tr.normals[0] = a.normal.xyz;
-    tr.normals[1] = b.normal.xyz;
-    tr.normals[2] = c.normal.xyz;
+    tr.normals[0] = decodeNormal(a.normalPacked);
+    tr.normals[1] = decodeNormal(b.normalPacked);
+    tr.normals[2] = decodeNormal(c.normalPacked);
 
     tr.layerTexCoord[0][0] = a.texCoord;
     tr.layerTexCoord[0][1] = b.texCoord;

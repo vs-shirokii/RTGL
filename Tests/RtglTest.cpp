@@ -238,7 +238,8 @@ auto GetTexturePath( const std::filesystem::path& gltfFolder, std::string_view u
     return ( gltfFolder / uri ).string();
 }
 
-void ForEachGltfMesh( const std::filesystem::path& gltfFolder,
+void ForEachGltfMesh( RgInterface&                 rt,
+                      const std::filesystem::path& gltfFolder,
                       const tinygltf::Model&       model,
                       const tinygltf::Node&        node )
 {
@@ -297,23 +298,35 @@ void ForEachGltfMesh( const std::filesystem::path& gltfFolder,
                 }
                 assert( rgverts.size() == attribAccessor.count );
 
-                std::tuple< const char*, size_t, size_t > attr[] = {
-                    { "POSITION", offsetof( RgPrimitiveVertex, position ), sizeof( float ) * 3 },
-                    { "NORMAL", offsetof( RgPrimitiveVertex, normal ), sizeof( float ) * 3 },
-                    { "TEXCOORD_0", offsetof( RgPrimitiveVertex, texCoord ), sizeof( float ) * 2 },
-                };
-
-                for( const auto& [ name, fieldOffset, elemSize ] : attr )
+                if( attribName == "POSITION" )
                 {
-                    if( attribName == name )
+                    for( uint64_t i = 0; i < rgverts.size(); i++ )
                     {
-                        for( uint64_t i = 0; i < rgverts.size(); i++ )
-                        {
-                            const uint8_t* src = data + i * dataStride;
-                            auto*          dst = reinterpret_cast< uint8_t* >( &rgverts[ i ] );
+                        const auto* src = reinterpret_cast< const float* >( data + i * dataStride );
 
-                            memcpy( dst + fieldOffset, src, elemSize );
-                        }
+                        rgverts[ i ].position[ 0 ] = src[ 0 ];
+                        rgverts[ i ].position[ 1 ] = src[ 1 ];
+                        rgverts[ i ].position[ 2 ] = src[ 2 ];
+                    }
+                }
+                else if( attribName == "NORMAL" )
+                {
+                    for( uint64_t i = 0; i < rgverts.size(); i++ )
+                    {
+                        const auto* src = reinterpret_cast< const float* >( data + i * dataStride );
+
+                        rgverts[ i ].normalPacked =
+                            rt.rgUtilPackNormal( src[ 0 ], src[ 1 ], src[ 2 ] );
+                    }
+                }
+                else if( attribName == "TEXCOORD_0" )
+                {
+                    for( uint64_t i = 0; i < rgverts.size(); i++ )
+                    {
+                        const auto* src = reinterpret_cast< const float* >( data + i * dataStride );
+
+                        rgverts[ i ].texCoord[ 0 ] = src[ 0 ];
+                        rgverts[ i ].texCoord[ 1 ] = src[ 1 ];
                     }
                 }
             }
@@ -378,11 +391,12 @@ void ForEachGltfMesh( const std::filesystem::path& gltfFolder,
     for( int c : node.children )
     {
         assert( c >= 0 && c < static_cast< int >( model.nodes.size() ) );
-        ForEachGltfMesh( gltfFolder, model, model.nodes[ c ] );
+        ForEachGltfMesh( rt, gltfFolder, model, model.nodes[ c ] );
     }
 }
 
 void FillGAllMeshes(
+    RgInterface&                                                                   rt,
     std::string_view                                                               path,
     const std::function< void(
         const char* pTextureName, const void* pPixels, uint32_t w, uint32_t h ) >& materialFunc )
@@ -423,7 +437,7 @@ void FillGAllMeshes(
         const auto& scene = model.scenes[ model.defaultScene ];
         for( int sceneNode : scene.nodes )
         {
-            ForEachGltfMesh( gltfFolder, model, model.nodes[ sceneNode ] );
+            ForEachGltfMesh( rt, gltfFolder, model, model.nodes[ sceneNode ] );
         }
     }
     else
@@ -476,7 +490,7 @@ void MainLoop( RgInterface& rt, std::string_view gltfPath )
                 RG_CHECK( t );
             };
 
-        /* g_allMeshes = */ FillGAllMeshes( gltfPath, uploadMaterial );
+        /* g_allMeshes = */ FillGAllMeshes( rt, gltfPath, uploadMaterial );
     }
 
 

@@ -33,8 +33,6 @@
 
 namespace
 {
-constexpr uint32_t AdditionalTexCoordMaxCount = MAX_STATIC_VERTEX_COUNT;
-
 bool IsFastBuild( RTGL1::VertexCollectorFilterTypeFlags filter )
 {
     using FT = RTGL1::VertexCollectorFilterTypeFlagBits;
@@ -107,20 +105,34 @@ RTGL1::ASManager::ASManager( VkDevice                                _device,
     {
         const uint32_t maxVertsPerLayer[] = {
             MAX_STATIC_VERTEX_COUNT,
-            _enableTexCoordLayer1 ? AdditionalTexCoordMaxCount : 0,
-            _enableTexCoordLayer2 ? AdditionalTexCoordMaxCount : 0,
-            _enableTexCoordLayer3 ? AdditionalTexCoordMaxCount : 0,
+            _enableTexCoordLayer1 ? uint32_t{ MAX_STATIC_VERTEX_COUNT } : 0,
+            _enableTexCoordLayer2 ? uint32_t{ MAX_STATIC_VERTEX_COUNT } : 0,
+            _enableTexCoordLayer3 ? uint32_t{ MAX_STATIC_VERTEX_COUNT } : 0,
         };
 
         collectorStatic = std::make_unique< VertexCollector >(
             device, *allocator, maxVertsPerLayer, false, "Static" );
+    }
+    {
+        const uint32_t maxVertsPerLayer[] = {
+            MAX_DYNAMIC_VERTEX_COUNT,
+            _enableTexCoordLayer1 ? uint32_t{ MAX_DYNAMIC_VERTEX_COUNT } : 0,
+            _enableTexCoordLayer2 ? uint32_t{ MAX_DYNAMIC_VERTEX_COUNT } : 0,
+            _enableTexCoordLayer3 ? uint32_t{ MAX_DYNAMIC_VERTEX_COUNT } : 0,
+        };
 
         for( auto& c : collectorDynamic )
         {
-            c = collectorDynamic[ 0 ] ? VertexCollector::CreateWithSameDeviceLocalBuffers(
-                                            *( collectorDynamic[ 0 ] ), *allocator, "Dynamic" )
-                                      : std::make_unique< VertexCollector >(
-                                            device, *allocator, maxVertsPerLayer, true, "Dynamic" );
+            if( !collectorDynamic[ 0 ] )
+            {
+                c = std::make_unique< VertexCollector >(
+                    device, *allocator, maxVertsPerLayer, true, "Dynamic" );
+                continue;
+            }
+
+            // share buffers with 0
+            c = VertexCollector::CreateWithSameDeviceLocalBuffers(
+                *( collectorDynamic[ 0 ] ), *allocator, "Dynamic" );
         }
     }
 

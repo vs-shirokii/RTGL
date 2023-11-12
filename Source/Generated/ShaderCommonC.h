@@ -192,12 +192,11 @@ namespace RTGL1
 
 struct ShVertex
 {
-    float position[4];
-    float normal[4];
-    float tangent[4];
+    float position[3];
+    uint32_t normalPacked;
     float texCoord[2];
     uint32_t color;
-    uint32_t _padding;
+    uint32_t _pad0;
 };
 
 struct ShGlobalUniform

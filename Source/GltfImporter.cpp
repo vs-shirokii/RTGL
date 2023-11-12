@@ -36,6 +36,8 @@
 #include <format>
 #include <span>
 
+#define NEED_TANGENT 0
+
 namespace RTGL1
 {
 namespace
@@ -266,7 +268,10 @@ namespace
         std::optional< size_t > vertexCount;
         {
             // required
-            bool position{}, normal{}, tangent{}, texcoord{};
+            bool position{}, normal{}, texcoord{};
+#if NEED_TANGENT
+            bool tangent{};
+#endif
 
             for( const cgltf_attribute& attr : attrSpan )
             {
@@ -297,9 +302,11 @@ namespace
                             debugprintAttr( attr, "Expected VEC3" );
                             return {};
                         }
-                        static_assert( std::size( RgPrimitiveVertex{}.normal ) == 3 );
+                        static_assert( std::is_same_v< decltype( RgPrimitiveVertex{}.normalPacked ),
+                                                       RgNormalPacked32 > );
                         break;
 
+#if NEED_TANGENT
                     case cgltf_attribute_type_tangent:
                         tangent = true;
                         if( cgltf_num_components( attr.data->type ) != 4 )
@@ -309,6 +316,7 @@ namespace
                         }
                         static_assert( std::size( RgPrimitiveVertex{}.tangent ) == 4 );
                         break;
+#endif
 
                     case cgltf_attribute_type_texcoord:
                         texcoord = true;
@@ -335,7 +343,11 @@ namespace
                     default: break;
                 }
 
+#if NEED_TANGENT
                 if( position || normal || tangent || texcoord || color )
+#else
+                if( position || normal || texcoord || color )
+#endif
                 {
                     if( vertexCount )
                     {
@@ -357,19 +369,27 @@ namespace
                 }
             }
 
+#if NEED_TANGENT
             if( !position || !normal || !tangent || !texcoord )
+#else
+            if( !position || !normal || !texcoord )
+#endif
             {
                 debug::Warning( "Ignoring primitive of ...->{}->{}: Not all required "
                                 "attributes are present. "
                                 "POSITION - {}. "
                                 "NORMAL - {}. "
+#if NEED_TANGENT
                                 "TANGENT - {}. "
+#endif
                                 "TEXCOORD_0 - {}. {}",
                                 dbgParentNodeName,
                                 dbgNodeName,
                                 position,
                                 normal,
+#if NEED_TANGENT
                                 tangent,
+#endif
                                 texcoord,
                                 gltfPath );
                 return {};
@@ -404,10 +424,15 @@ namespace
                 case cgltf_attribute_type_normal:
                     for( size_t i = 0; i < primVertices.size(); i++ )
                     {
-                        ok &= cgltf_accessor_read_float_h( attr.data, i, primVertices[ i ].normal );
+                        float n[ 3 ];
+                        ok &= cgltf_accessor_read_float_h( attr.data, i, n );
+
+                        primVertices[ i ].normalPacked =
+                            Utils::PackNormal( n[ 0 ], n[ 1 ], n[ 2 ] );
                     }
                     break;
 
+#if NEED_TANGENT
                 case cgltf_attribute_type_tangent:
                     for( size_t i = 0; i < primVertices.size(); i++ )
                     {
@@ -415,6 +440,7 @@ namespace
                             cgltf_accessor_read_float_h( attr.data, i, primVertices[ i ].tangent );
                     }
                     break;
+#endif
 
                 case cgltf_attribute_type_texcoord: {
                     int texcoordIndex = attr.index;
@@ -430,8 +456,9 @@ namespace
                     defaultColor = std::nullopt;
                     for( size_t i = 0; i < primVertices.size(); i++ )
                     {
-                        float c[ 4 ] = { 1, 1, 1, 1 };
+                        float c[ 4 ];
                         ok &= cgltf_accessor_read_float_h( attr.data, i, c );
+
                         primVertices[ i ].color =
                             Utils::PackColorFromFloat( c[ 0 ], c[ 1 ], c[ 2 ], c[ 3 ] );
                     }
@@ -1044,8 +1071,8 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
                         for( auto& v : vertices )
                         {
                             ApplyTransformToPosition( transform, v.position );
-                            ApplyTransformToDirection( transform, v.normal );
-                            ApplyTransformToDirection( transform, v.tangent );
+                            v.normalPacked = Utils::PackNormal( ApplyTransformToDirection(
+                                transform, Utils::UnpackNormal( v.normalPacked ) ) );
                         }
                     }
 

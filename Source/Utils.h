@@ -37,6 +37,7 @@
     ( dst )[ 1 ] = ( xyz )[ 1 ];  \
     ( dst )[ 2 ] = ( xyz )[ 2 ]
 
+#define RG_ACCESS_VEC2( src ) ( src )[ 0 ], ( src )[ 1 ]
 #define RG_ACCESS_VEC3( src ) ( src )[ 0 ], ( src )[ 1 ], ( src )[ 2 ]
 #define RG_ACCESS_VEC4( src ) ( src )[ 0 ], ( src )[ 1 ], ( src )[ 2 ], ( src )[ 3 ]
 
@@ -318,6 +319,127 @@ namespace Utils
         return PackColor( toUint8( r ), toUint8( g ), toUint8( b ), toUint8( a ) );
     }
 
+    namespace detail
+    {
+
+        /*
+        vec2 uint_to_vec2(uint base) {
+            uvec2 decode = (uvec2(base) >> uvec2(0, 16)) & uvec2(0xFFFF, 0xFFFF);
+            return vec2(decode) / vec2(65535.0, 65535.0) * 2.0 - 1.0;
+        }
+
+        vec3 oct_to_vec3(vec2 oct) {
+            vec3 v = vec3(oct.xy, 1.0 - abs(oct.x) - abs(oct.y));
+            float t = max(-v.z, 0.0);
+            v.xy += t * -sign(v.xy);
+            return normalize(v);
+        }
+
+        vec3 decode_uint_oct_to_norm(uint base) {
+            return oct_to_vec3(uint_to_vec2(base));
+        }
+         */
+
+        constexpr float sign( float v )
+        {
+            return v < 0.f ? -1.f : v > 0.f ? 1.f : 0.f;
+        }
+
+        constexpr float signNotZero( float v )
+        {
+            return v < 0.f ? -1.f : 1.f;
+        }
+
+        constexpr RgFloat2D uint_to_vec2( uint32_t base )
+        {
+            uint32_t decode[] = {
+                base & uint32_t{ 0xFFFF },
+                ( base >> 16u ) & uint32_t{ 0xFFFF },
+            };
+            return {
+                ( static_cast< float >( decode[ 0 ] ) / 65535.f ) * 2.f - 1.f,
+                ( static_cast< float >( decode[ 1 ] ) / 65535.f ) * 2.f - 1.f,
+            };
+        }
+
+        inline RgFloat3D oct_to_vec3( const RgFloat2D& oct )
+        {
+            float x = oct.data[ 0 ];
+            float y = oct.data[ 1 ];
+            float z = 1.f - std::abs( x ) - std::abs( y );
+
+            float t = std::max( -z, 0.f );
+
+            x += t * ( -sign( x ) );
+            y += t * ( -sign( y ) );
+
+            RgFloat3D v = { x, y, z };
+            TryNormalize( v.data );
+            return v;
+        }
+
+        static_assert( std::is_same_v< RgNormalPacked32, uint32_t > );
+        inline RgFloat3D decode_uint_oct_to_norm( uint32_t base )
+        {
+            return oct_to_vec3( uint_to_vec2( base ) );
+        }
+
+        constexpr uint32_t vec2_to_uint( const RgFloat2D& base )
+        {
+            uint32_t enc[] = {
+                std::clamp( static_cast< uint32_t >( base.data[ 0 ] * 65535.f ), 0u, 65535u ),
+                std::clamp( static_cast< uint32_t >( base.data[ 1 ] * 65535.f ), 0u, 65535u ),
+            };
+            return enc[ 0 ] | ( enc[ 1 ] << 16u );
+        }
+
+        inline RgFloat2D vec3_to_oct( float x, float y, float z )
+        {
+            float ab = std::abs( x ) + std::abs( y ) + std::abs( z );
+            if( ab > 0.000001f ) // safety for close-to-zero case
+            {
+                x /= ab;
+                y /= ab;
+                z /= ab;
+            }
+
+            float oct[] = {
+                z >= 0.f ? x : ( 1.f - std::abs( y ) ) * signNotZero( x ),
+                z >= 0.f ? y : ( 1.f - std::abs( x ) ) * signNotZero( y ),
+            };
+
+            return {
+                oct[ 0 ] * 0.5f + 0.5f,
+                oct[ 1 ] * 0.5f + 0.5f,
+            };
+        }
+
+        static_assert( std::is_same_v< RgNormalPacked32, uint32_t > );
+        inline uint32_t encode_norm_to_uint_oct( float x, float y, float z )
+        {
+            return vec2_to_uint( vec3_to_oct( x, y, z ) );
+        }
+    }
+
+    // must match Shaders/Utils.h
+    [[nodiscard]] inline RgNormalPacked32 PackNormal( float x, float y, float z )
+    {
+        float v[] = { x, y, z };
+        TryNormalize( v );
+        return detail::encode_norm_to_uint_oct( v[ 0 ], v[ 1 ], v[ 2 ] );
+    }
+
+    [[nodiscard]] inline RgNormalPacked32 PackNormal( const RgFloat3D& v )
+    {
+        return PackNormal( v.data[ 0 ], v.data[ 1 ], v.data[ 2 ] );
+    }
+
+    // must match Shaders/Utils.h
+    [[nodiscard]] inline RgFloat3D UnpackNormal( RgNormalPacked32 x )
+    {
+        return detail::decode_uint_oct_to_norm( x );
+    }
+
     constexpr RgColor4DPacked32 PackColorFromFloat( const float ( &rgba )[ 4 ] )
     {
         return PackColorFromFloat( rgba[ 0 ], rgba[ 1 ], rgba[ 2 ], rgba[ 3 ] );
@@ -349,7 +471,7 @@ namespace Utils
         return nonMetricIntensity / ( oneGameUnitInMeters * oneGameUnitInMeters );
     }
 
-    // clang-format off
+// clang-format off
     // Column memory order!
     #define RG_TRANSFORM_TO_GLTF_MATRIX( t ) {                                      \
         ( t ).matrix[ 0 ][ 0 ], ( t ).matrix[ 1 ][ 0 ], ( t ).matrix[ 2 ][ 0 ], 0,  \

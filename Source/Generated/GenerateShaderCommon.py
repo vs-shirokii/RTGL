@@ -479,12 +479,11 @@ def evalConst():
 # then it'll be represented as an array with size (count*dimensions).
 
 VERTEX_STRUCT = [
-    (TYPE_FLOAT32,      4,     "position",              1),
-    (TYPE_FLOAT32,      4,     "normal",                1),
-    (TYPE_FLOAT32,      4,     "tangent",               1),
+    (TYPE_FLOAT32,      3,     "position",              1),
+    (TYPE_UINT32 ,      1,     "normalPacked",          1),
     (TYPE_FLOAT32,      2,     "texCoord",              1),
     (TYPE_UINT32,       1,     "color",                 1),
-    (TYPE_UINT32,       1,     "_padding",              1),
+    (TYPE_UINT32,       1,     "_pad0",                 1),
 ]
 
 # Must be careful with std140 offsets! They are set manually.
@@ -710,7 +709,7 @@ STRUCT_BREAK_TYPE_ONLY_C    = 2
 # breakType         -- if member's type is not primitive and its count>0 then
 #                      it'll be represented as an array of primitive types
 STRUCTS = {
-    "ShVertex":                 (VERTEX_STRUCT,                 False,  STRUCT_ALIGNMENT_STD430,    0),
+    "ShVertex":                 (VERTEX_STRUCT,                 False,  STRUCT_ALIGNMENT_STD140,    0),
     "ShGlobalUniform":          (GLOBAL_UNIFORM_STRUCT,         False,  STRUCT_ALIGNMENT_STD140,    STRUCT_BREAK_TYPE_ONLY_C),
     "ShGeometryInstance":       (GEOM_INSTANCE_STRUCT,          False,  STRUCT_ALIGNMENT_STD430,    0),
     "ShTonemapping":            (TONEMAPPING_STRUCT,            False,  0,                          0),

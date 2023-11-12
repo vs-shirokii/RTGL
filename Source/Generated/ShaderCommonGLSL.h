@@ -187,12 +187,11 @@
 
 struct ShVertex
 {
-    vec4 position;
-    vec4 normal;
-    vec4 tangent;
+    vec3 position;
+    uint normalPacked;
     vec2 texCoord;
     uint color;
-    uint _padding;
+    uint _pad0;
 };
 
 struct ShGlobalUniform

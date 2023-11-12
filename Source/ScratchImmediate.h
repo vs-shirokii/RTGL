@@ -76,9 +76,7 @@ public:
 
     void Normal( float x, float y, float z )
     {
-        accumVertex.normal[ 0 ] = x;
-        accumVertex.normal[ 1 ] = y;
-        accumVertex.normal[ 2 ] = z;
+        accumVertex.normalPacked = Utils::PackNormal( x, y, z );
     }
 
     void TexCoord( float u, float v )
@@ -112,11 +110,10 @@ private:
     std::vector< uint32_t > accumIndices;
 
     RgPrimitiveVertex accumVertex{
-        .position = { 0.0f, 0.0f, 0.0f },
-        .normal   = { 0.0f, 1.0f, 0.0f },
-        .tangent  = { 0.0f, 0.0f, 1.0f },
-        .texCoord = { 0.0f, 0.0f },
-        .color    = Utils::PackColor( 255, 255, 255, 255 ),
+        .position     = { 0.0f, 0.0f, 0.0f },
+        .normalPacked = Utils::PackNormal( 0, 1, 0 ),
+        .texCoord     = { 0.0f, 0.0f },
+        .color        = Utils::PackColor( 255, 255, 255, 255 ),
     };
     std::optional< RgUtilImScratchTopology > accumTopology;
     std::optional< RgFloat2D >               accumTexLayer1;

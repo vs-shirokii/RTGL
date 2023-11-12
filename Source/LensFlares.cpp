@@ -204,7 +204,8 @@ void RTGL1::LensFlares::Upload( uint32_t                     frameIndex,
             std::is_same_v< decltype( uploadInfo.pVertices ), const RgPrimitiveVertex* > );
         static_assert( sizeof( ShVertex ) == sizeof( RgPrimitiveVertex ) );
         static_assert( offsetof( ShVertex, position ) == offsetof( RgPrimitiveVertex, position ) );
-        static_assert( offsetof( ShVertex, normal ) == offsetof( RgPrimitiveVertex, normal ) );
+        static_assert( offsetof( ShVertex, normalPacked ) ==
+                       offsetof( RgPrimitiveVertex, normalPacked ) );
         static_assert( offsetof( ShVertex, texCoord ) == offsetof( RgPrimitiveVertex, texCoord ) );
         static_assert( offsetof( ShVertex, color ) == offsetof( RgPrimitiveVertex, color ) );
 

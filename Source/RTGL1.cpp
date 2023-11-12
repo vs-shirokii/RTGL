@@ -268,6 +268,11 @@ RgColor4DPacked32 rgUtilPackColorFloat4D( float r, float g, float b, float a )
     return RTGL1::Utils::PackColorFromFloat( r, g, b, a );
 }
 
+RgColor4DPacked32 rgUtilPackNormal( float x, float y, float z )
+{
+    return RTGL1::Utils::PackNormal( x, y, z );
+}
+
 void rgUtilExportAsTGA( const void* pPixels, uint32_t width, uint32_t height, const char* pPath )
 {
     RTGL1::TextureExporter::WriteTGA( pPath, pPixels, { width, height } );
@@ -339,6 +344,7 @@ RGAPI RgResult RGCONV rgCreateInstance( const RgInstanceCreateInfo* pInfo, RgInt
             .rgUtilGetResultDescription        = rgUtilGetResultDescription,
             .rgUtilPackColorByte4D             = rgUtilPackColorByte4D,
             .rgUtilPackColorFloat4D            = rgUtilPackColorFloat4D,
+            .rgUtilPackNormal                  = rgUtilPackNormal,
             .rgUtilExportAsTGA                 = rgUtilExportAsTGA,
         };
     }

@@ -135,9 +135,19 @@ std::string GetGltfBinURI( const std::filesystem::path& gltfPath )
 }
 
 
-auto MakeWeghtedNormal( const RgPrimitiveVertex& v0,
-                        const RgPrimitiveVertex& v1,
-                        const RgPrimitiveVertex& v2 ) -> RgFloat3D
+// Need because of the packed normals..
+struct RgPrimitiveVertex_Unpacked
+{
+    float             position[ 3 ];
+    float             normal[ 3 ];
+    float             texCoord[ 2 ];
+    RgColor4DPacked32 color;
+};
+
+
+auto MakeWeghtedNormal( const RgPrimitiveVertex_Unpacked& v0,
+                        const RgPrimitiveVertex_Unpacked& v1,
+                        const RgPrimitiveVertex_Unpacked& v2 ) -> RgFloat3D
 {
     const float* a = v0.position;
     const float* b = v1.position;
@@ -149,9 +159,9 @@ auto MakeWeghtedNormal( const RgPrimitiveVertex& v0,
     return RTGL1::Utils::Cross( e1, e2 );
 }
 
-void CalculateNormals( std::vector< RgPrimitiveVertex >& verts,
-                       std::vector< uint32_t >&          indices,
-                       bool                              invert )
+void CalculateNormals( std::vector< RgPrimitiveVertex_Unpacked >& verts,
+                       std::vector< uint32_t >&                   indices,
+                       bool                                       invert )
 {
     auto triCount = [ & ]() {
         return indices.empty() ? verts.size() / 3 : indices.size() / 3;
@@ -164,7 +174,7 @@ void CalculateNormals( std::vector< RgPrimitiveVertex >& verts,
                                              indices[ tri * 3 + 2 ] };
     };
 
-    auto sumNormal = []( RgPrimitiveVertex& v, const RgFloat3D& n ) {
+    auto sumNormal = []( RgPrimitiveVertex_Unpacked& v, const RgFloat3D& n ) {
         v.normal[ 0 ] += n.data[ 0 ];
         v.normal[ 1 ] += n.data[ 1 ];
         v.normal[ 2 ] += n.data[ 2 ];
@@ -244,11 +254,9 @@ struct DeepCopyOfPrimitive
             extAttachedLight = *e;
         }
 
-        std::span fromVertices( c.pVertices, c.vertexCount );
-        std::span fromIndices( c.pIndices, c.indexCount );
+        auto fromVertices = std::span{ c.pVertices, c.vertexCount };
+        auto fromIndices  = std::span{ c.pIndices, c.indexCount };
         // for copying
-        static_assert(
-            std::is_same_v< decltype( c.pVertices ), decltype( pVertices )::const_pointer > );
         static_assert(
             std::is_same_v< decltype( c.pIndices ), decltype( pIndices )::const_pointer > );
         static_assert( std::is_trivially_copyable_v< decltype( pVertices )::value_type > );
@@ -256,7 +264,19 @@ struct DeepCopyOfPrimitive
 
         // deep copy
         pTextureName = Utils::SafeCstr( c.pTextureName );
-        pVertices.assign( fromVertices.begin(), fromVertices.end() );
+        pVertices.resize( fromVertices.size() );
+        for( size_t i = 0; i < fromVertices.size(); i++ )
+        {
+            const RgPrimitiveVertex& src            = fromVertices[ i ];
+            const RgFloat3D          normalUnpacked = Utils::UnpackNormal( src.normalPacked );
+
+            pVertices[ i ] = RgPrimitiveVertex_Unpacked{
+                .position = { RG_ACCESS_VEC3( src.position ) },
+                .normal   = { RG_ACCESS_VEC3( normalUnpacked.data ) },
+                .texCoord = { RG_ACCESS_VEC2( src.texCoord ) },
+                .color    = src.color,
+            };
+        }
         pIndices.assign( fromIndices.begin(), fromIndices.end() );
 
         if( !( c.flags & RG_MESH_PRIMITIVE_DONT_GENERATE_NORMALS ) )
@@ -312,7 +332,7 @@ struct DeepCopyOfPrimitive
     DeepCopyOfPrimitive( const DeepCopyOfPrimitive& other )            = delete;
     DeepCopyOfPrimitive& operator=( const DeepCopyOfPrimitive& other ) = delete;
 
-    std::span< const RgPrimitiveVertex > Vertices() const
+    std::span< const RgPrimitiveVertex_Unpacked > Vertices() const
     {
         return { pVertices.begin(), pVertices.end() };
     }
@@ -345,7 +365,7 @@ private:
     static void FixupPointers( DeepCopyOfPrimitive& inout )
     {
         inout.info.pTextureName = inout.pTextureName.data();
-        inout.info.pVertices    = inout.pVertices.data();
+        inout.info.pVertices    = nullptr; // because of RgPrimitiveVertex_Unpacked
         inout.info.pIndices     = inout.pIndices.data();
 
         assert( inout.info.vertexCount == inout.pVertices.size() );
@@ -375,9 +395,9 @@ private:
     std::optional< RgMeshPrimitiveAttachedLightEXT > extAttachedLight;
 
     // to maintain lifetimes
-    std::string                      pTextureName;
-    std::vector< RgPrimitiveVertex > pVertices;
-    std::vector< uint32_t >          pIndices;
+    std::string                               pTextureName;
+    std::vector< RgPrimitiveVertex_Unpacked > pVertices;
+    std::vector< uint32_t >                   pIndices;
 };
 }
 
@@ -478,7 +498,7 @@ auto MakeAccessors( size_t                         vertexCount,
             .component_type = cgltf_component_type_r_32f,
             .normalized     = false,
             .type           = cgltf_type_vec3,
-            .offset         = offsetof( RgPrimitiveVertex, position ),
+            .offset         = offsetof( RgPrimitiveVertex_Unpacked, position ),
             .count          = vertexCount,
             .buffer_view    = &correspondingViews[ BUFFER_VIEW_VERTICES ],
             .has_min        = false,
@@ -492,7 +512,7 @@ auto MakeAccessors( size_t                         vertexCount,
             .component_type = cgltf_component_type_r_32f,
             .normalized     = false,
             .type           = cgltf_type_vec3,
-            .offset         = offsetof( RgPrimitiveVertex, normal ),
+            .offset         = offsetof( RgPrimitiveVertex_Unpacked, normal ),
             .count          = vertexCount,
             .buffer_view    = &correspondingViews[ BUFFER_VIEW_VERTICES ],
             .has_min        = true,
@@ -500,27 +520,13 @@ auto MakeAccessors( size_t                         vertexCount,
             .has_max        = true,
             .max            = { 1.f, 1.f, 1.f },
         },
-#define ACCESSOR_TANGENT 2
-        cgltf_accessor{
-            .name           = nullptr,
-            .component_type = cgltf_component_type_r_32f,
-            .normalized     = false,
-            .type           = cgltf_type_vec4,
-            .offset         = offsetof( RgPrimitiveVertex, tangent ),
-            .count          = vertexCount,
-            .buffer_view    = &correspondingViews[ BUFFER_VIEW_VERTICES ],
-            .has_min        = true,
-            .min            = { -1.f, -1.f, -1.f, -1.f },
-            .has_max        = true,
-            .max            = { 1.f, 1.f, 1.f, 1.f },
-        },
-#define ACCESSOR_TEXCOORD 3
+#define ACCESSOR_TEXCOORD 2
         cgltf_accessor{
             .name           = nullptr,
             .component_type = cgltf_component_type_r_32f,
             .normalized     = false,
             .type           = cgltf_type_vec2,
-            .offset         = offsetof( RgPrimitiveVertex, texCoord ),
+            .offset         = offsetof( RgPrimitiveVertex_Unpacked, texCoord ),
             .count          = vertexCount,
             .buffer_view    = &correspondingViews[ BUFFER_VIEW_VERTICES ],
             .has_min        = false,
@@ -528,13 +534,13 @@ auto MakeAccessors( size_t                         vertexCount,
             .has_max        = false,
             .max            = {},
         },
-#define ACCESSOR_COLOR 4
+#define ACCESSOR_COLOR 3
         cgltf_accessor{
             .name           = nullptr,
             .component_type = cgltf_component_type_r_8u,
             .normalized     = false,
             .type           = cgltf_type_vec4,
-            .offset         = offsetof( RgPrimitiveVertex, color ),
+            .offset         = offsetof( RgPrimitiveVertex_Unpacked, color ),
             .count          = vertexCount,
             .buffer_view    = &correspondingViews[ BUFFER_VIEW_VERTICES ],
             .has_min        = false,
@@ -542,7 +548,7 @@ auto MakeAccessors( size_t                         vertexCount,
             .has_max        = false,
             .max            = {},
         },
-#define ACCESSOR_INDEX 5
+#define ACCESSOR_INDEX 4
         cgltf_accessor{
             .name           = nullptr,
             .component_type = cgltf_component_type_r_32u,
@@ -585,12 +591,6 @@ auto MakeVertexAttributes( std::span< cgltf_accessor > correspondingAccessors )
             .type  = cgltf_attribute_type_normal,
             .index = 0,
             .data  = &correspondingAccessors[ ACCESSOR_NORMAL ],
-        },
-        cgltf_attribute{
-            .name  = const_cast< char* >( "TANGENT" ),
-            .type  = cgltf_attribute_type_tangent,
-            .index = 0,
-            .data  = &correspondingAccessors[ ACCESSOR_TANGENT ],
         },
         cgltf_attribute{
             .name  = const_cast< char* >( "TEXCOORD_0" ),

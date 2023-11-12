@@ -102,41 +102,93 @@ DirectionAndLength calcDirectionAndLengthSafe(const vec3 start, const vec3 end)
 
 
 
-#define ENCODE_NORMAL_N_PHI 1 << 16
-#define ENCODE_NORMAL_N_THETA 1 << 16
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* https://github.com/godotengine/godot/blob/master/AUTHORS.md            */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
+
+vec2 uint_to_vec2(uint base) {
+	uvec2 decode = (uvec2(base) >> uvec2(0, 16)) & uvec2(0xFFFF, 0xFFFF);
+	return vec2(decode) / vec2(65535.0, 65535.0) * 2.0 - 1.0;
+}
+
+vec3 oct_to_vec3(vec2 oct) {
+	vec3 v = vec3(oct.xy, 1.0 - abs(oct.x) - abs(oct.y));
+	float t = max(-v.z, 0.0);
+	v.xy += t * -sign(v.xy);
+	return normalize(v);
+}
+
+vec3 decode_uint_oct_to_norm(uint base) {
+	return oct_to_vec3(uint_to_vec2(base));
+}
+
+vec4 decode_uint_oct_to_tang(uint base) {
+	vec2 oct_sign_encoded = uint_to_vec2(base);
+	// Binormal sign encoded in y component
+	vec2 oct = vec2(oct_sign_encoded.x, abs(oct_sign_encoded.y) * 2.0 - 1.0);
+	return vec4(oct_to_vec3(oct), sign(oct_sign_encoded.y));
+}
+
+vec2 signNotZero(vec2 v) {
+	return mix(vec2(-1.0), vec2(1.0), greaterThanEqual(v.xy, vec2(0.0)));
+}
+
+uint vec2_to_uint(vec2 base) {
+	uvec2 enc = uvec2(clamp(ivec2(base * vec2(65535, 65535)), ivec2(0), ivec2(0xFFFF, 0xFFFF))) << uvec2(0, 16);
+	return enc.x | enc.y;
+}
+
+vec2 vec3_to_oct(vec3 e) {
+	e /= abs(e.x) + abs(e.y) + abs(e.z);
+	vec2 oct = e.z >= 0.0f ? e.xy : (vec2(1.0f) - abs(e.yx)) * signNotZero(e.xy);
+	return oct * 0.5f + 0.5f;
+}
+
+uint encode_norm_to_uint_oct(vec3 base) {
+	return vec2_to_uint(vec3_to_oct(base));
+}
+
+uint encode_tang_to_uint_oct(vec4 base) {
+	vec2 oct = vec3_to_oct(base.xyz);
+	// Encode binormal sign in y component
+	oct.y = oct.y * 0.5f + 0.5f;
+	oct.y = base.w >= 0.0f ? oct.y : 1 - oct.y;
+	return vec2_to_uint(oct);
+}
+
+/**************************************************************************/
+/**************************************************************************/
+
+
 
 uint encodeNormal(vec3 n)
 {
-    const uint N_phi = ENCODE_NORMAL_N_PHI;
-    const uint N_theta = ENCODE_NORMAL_N_THETA;
-
-    float phi = acos(n.z);
-    // atan -> [-pi, pi], need [0, 2pi]
-	float theta = atan(n.y, n.x);
-    theta = theta < 0 ? theta + 2 * M_PI : theta;
-
-    uint j = uint(round(phi * (N_phi - 1) / M_PI));
-    uint k = uint(round(theta * N_theta / (2 * M_PI))) % N_theta;
-
-    return (j << 16) | k;
+    return encode_norm_to_uint_oct(n);
 }
 
 vec3 decodeNormal(uint _packed)
 {
-    const uint N_phi = ENCODE_NORMAL_N_PHI;
-    const uint N_theta = ENCODE_NORMAL_N_THETA;
-
-    uint j = _packed >> 16;
-    uint k = _packed & 0xFFFF;
-
-    float phi = j * M_PI / (N_phi - 1);
-    float theta = k * 2 * M_PI / N_theta;
-
-    return vec3(
-        sin(phi) * cos(theta),
-        sin(phi) * sin(theta),
-        cos(phi)
-    );
+    return decode_uint_oct_to_norm(_packed);
 }
 
 vec3 safeNormalize(const vec3 v)
@@ -204,33 +256,6 @@ vec3 decodeE5B9G9R9(const uint _packed)
         (_packed >> (1 * ENCODE_E5B9G9R9_MANTISSA_BITS)) & ENCODE_E5B9G9R9_MANTISSA_MASK,
         (_packed >> (2 * ENCODE_E5B9G9R9_MANTISSA_BITS)) & ENCODE_E5B9G9R9_MANTISSA_MASK
     );
-}
-
-
-
-#define TANGENT_HANDEDNESS_ENCODING_CONST 19
-#define TANGENT_HANDEDNESS_ENCODING_THRESHOLD 3
-
-// Encode normalized tangent vector with handedness (-1 or 1) to vec3
-vec3 encodeTangent4(const vec3 tangent, float handedness)
-{
-    // handedness must be -1 or 1,
-    //          then h is  1 or 0
-    const float h = (-handedness + 1.0) * 0.5;
-
-    // if handedness is  1, then tangent is a unit vector
-    // if handedness is -1, then the length is (1.0 + TANGENT_HANDEDNESS_ENCODING_CONST)
-    return tangent.xyz * (1.0 + h * TANGENT_HANDEDNESS_ENCODING_CONST);
-}
-
-vec4 decodeTangent4(const vec3 _packed)
-{
-    const float isUnitLen = float(dot(_packed, _packed) < TANGENT_HANDEDNESS_ENCODING_THRESHOLD);
-    const float handedness = isUnitLen * 2.0 - 1.0;
-
-    const float h = (-handedness + 1.0) * 0.5;
-
-    return vec4(_packed / (1.0 + h * TANGENT_HANDEDNESS_ENCODING_CONST), handedness);
 }
 
 #endif // UTILS_H_

@@ -327,6 +327,7 @@ typedef struct RgViewport
 } RgViewport;
 
 typedef uint32_t RgColor4DPacked32;
+typedef uint32_t RgNormalPacked32;
 
 
 
@@ -366,11 +367,11 @@ typedef uint32_t RgMeshInfoFlags;
 
 typedef struct RgPrimitiveVertex
 {
-    float               position[ 3 ];      uint32_t _padding0;
-    float               normal[ 3 ];        uint32_t _padding1;
-    float               tangent[ 4 ];
-    float               texCoord[ 2 ];
-    RgColor4DPacked32   color;              uint32_t _padding2;
+    float                   position[ 3 ];
+    RgNormalPacked32        normalPacked;
+    float                   texCoord[ 2 ];
+    RgColor4DPacked32       color;
+    uint32_t                _pad0;
 } RgPrimitiveVertex;
 
 // Can be linked after RgMeshPrimitiveInfo.
@@ -1106,6 +1107,7 @@ typedef RgBool32            ( RGAPI_PTR* PFN_rgUtilIsUpscaleTechniqueAvailable  
 typedef const char*         ( RGAPI_PTR* PFN_rgUtilGetResultDescription         )( RgResult result );
 typedef RgColor4DPacked32   ( RGAPI_PTR* PFN_rgUtilPackColorByte4D              )( uint8_t r, uint8_t g, uint8_t b, uint8_t a );
 typedef RgColor4DPacked32   ( RGAPI_PTR* PFN_rgUtilPackColorFloat4D             )( float r, float g, float b, float a );
+typedef RgNormalPacked32    ( RGAPI_PTR* PFN_rgUtilPackNormal                   )( float x, float y, float z );
 typedef void                ( RGAPI_PTR* PFN_rgUtilExportAsTGA                  )( const void* pPixels, uint32_t width, uint32_t height, const char* pPath );
 
 
@@ -1142,6 +1144,7 @@ typedef struct RgInterface
     PFN_rgUtilGetResultDescription        rgUtilGetResultDescription;
     PFN_rgUtilPackColorByte4D             rgUtilPackColorByte4D;
     PFN_rgUtilPackColorFloat4D            rgUtilPackColorFloat4D;
+    PFN_rgUtilPackNormal                  rgUtilPackNormal;
     PFN_rgUtilExportAsTGA                 rgUtilExportAsTGA;
 } RgInterface;
 
