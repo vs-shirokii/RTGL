@@ -113,7 +113,7 @@ void Buffer::Destroy()
     // memory is guaranteed to be dedicated
     if( memory != VK_NULL_HANDLE )
     {
-        vkFreeMemory( device, memory, nullptr );
+        MemoryAllocator::FreeDedicated( device, memory );
         memory = VK_NULL_HANDLE;
     }
 

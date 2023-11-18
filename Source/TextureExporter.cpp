@@ -470,8 +470,8 @@ bool RTGL1::TextureExporter::ExportAsTGA( MemoryAllocator&             allocator
         }
     }
     {
-        vkFreeMemory( device, dstMemory_Linear, nullptr );
-        vkFreeMemory( device, dstMemory_Optimal, nullptr );
+        MemoryAllocator::FreeDedicated( device, dstMemory_Linear );
+        MemoryAllocator::FreeDedicated( device, dstMemory_Optimal );
 
         vkDestroyImage( device, dstImage_Linear, nullptr );
         vkDestroyImage( device, dstImage_Optimal, nullptr );

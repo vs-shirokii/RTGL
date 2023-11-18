@@ -22,6 +22,8 @@
 
 #include "Const.h"
 
+#include "Utils.h"
+
 RTGL1::MemoryAllocator::MemoryAllocator( VkInstance                        _instance,
                                          VkDevice                          _device,
                                          std::shared_ptr< PhysicalDevice > _physDevice )
@@ -251,7 +253,7 @@ VkDeviceMemory RTGL1::MemoryAllocator::AllocDedicated( const VkMemoryRequirement
                                                        AllocType                   allocType,
                                                        const char* pDebugName ) const
 {
-    VkDeviceMemory       memory;
+    VkDeviceMemory memory;
 
     VkMemoryAllocateInfo memAllocInfo = {
         .sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
@@ -270,6 +272,20 @@ VkDeviceMemory RTGL1::MemoryAllocator::AllocDedicated( const VkMemoryRequirement
     }
 
     VkResult r = vkAllocateMemory( device, &memAllocInfo, nullptr, &memory );
+
+    {
+        if( Utils::IsCstrEmpty( pDebugName ) )
+        {
+            debug::Verbose( "Videomem alloc: {:.3f} MB",
+                            float( memAllocInfo.allocationSize ) / 1024.f / 1024.f );
+        }
+        else
+        {
+            debug::Verbose( "Videomem alloc: {:.3f} MB ({})",
+                            float( memAllocInfo.allocationSize ) / 1024.f / 1024.f,
+                            pDebugName );
+        }
+    }
 
     VK_CHECKERROR( r );
     SET_DEBUG_NAME( device, memory, VK_OBJECT_TYPE_DEVICE_MEMORY, pDebugName );

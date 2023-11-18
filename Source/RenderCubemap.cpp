@@ -99,11 +99,11 @@ RTGL1::RenderCubemap::~RenderCubemap()
 
     vkDestroyImage( device, cubemap.image, nullptr );
     vkDestroyImageView( device, cubemap.view, nullptr );
-    vkFreeMemory( device, cubemap.memory, nullptr );
+    MemoryAllocator::FreeDedicated( device, cubemap.memory );
 
     vkDestroyImage( device, cubemapDepth.image, nullptr );
     vkDestroyImageView( device, cubemapDepth.view, nullptr );
-    vkFreeMemory( device, cubemapDepth.memory, nullptr );
+    MemoryAllocator::FreeDedicated( device, cubemapDepth.memory );
 
     vkDestroyFramebuffer( device, cubemapFramebuffer, nullptr );
 }

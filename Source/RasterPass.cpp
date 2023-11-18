@@ -540,7 +540,7 @@ void RTGL1::RasterPass::DestroyDepthBuffers()
         {
             vkDestroyImage( device, depthImages[ i ], nullptr );
             vkDestroyImageView( device, depthViews[ i ], nullptr );
-            vkFreeMemory( device, depthMemory[ i ], nullptr );
+            MemoryAllocator::FreeDedicated( device, depthMemory[ i ] );
 
             depthImages[ i ] = VK_NULL_HANDLE;
             depthViews[ i ]  = VK_NULL_HANDLE;

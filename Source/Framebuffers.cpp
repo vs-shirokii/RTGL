@@ -897,7 +897,7 @@ void Framebuffers::DestroyImages()
     {
         if( m != VK_NULL_HANDLE )
         {
-            vkFreeMemory( device, m, nullptr );
+            MemoryAllocator::FreeDedicated( device, m );
             m = VK_NULL_HANDLE;
         }
     }
