@@ -81,8 +81,9 @@ public:
                                     const std::string&                  materialName,
                                     std::span< std::filesystem::path >  fullPaths,
                                     std::span< SamplerManager::Handle > samplers,
-                                    RgTextureSwizzling                  customPbrSwizzling );
-    void FreeAllImportedMaterials( uint32_t frameIndex );
+                                    RgTextureSwizzling                  customPbrSwizzling,
+                                    bool                                isReplacement );
+    void FreeAllImportedMaterials( uint32_t frameIndex, bool freeReplacements );
 
     bool TryDestroyMaterial( uint32_t frameIndex, const char* materialName );
 
@@ -216,8 +217,14 @@ private:
     std::vector< Texture >               texturesToDestroy[ MAX_FRAMES_IN_FLIGHT ];
     std::vector< std::filesystem::path > texturesToReload;
 
-    rgl::string_map< Material > materials;
-    rgl::string_set             importedMaterials;
+    enum class ImportedType
+    {
+        ForReplacement,
+        ForStatic,
+    };
+
+    rgl::string_map< Material >     materials;
+    rgl::string_map< ImportedType > importedMaterials;
 
     uint32_t waterNormalTextureIndex;
     uint32_t dirtMaskTextureIndex;

@@ -574,6 +574,7 @@ namespace
                                          uint32_t                     frameIndex,
                                          const cgltf_material*        mat,
                                          TextureManager&              textureManager,
+                                         bool                         isReplacement,
                                          const std::filesystem::path& gltfFolder,
                                          std::string_view             gltfPath )
     {
@@ -726,7 +727,7 @@ namespace
         if( !materialName.empty() )
         {
             textureManager.TryCreateImportedMaterial(
-                cmd, frameIndex, materialName, fullPaths, samplers, pbrSwizzling );
+                cmd, frameIndex, materialName, fullPaths, samplers, pbrSwizzling, isReplacement );
         }
 
         if( auto t = mat->pbr_metallic_roughness.metallic_roughness_texture.texture )
@@ -967,6 +968,7 @@ RTGL1::GltfImporter::~GltfImporter()
 auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
                                      uint32_t                  frameIndex,
                                      TextureManager&           textureManager,
+                                     bool                      isReplacement,
                                      const TextureMetaManager& textureMeta ) const -> WholeModelFile
 {
     cgltf_node* mainNode = FindMainRootNode( data );
@@ -1042,7 +1044,7 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
 
         // mesh
         auto AppendMeshPrimitives =
-            [ this, &cmdForTextures, &frameIndex, &textureManager, &textureMeta ](
+            [ this, &cmdForTextures, &frameIndex, &textureManager, &isReplacement, & textureMeta ](
                 std::vector< WholeModelFile::RawModelData::RawPrimitiveData >& target,
                 const cgltf_node*                                              atnode,
                 const RgTransform*                                             transform ) {
@@ -1112,6 +1114,7 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
                                                    frameIndex,
                                                    srcPrim.material,
                                                    textureManager,
+                                                   isReplacement,
                                                    gltfFolder,
                                                    gltfPath );
 

@@ -84,6 +84,7 @@ public:
     [[nodiscard]] auto ParseFile( VkCommandBuffer           cmdForTextures,
                                   uint32_t                  frameIndex,
                                   TextureManager&           textureManager,
+                                  bool                      isReplacement,
                                   const TextureMetaManager& textureMeta ) const -> WholeModelFile;
 
     explicit operator bool() const;

@@ -517,8 +517,7 @@ void RTGL1::Scene::NewScene( VkCommandBuffer              cmd,
     staticLights.clear();
 
     {
-        // TODO: free only static-scene related if !reimportReplacements
-        textureManager.FreeAllImportedMaterials( frameIndex );
+        textureManager.FreeAllImportedMaterials( frameIndex, reimportReplacements );
     }
 
     assert( !makingStatic );
@@ -536,7 +535,7 @@ void RTGL1::Scene::NewScene( VkCommandBuffer              cmd,
         {
             if( auto i = GltfImporter{ path, worldTransform, worldScale } )
             {
-                auto wholeGltf = i.ParseFile( cmd, frameIndex, textureManager, textureMeta );
+                auto wholeGltf = i.ParseFile( cmd, frameIndex, textureManager, true, textureMeta );
 
                 if( !wholeGltf.lights.empty() )
                 {
@@ -592,7 +591,7 @@ void RTGL1::Scene::NewScene( VkCommandBuffer              cmd,
     {
         debug::Verbose( "Starting new static scene..." );
         const auto sceneFile =
-            staticScene.ParseFile( cmd, frameIndex, textureManager, textureMeta );
+            staticScene.ParseFile( cmd, frameIndex, textureManager, false, textureMeta );
 
         for( const auto& [ name, m ] : sceneFile.models )
         {

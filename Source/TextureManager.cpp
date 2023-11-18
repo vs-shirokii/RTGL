@@ -30,6 +30,7 @@
 #include "Generated/ShaderCommonC.h"
 
 #include <numeric>
+#include <ranges>
 
 using namespace RTGL1;
 
@@ -541,7 +542,8 @@ bool TextureManager::TryCreateImportedMaterial( VkCommandBuffer                 
                                                 const std::string&                  materialName,
                                                 std::span< std::filesystem::path >  fullPaths,
                                                 std::span< SamplerManager::Handle > samplers,
-                                                RgTextureSwizzling customPbrSwizzling )
+                                                RgTextureSwizzling customPbrSwizzling,
+                                                bool               isReplacement )
 {
     assert( fullPaths.size() == TEXTURES_PER_MATERIAL_COUNT );
     assert( samplers.size() == TEXTURES_PER_MATERIAL_COUNT );
@@ -552,9 +554,18 @@ bool TextureManager::TryCreateImportedMaterial( VkCommandBuffer                 
         return false;
     }
 
-    if( importedMaterials.contains( materialName ) )
+    // check if already uploaded
     {
-        return true;
+        auto found = importedMaterials.find( materialName );
+        if( found != importedMaterials.end() )
+        {
+            if( isReplacement )
+            {
+                // promote to a stronger type
+                found->second = ImportedType::ForReplacement;
+            }
+            return true;
+        }
     }
 
     if( PreferExistingMaterials )
@@ -607,19 +618,36 @@ bool TextureManager::TryCreateImportedMaterial( VkCommandBuffer                 
     static_assert( TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_INDEX == 1 );
 
     // to free later / to prevent export from ExportOriginalMaterialTextures
-    importedMaterials.insert( materialName );
+    auto [ iter, isNew ] = importedMaterials.emplace(
+        materialName, isReplacement ? ImportedType::ForReplacement : ImportedType::ForStatic );
+    assert( isNew );
 
     MakeMaterial( cmd, frameIndex, materialName, ovrd, samplers, swizzlings );
     return true;
 }
 
-void TextureManager::FreeAllImportedMaterials( uint32_t frameIndex )
+void TextureManager::FreeAllImportedMaterials( uint32_t frameIndex, bool freeReplacements )
 {
-    for( const auto& materialName : importedMaterials )
+    if( freeReplacements )
     {
-        TryDestroyMaterial( frameIndex, materialName.c_str() );
+        for( const auto& materialName : importedMaterials | std::views::keys )
+        {
+            TryDestroyMaterial( frameIndex, materialName.c_str() );
+        }
+        importedMaterials.clear();
     }
-    importedMaterials.clear();
+    else
+    {
+        for( const auto& [ materialName, importType ] : importedMaterials )
+        {
+            if( importType != ImportedType::ForReplacement )
+            {
+                TryDestroyMaterial( frameIndex, materialName.c_str() );
+            }
+        }
+        erase_if( importedMaterials,
+                  []( const auto& kv ) { return kv.second != ImportedType::ForReplacement; } );
+    }
 }
 
 uint32_t TextureManager::PrepareTexture( VkCommandBuffer                                 cmd,
