@@ -131,15 +131,13 @@ uint32_t AlignUpBy3( uint32_t x )
 }
 
 auto RTGL1::VertexCollector::Upload( VertexCollectorFilterTypeFlags geomFlags,
-                                     const RgMeshInfo&              mesh,
-                                     const RgMeshPrimitiveInfo&     prim,
-                                     CopyRanges* resultRanges ) -> std::optional< UploadResult >
+                                     const RgMeshPrimitiveInfo&     prim )
+    -> std::optional< UploadResult >
 {
     using FT = VertexCollectorFilterTypeFlagBits;
 
     const uint32_t vertIndex   = AlignUpBy3( curVertexCount );
     const uint32_t indIndex    = AlignUpBy3( curIndexCount );
-    const uint32_t primIndex   = curPrimitiveCount;
     const uint32_t texcIndex_1 = curTexCoordCount_Layer1;
     const uint32_t texcIndex_2 = curTexCoordCount_Layer2;
     const uint32_t texcIndex_3 = curTexCoordCount_Layer3;
@@ -167,22 +165,10 @@ auto RTGL1::VertexCollector::Upload( VertexCollectorFilterTypeFlags geomFlags,
     // clang-format off
     curVertexCount          = vertIndex   + ( prim.vertexCount );
     curIndexCount           = indIndex    + ( useIndices ? prim.indexCount : 0 );
-    curPrimitiveCount       = primIndex   + ( triangleCount );
     curTexCoordCount_Layer1 = texcIndex_1 + ( GeomInfoManager::LayerExists( prim, 1 ) ? prim.vertexCount : 0 );
     curTexCoordCount_Layer2 = texcIndex_2 + ( GeomInfoManager::LayerExists( prim, 2 ) ? prim.vertexCount : 0 );
     curTexCoordCount_Layer3 = texcIndex_3 + ( GeomInfoManager::LayerExists( prim, 3 ) ? prim.vertexCount : 0 );
     // clang-format on
-
-    if( resultRanges )
-    {
-        *resultRanges = CopyRanges{
-            .vertices  = MakeRangeFromOverallCount( vertIndex, curVertexCount ),
-            .indices   = MakeRangeFromOverallCount( indIndex, curIndexCount ),
-            .texCoord1 = MakeRangeFromOverallCount( texcIndex_1, curTexCoordCount_Layer1 ),
-            .texCoord2 = MakeRangeFromOverallCount( texcIndex_2, curTexCoordCount_Layer2 ),
-            .texCoord3 = MakeRangeFromOverallCount( texcIndex_3, curTexCoordCount_Layer3 ),
-        };
-    }
 
 
 
@@ -307,26 +293,53 @@ void RTGL1::VertexCollector::CopyVertexDataToStaging( const RgMeshPrimitiveInfo&
     }
 }
 
-void RTGL1::VertexCollector::Reset()
+void RTGL1::VertexCollector::Reset( const CopyRanges* rangeToPreserve )
 {
-    curVertexCount          = 0;
-    curIndexCount           = 0;
-    curPrimitiveCount       = 0;
-    curTexCoordCount_Layer1 = 0;
-    curTexCoordCount_Layer2 = 0;
-    curTexCoordCount_Layer3 = 0;
+    if( rangeToPreserve )
+    {
+        // only at the beginning
+        assert( rangeToPreserve->vertices.first() == 0 );
+        assert( rangeToPreserve->indices.first() == 0 );
+        assert( rangeToPreserve->texCoord1.first() == 0 );
+        assert( rangeToPreserve->texCoord2.first() == 0 );
+        assert( rangeToPreserve->texCoord3.first() == 0 );
+
+        assert( rangeToPreserve->vertices.count() >= curVertexCount );
+        assert( rangeToPreserve->indices.count() >= curIndexCount );
+        assert( rangeToPreserve->texCoord1.count() >= curTexCoordCount_Layer1 );
+        assert( rangeToPreserve->texCoord2.count() >= curTexCoordCount_Layer2 );
+        assert( rangeToPreserve->texCoord3.count() >= curTexCoordCount_Layer3 );
+
+        curVertexCount          = rangeToPreserve->vertices.count();
+        curIndexCount           = rangeToPreserve->indices.count();
+        curTexCoordCount_Layer1 = rangeToPreserve->texCoord1.count();
+        curTexCoordCount_Layer2 = rangeToPreserve->texCoord2.count();
+        curTexCoordCount_Layer3 = rangeToPreserve->texCoord3.count();
+    }
+    else
+    {
+        curVertexCount          = 0;
+        curIndexCount           = 0;
+        curTexCoordCount_Layer1 = 0;
+        curTexCoordCount_Layer2 = 0;
+        curTexCoordCount_Layer3 = 0;
+    }
+}
+
+RTGL1::VertexCollector::CopyRanges RTGL1::VertexCollector::GetCurrentRanges() const
+{
+    return CopyRanges{
+        .vertices  = MakeRangeFromCount( 0, curVertexCount ),
+        .indices   = MakeRangeFromCount( 0, curIndexCount ),
+        .texCoord1 = MakeRangeFromCount( 0, curTexCoordCount_Layer1 ),
+        .texCoord2 = MakeRangeFromCount( 0, curTexCoordCount_Layer2 ),
+        .texCoord3 = MakeRangeFromCount( 0, curTexCoordCount_Layer3 ),
+    };
 }
 
 bool RTGL1::VertexCollector::CopyFromStaging( VkCommandBuffer cmd )
 {
-    return CopyFromStaging( cmd,
-                            CopyRanges{
-                                .vertices  = MakeRangeFromCount( 0, curVertexCount ),
-                                .indices   = MakeRangeFromCount( 0, curIndexCount ),
-                                .texCoord1 = MakeRangeFromCount( 0, curTexCoordCount_Layer1 ),
-                                .texCoord2 = MakeRangeFromCount( 0, curTexCoordCount_Layer2 ),
-                                .texCoord3 = MakeRangeFromCount( 0, curTexCoordCount_Layer3 ),
-                            } );
+    return CopyFromStaging( cmd, GetCurrentRanges() );
 }
 
 bool RTGL1::VertexCollector::CopyFromStaging( VkCommandBuffer cmd, const CopyRanges& ranges )

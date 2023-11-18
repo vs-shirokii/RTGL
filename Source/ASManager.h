@@ -54,10 +54,11 @@ public:
     ASManager& operator=( ASManager&& other ) noexcept = delete;
 
 
-    [[nodiscard]] StaticGeometryToken BeginStaticGeometry();
+    [[nodiscard]] StaticGeometryToken BeginStaticGeometry( bool freeReplacements );
+    void                              MarkReplacementsRegionEnd( const StaticGeometryToken& token );
     // Submitting static geometry to the building is a heavy operation
     // with waiting for it to complete.
-    void                              SubmitStaticGeometry( StaticGeometryToken& token );
+    void SubmitStaticGeometry( StaticGeometryToken& token, bool buildReplacements );
 
 
     [[nodiscard]] DynamicGeometryToken BeginDynamicGeometry( VkCommandBuffer cmd,
@@ -75,6 +76,10 @@ public:
                            const bool                 isReplacement,
                            const TextureManager&      textureManager,
                            GeomInfoManager&           geomInfoManager );
+
+    void CacheReplacement( std::string_view           meshName,
+                           const RgMeshPrimitiveInfo& primitive,
+                           uint32_t                   index );
 
 
     auto MakeUniqueIDToTlasID( bool disableRTGeometry ) const -> UniqueIDToTlasID;
@@ -112,6 +117,12 @@ private:
         VertexCollector::UploadResult  geometry;
     };
 
+    auto UploadAndBuildAS( const RgMeshPrimitiveInfo&     primitive,
+                           VertexCollectorFilterTypeFlags geomFlags,
+                           VertexCollector&               vertexAlloc,
+                           ChunkedStackAllocator&         accelStructAlloc,
+                           const bool                     isDynamic ) -> std::shared_ptr< BuiltAS >;
+
     static auto MakeVkTLAS( const BuiltAS&                 builtAS,
                             uint32_t                       rayCullMaskWorld,
                             bool                           allowGeometryWithSkyFlag,
@@ -131,6 +142,7 @@ private:
     // device-local buffer for storing previous info
     Buffer                             previousDynamicPositions;
     Buffer                             previousDynamicIndices;
+    VertexCollector::CopyRanges        collectorStatic_replacements{};
 
     // building
     std::shared_ptr< ChunkedStackAllocator > scratchBuffer;
@@ -140,13 +152,13 @@ private:
     std::shared_ptr< TextureManager >       textureMgr;
     std::shared_ptr< GeomInfoManager >      geomInfoMgr;
 
-    rgl::string_map< std::vector< std::shared_ptr< BuiltAS > > > builtReplacements;
-
     std::unique_ptr< ChunkedStackAllocator > allocTlas;
+    std::unique_ptr< ChunkedStackAllocator > allocReplacementsGeom;
     std::unique_ptr< ChunkedStackAllocator > allocStaticGeom;
     std::unique_ptr< ChunkedStackAllocator > allocDynamicGeom;
 
-    std::vector< std::shared_ptr< BuiltAS > > builtStaticInstances;
+    rgl::string_map< std::vector< std::shared_ptr< BuiltAS > > > builtReplacements;
+    std::vector< std::shared_ptr< BuiltAS > >                    builtStaticInstances;
     std::vector< std::shared_ptr< BuiltAS > > builtDynamicInstances[ MAX_FRAMES_IN_FLIGHT ];
 
     // Exists only in the current frame
@@ -161,8 +173,6 @@ private:
         VertexCollectorFilterTypeFlags instanceFlags;
     };
     std::vector< Object > curFrame_objects;
-
-    VertexCollector::CopyRanges curFrame_replacementDataToCopy{};
 
     // top level AS
     std::unique_ptr< AutoBuffer >    instanceBuffer;

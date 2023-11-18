@@ -135,6 +135,41 @@ auto FindNextReplaceFileNameInFolder( const std::filesystem::path& folder ) -> s
 
     return std::string{ prefix } + std::to_string( largest + 1 );
 }
+
+auto GetGltfFilesSortedAlphabetically( const std::filesystem::path& folder )
+    -> std::set< std::filesystem::path >
+{
+    using namespace RTGL1;
+    namespace fs = std::filesystem;
+
+    if( folder.empty() || !exists( folder ) || !is_directory( folder ) )
+    {
+        return {};
+    }
+
+    auto gltfs = std::set< std::filesystem::path >{};
+
+    try
+    {
+        for( const fs::directory_entry& entry : fs::directory_iterator{ folder } )
+        {
+            if( entry.is_regular_file() && MakeFileType( entry.path() ) == RTGL1::FileType::GLTF )
+            {
+                gltfs.insert( entry.path() );
+            }
+        }
+    }
+    catch( const std::filesystem::filesystem_error& e )
+    {
+        debug::Error( R"(directory_iterator failure: '{}'. path1: '{}'. path2: '{}')",
+                      e.what(),
+                      e.path1().string(),
+                      e.path2().string() );
+        return {};
+    }
+
+    return gltfs;
+}
 }
 
 RTGL1::Scene::Scene( VkDevice                                _device,
@@ -465,24 +500,97 @@ bool RTGL1::Scene::InsertLightInfo( bool isStatic, const LightCopy& light )
     }
 }
 
-void RTGL1::Scene::NewScene( VkCommandBuffer           cmd,
-                             uint32_t                  frameIndex,
-                             const GltfImporter&       staticScene,
-                             TextureManager&           textureManager,
-                             const TextureMetaManager& textureMeta,
-                             LightManager&             lightManager )
+void RTGL1::Scene::NewScene( VkCommandBuffer              cmd,
+                             uint32_t                     frameIndex,
+                             const RgTransform&           worldTransform,
+                             float                        worldScale,
+                             const std::filesystem::path& staticSceneGltfPath,
+                             const std::filesystem::path* replacementsFolder,
+                             TextureManager&              textureManager,
+                             const TextureMetaManager&    textureMeta,
+                             LightManager&                lightManager )
 {
+    const bool reimportReplacements = !!replacementsFolder;
+
     staticUniqueIDs.clear();
     staticMeshNames.clear();
     staticLights.clear();
 
-    textureManager.FreeAllImportedMaterials( frameIndex );
+    {
+        // TODO: free only static-scene related if !reimportReplacements
+        textureManager.FreeAllImportedMaterials( frameIndex );
+    }
 
     assert( !makingStatic );
-    makingStatic = asManager->BeginStaticGeometry();
+    makingStatic = asManager->BeginStaticGeometry( reimportReplacements );
 
-    if( staticScene )
+    if( reimportReplacements )
     {
+        replacements.clear();
+
+        debug::Verbose( "Reading replacements..." );
+        const auto gltfs = GetGltfFilesSortedAlphabetically( *replacementsFolder );
+
+        // reverse alphabetical -- last ones have more priority
+        for( const auto& path : std::ranges::reverse_view{ gltfs } )
+        {
+            if( auto i = GltfImporter{ path, worldTransform, worldScale } )
+            {
+                auto wholeGltf = i.ParseFile( cmd, frameIndex, textureManager, textureMeta );
+
+                if( !wholeGltf.lights.empty() )
+                {
+                    debug::Warning( "Ignoring non-attached lights from \'{}\'", path.string() );
+                }
+
+                for( auto& [ meshName, meshSrc ] : wholeGltf.models )
+                {
+                    auto [ iter, isNew ] = replacements.emplace( meshName, std::move( meshSrc ) );
+                    auto& mesh           = iter->second;
+
+                    if( isNew )
+                    {
+                        for( uint32_t index = 0; index < iter->second.primitives.size(); index++ )
+                        {
+                            MakeMeshPrimitiveInfoAndProcess(
+                                mesh.primitives[ index ],
+                                index,
+                                [ & ]( const RgMeshPrimitiveInfo& prim ) {
+                                    asManager->CacheReplacement(
+                                        std::string_view{ meshName }, prim, index );
+                                } );
+
+                            // save up some memory by not storing - as we uploaded already
+                            mesh.primitives[ index ].vertices.clear();
+                            mesh.primitives[ index ].indices.clear();
+                        }
+
+                        if( mesh.primitives.empty() && mesh.localLights.empty() )
+                        {
+                            debug::Warning( "Replacement is empty, it doesn't have "
+                                            "any primitives or lights: \'{}\' - \'{}\'",
+                                            meshName,
+                                            path.string() );
+                        }
+                    }
+                    else
+                    {
+                        debug::Warning( "Ignoring a replacement as it was already read "
+                                        "from another .gltf file. \'{}\' - \'{}\'",
+                                        meshName,
+                                        path.string() );
+                    }
+                }
+            }
+        }
+        debug::Verbose( "Replacements are ready" );
+    }
+
+    asManager->MarkReplacementsRegionEnd( makingStatic );
+
+    if( auto staticScene = GltfImporter{ staticSceneGltfPath, worldTransform, worldScale } )
+    {
+        debug::Verbose( "Starting new static scene..." );
         const auto sceneFile =
             staticScene.ParseFile( cmd, frameIndex, textureManager, textureMeta );
 
@@ -522,102 +630,17 @@ void RTGL1::Scene::NewScene( VkCommandBuffer           cmd,
                             "Original exportable lights will be used",
                             staticScene.FilePath() );
         }
+        debug::Verbose( "Static scene is ready" );
     }
     else
     {
         debug::Info( "New scene is empty" );
     }
 
-    debug::Info( "Rebuilding static geometry. Waiting device idle..." );
-    asManager->SubmitStaticGeometry( makingStatic );
+    debug::Verbose( "Rebuilding static geometry. Waiting device idle..." );
+    asManager->SubmitStaticGeometry( makingStatic, reimportReplacements );
 
     debug::Info( "Static geometry was rebuilt" );
-}
-
-namespace
-{
-auto GetGltfFilesSortedAlphabetically( const std::filesystem::path& folder )
-    -> std::set< std::filesystem::path >
-{
-    using namespace RTGL1;
-    namespace fs = std::filesystem;
-
-    if( !exists( folder ) || !is_directory( folder ) )
-    {
-        return {};
-    }
-
-    auto gltfs = std::set< std::filesystem::path >{};
-
-    try
-    {
-        for( const fs::directory_entry& entry : fs::directory_iterator{ folder } )
-        {
-            if( entry.is_regular_file() && MakeFileType( entry.path() ) == RTGL1::FileType::GLTF )
-            {
-                gltfs.insert( entry.path() );
-            }
-        }
-    }
-    catch( const std::filesystem::filesystem_error& e )
-    {
-        debug::Error( R"(directory_iterator failure: '{}'. path1: '{}'. path2: '{}')",
-                      e.what(),
-                      e.path1().string(),
-                      e.path2().string() );
-        return {};
-    }
-
-    return gltfs;
-}
-}
-
-void RTGL1::Scene::RereadReplacements( VkCommandBuffer              cmdForTextures,
-                                       uint32_t                     frameIndex,
-                                       const std::filesystem::path& replacementsFolder,
-                                       TextureManager&              textureManager,
-                                       const TextureMetaManager&    textureMeta )
-{
-    replacements.clear();
-
-    const auto gltfs = GetGltfFilesSortedAlphabetically( replacementsFolder );
-
-    // reverse alphabetical -- last ones have more priority
-    for( const auto& path : std::ranges::reverse_view{ gltfs } )
-    {
-        if( auto i = GltfImporter{ path, RG_TRANSFORM_IDENTITY, 1.0f } )
-        {
-            auto wholeGltf = i.ParseFile( cmdForTextures, frameIndex, textureManager, textureMeta );
-
-            if( !wholeGltf.lights.empty() )
-            {
-                debug::Warning( "Ignoring non-attached lights from \'{}\'", path.string() );
-            }
-
-            for( const auto& [ meshName, mesh ] : wholeGltf.models )
-            {
-                auto [ iter, isNew ] = replacements.emplace( meshName, mesh );
-
-                if( isNew )
-                {
-                    if( mesh.primitives.empty() && mesh.localLights.empty() )
-                    {
-                        debug::Warning( "Replacement is empty, it doesn't have "
-                                        "any primitives or lights: \'{}\' - \'{}\'",
-                                        meshName,
-                                        path.string() );
-                    }
-                }
-                else
-                {
-                    debug::Warning( "Ignoring a replacement as it was already read "
-                                    "from another .gltf file. \'{}\' - \'{}\'",
-                                    meshName,
-                                    path.string() );
-                }
-            }
-        }
-    }
 }
 
 const std::shared_ptr< RTGL1::ASManager >& RTGL1::Scene::GetASManager()
@@ -733,35 +756,32 @@ void RTGL1::SceneImportExport::CheckForNewScene( std::string_view    mapName,
                                                  TextureMetaManager& textureMeta,
                                                  LightManager&       lightManager )
 {
-    if( currentMap != mapName || reimportRequested || reimportReplacementsRequested )
+    // ensure valid state
     {
-        currentMap                    = mapName;
-        reimportRequested             = false;
-        reimportReplacementsRequested = false;
+        if( currentMap != mapName )
+        {
+            currentMap        = mapName;
+            reimportRequested = true;
+        }
+    }
 
+    if( reimportReplacementsRequested || reimportRequested )
+    {
         // before importer, as it relies on texture properties
         textureMeta.RereadFromFiles( GetImportMapName() );
 
-        debug::Verbose( "Starting new scene..." );
-        {
-            auto staticScene = GltfImporter{ MakeGltfPath( scenesFolder, GetImportMapName() ),
-                                             MakeWorldTransform(),
-                                             GetWorldScale() };
+        scene.NewScene( cmd,
+                        frameIndex,
+                        MakeWorldTransform(),
+                        GetWorldScale(),
+                        MakeGltfPath( scenesFolder, GetImportMapName() ),
+                        reimportReplacementsRequested ? &replacementsFolder : nullptr,
+                        textureManager,
+                        textureMeta,
+                        lightManager );
 
-            scene.NewScene(
-                cmd, frameIndex, staticScene, textureManager, textureMeta, lightManager );
-        }
-        debug::Verbose( "New scene is ready" );
-
-        // NOTE: RereadReplacements must happen with NewScene,
-        //       as replacement AS depend on static AS infrastructure
-
-        debug::Verbose( "Reading replacements..." );
-        {
-            scene.RereadReplacements(
-                cmd, frameIndex, replacementsFolder, textureManager, textureMeta );
-        }
-        debug::Verbose( "Replacements are ready" );
+        reimportReplacementsRequested = false;
+        reimportRequested             = false;
     }
 }
 

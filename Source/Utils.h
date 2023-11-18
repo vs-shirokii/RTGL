@@ -597,6 +597,25 @@ struct CopyRange
         };
     }
 
+    static auto remove_at_start( const CopyRange& full, const CopyRange& toremove )
+    {
+        if( toremove.count() == 0 )
+        {
+            return full;
+        }
+        assert( toremove.vbegin <= toremove.vbegin && toremove.vend <= toremove.vend );
+        assert( full.vbegin == toremove.vbegin && toremove.vend <= full.vend );
+        if( full.count() < toremove.count() )
+        {
+            assert( 0 );
+            return CopyRange{};
+        }
+        return CopyRange{
+            .vbegin = full.vbegin + toremove.count() ,
+            .vend   = full.vend,
+        };
+    }
+
     uint32_t first() const { return vbegin; }
     uint32_t count() const { return vend - vbegin; }
     bool     valid() const { return count() > 0; }

@@ -82,6 +82,7 @@ RTGL1::ASManager::ASManager( VkDevice                                _device,
         scratchBuffer = std::make_shared< ChunkedStackAllocator >(
             allocator,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+            32 * 1024 * 1024,
             scratchOffsetAligment,
             "Scratch buffer" );
 
@@ -95,13 +96,20 @@ RTGL1::ASManager::ASManager( VkDevice                                _device,
                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 
         allocStaticGeom = std::make_unique< ChunkedStackAllocator >(
-            allocator, usage, asAlignment, "BLAS common buffer for static" );
+            allocator, usage, 16 * 1024 * 1024, asAlignment, "BLAS common buffer for static" );
+
+        allocReplacementsGeom =
+            std::make_unique< ChunkedStackAllocator >( allocator,
+                                                       usage,
+                                                       64 * 1024 * 1024,
+                                                       asAlignment,
+                                                       "BLAS common buffer for replacements" );
 
         allocDynamicGeom = std::make_unique< ChunkedStackAllocator >(
-            allocator, usage, asAlignment, "BLAS common buffer for dynamic" );
+            allocator, usage, 16 * 1024 * 1024, asAlignment, "BLAS common buffer for dynamic" );
 
         allocTlas = std::make_unique< ChunkedStackAllocator >(
-            allocator, usage, asAlignment, "TLAS common buffer" );
+            allocator, usage, 16 * 1024 * 1024, asAlignment, "TLAS common buffer" );
     }
 
     _maxReplacementsVerts = _maxReplacementsVerts > 0 ? _maxReplacementsVerts : 2097152;
@@ -625,20 +633,29 @@ RTGL1::ASManager::~ASManager()
     vkDestroyFence( device, staticCopyFence, nullptr );
 }
 
-RTGL1::StaticGeometryToken RTGL1::ASManager::BeginStaticGeometry()
+RTGL1::StaticGeometryToken RTGL1::ASManager::BeginStaticGeometry( bool freeReplacements )
 {
-    // the whole static vertex data must be recreated, clear previous data
-    collectorStatic->Reset();
+    // static vertex data must be recreated, clear previous data
+    // (just statics or fully, if need to erase replacements)
+    collectorStatic->Reset( freeReplacements ? nullptr : &collectorStatic_replacements );
     geomInfoMgr->ResetOnlyStatic();
 
     // static geometry submission happens very infrequently, e.g. on level load
     vkDeviceWaitIdle( device );
 
-    // destroy previous static
+    // destroy previous AS
     builtStaticInstances.clear();
-    // and replacements, because they depend on allocator / vertex collector of static
-    builtReplacements.clear();
+    if( freeReplacements )
+    {
+        builtReplacements.clear();
+    }
+
+    // free AS memory
     allocStaticGeom->Reset();
+    if( freeReplacements )
+    {
+        allocReplacementsGeom->Reset();
+    }
 
     erase_if( curFrame_objects, []( const Object& o ) { return o.isStatic; } );
 
@@ -646,12 +663,18 @@ RTGL1::StaticGeometryToken RTGL1::ASManager::BeginStaticGeometry()
     return StaticGeometryToken( InitAsExisting );
 }
 
-void RTGL1::ASManager::SubmitStaticGeometry( StaticGeometryToken& token )
+void RTGL1::ASManager::MarkReplacementsRegionEnd( const StaticGeometryToken& token )
+{
+    assert( token );
+    collectorStatic_replacements = collectorStatic->GetCurrentRanges();
+}
+
+void RTGL1::ASManager::SubmitStaticGeometry( StaticGeometryToken& token, bool buildReplacements )
 {
     assert( token );
     token = {};
 
-    if( builtStaticInstances.empty() )
+    if( builtStaticInstances.empty() && !buildReplacements )
     {
         return;
     }
@@ -659,7 +682,17 @@ void RTGL1::ASManager::SubmitStaticGeometry( StaticGeometryToken& token )
     VkCommandBuffer cmd = cmdManager->StartGraphicsCmd();
 
     // copy from staging with barrier
-    collectorStatic->CopyFromStaging( cmd );
+    if( buildReplacements )
+    {
+        collectorStatic->CopyFromStaging( cmd );
+    }
+    else
+    {
+        auto onlyStaticRange = VertexCollector::CopyRanges::RemoveAtStart(
+            collectorStatic->GetCurrentRanges(), collectorStatic_replacements );
+
+        collectorStatic->CopyFromStaging( cmd, onlyStaticRange );
+    }
 
     assert( !asBuilder->IsEmpty() );
     asBuilder->BuildBottomLevel( cmd );
@@ -679,7 +712,7 @@ RTGL1::DynamicGeometryToken RTGL1::ASManager::BeginDynamicGeometry( VkCommandBuf
     scratchBuffer->Reset();
 
     // dynamic vertices are refilled each frame
-    collectorDynamic[ frameIndex ]->Reset();
+    collectorDynamic[ frameIndex ]->Reset( nullptr );
     // destroy dynamic instances from N-2
     builtDynamicInstances[ frameIndex ].clear();
     allocDynamicGeom->Reset();
@@ -688,6 +721,48 @@ RTGL1::DynamicGeometryToken RTGL1::ASManager::BeginDynamicGeometry( VkCommandBuf
 
     assert( asBuilder->IsEmpty() );
     return DynamicGeometryToken( InitAsExisting );
+}
+
+auto RTGL1::ASManager::UploadAndBuildAS( const RgMeshPrimitiveInfo&     primitive,
+                                         VertexCollectorFilterTypeFlags geomFlags,
+                                         VertexCollector&               vertexAlloc,
+                                         ChunkedStackAllocator&         accelStructAlloc,
+                                         const bool isDynamic ) -> std::shared_ptr< BuiltAS >
+{
+    auto uploadedData = vertexAlloc.Upload( geomFlags, primitive );
+    if( !uploadedData )
+    {
+        return {};
+    }
+
+    // NOTE: dedicated allocation, so pointers in asBuilder
+    //       are valid until end of the frame
+    auto newlyBuilt = new BuiltAS{
+        .flags    = geomFlags,
+        .blas     = BLASComponent{ device },
+        .geometry = *uploadedData,
+    };
+    {
+        const bool fastTrace = isDynamic ? false : true;
+
+        // get AS size and create buffer for AS
+        const auto buildSizes =
+            ASBuilder::GetBottomBuildSizes( device,
+                                            newlyBuilt->geometry.asGeometryInfo,
+                                            newlyBuilt->geometry.asRange.primitiveCount,
+                                            fastTrace );
+        newlyBuilt->blas.RecreateIfNotValid( buildSizes, accelStructAlloc );
+
+        // add BLAS, all passed arrays must be alive until BuildBottomLevel() call
+        asBuilder->AddBLAS( newlyBuilt->blas.GetAS(),
+                            { &newlyBuilt->geometry.asGeometryInfo, 1 },
+                            { &newlyBuilt->geometry.asRange, 1 },
+                            buildSizes,
+                            fastTrace,
+                            false,
+                            false );
+    }
+    return std::shared_ptr< BuiltAS >{ newlyBuilt };
 }
 
 bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
@@ -737,7 +812,7 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
             }
             else
             {
-                // assert( 0 );
+                assert( 0 );
             }
         }
     }
@@ -745,63 +820,21 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
     // if AS doesn't exist, create it
     if( !builtInstance )
     {
-        auto& dstCollector =
-            isStatic || isReplacement ? collectorStatic : collectorDynamic[ frameIndex ];
-
-        auto copyRanges = VertexCollector::CopyRanges{};
-
-        auto uploadedData = dstCollector->Upload(
-            geomFlags, mesh, primitive, isReplacement ? &copyRanges : nullptr );
-        if( !uploadedData )
+        if( isReplacement )
         {
+            // expected AS to be created for a replacement
+            assert( 0 );
             return false;
         }
 
+        builtInstance =
+            UploadAndBuildAS( primitive,
+                              geomFlags,
+                              isStatic ? *collectorStatic : *collectorDynamic[ frameIndex ],
+                              isStatic ? *allocStaticGeom : *allocDynamicGeom,
+                              !isStatic );
 
-        // NOTE: dedicated allocation, so pointers in asBuilder
-        //       are valid until end of the frame
-        auto newlyBuilt = new BuiltAS{
-            .flags    = geomFlags,
-            .blas     = BLASComponent{ device },
-            .geometry = *uploadedData,
-        };
-        {
-            const bool fastTrace = isStatic || isReplacement ? true : false;
-
-            // get AS size and create buffer for AS
-            const auto buildSizes =
-                ASBuilder::GetBottomBuildSizes( device,
-                                                newlyBuilt->geometry.asGeometryInfo,
-                                                newlyBuilt->geometry.asRange.primitiveCount,
-                                                fastTrace );
-            newlyBuilt->blas.RecreateIfNotValid(
-                buildSizes, isStatic || isReplacement ? *allocStaticGeom : *allocDynamicGeom );
-
-            // add BLAS, all passed arrays must be alive until BuildBottomLevel() call
-            asBuilder->AddBLAS( newlyBuilt->blas.GetAS(),
-                                { &newlyBuilt->geometry.asGeometryInfo, 1 },
-                                { &newlyBuilt->geometry.asRange, 1 },
-                                buildSizes,
-                                fastTrace,
-                                false,
-                                false );
-        }
-
-
-        builtInstance = std::shared_ptr< BuiltAS >{ newlyBuilt };
-
-        // save a built instance to a corresponding storage
-        if( isReplacement )
-        {
-            assert( copyRanges.vertices.valid() );
-            curFrame_replacementDataToCopy =
-                VertexCollector::CopyRanges::Merge( curFrame_replacementDataToCopy, copyRanges );
-
-            // look at the TODO note above
-            assert( builtReplacements[ mesh.pMeshName ].size() == uniqueID.primitiveIndex );
-            builtReplacements[ mesh.pMeshName ].push_back( builtInstance );
-        }
-        else if( isStatic )
+        if( isStatic )
         {
             builtStaticInstances.push_back( builtInstance );
         }
@@ -881,6 +914,31 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
     return true;
 }
 
+void RTGL1::ASManager::CacheReplacement( std::string_view           meshName,
+                                         const RgMeshPrimitiveInfo& primitive,
+                                         uint32_t                   index )
+{
+    constexpr bool isReplacement = true;
+    constexpr bool isStatic      = false;
+    constexpr bool isDynamic     = false;
+
+    const auto geomFlags =
+        VertexCollectorFilterTypeFlags_GetForGeometry( {}, primitive, isStatic, isReplacement );
+
+    std::shared_ptr< BuiltAS > builtInstance = UploadAndBuildAS(
+        primitive, geomFlags, *collectorStatic, *allocReplacementsGeom, isDynamic );
+
+    if( !builtInstance )
+    {
+        debug::Warning( "Failed to upload vertex data of a replacement primitive" );
+        return;
+    }
+
+    // TODO: look at the note above on primitiveIndex
+    assert( builtReplacements[ meshName ].size() == index );
+    builtReplacements[ meshName ].push_back( builtInstance );
+}
+
 void RTGL1::ASManager::SubmitDynamicGeometry( DynamicGeometryToken& token,
                                               VkCommandBuffer       cmd,
                                               uint32_t              frameIndex )
@@ -890,11 +948,7 @@ void RTGL1::ASManager::SubmitDynamicGeometry( DynamicGeometryToken& token,
 
     {
         auto label = CmdLabel{ cmd, "Vertex data" };
-
         collectorDynamic[ frameIndex ]->CopyFromStaging( cmd );
-
-        collectorStatic->CopyFromStaging( cmd, curFrame_replacementDataToCopy );
-        curFrame_replacementDataToCopy = {};
     }
 
 

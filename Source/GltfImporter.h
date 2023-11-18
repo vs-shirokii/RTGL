@@ -25,6 +25,8 @@
 #include "DrawFrameInfo.h"
 
 #include <filesystem>
+#include <ranges>
+#include <span>
 
 struct cgltf_node;
 struct cgltf_data;

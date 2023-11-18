@@ -35,6 +35,7 @@ class ChunkedStackAllocator
 public:
     explicit ChunkedStackAllocator( std::shared_ptr< MemoryAllocator >& allocator,
                                     VkBufferUsageFlags                  usage,
+                                    VkDeviceSize                        initialChunkSize,
                                     VkDeviceSize                        alignment,
                                     std::string_view                    debugName );
     ~ChunkedStackAllocator() = default;

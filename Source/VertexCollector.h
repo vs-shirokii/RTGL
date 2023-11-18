@@ -70,9 +70,6 @@ public:
     VertexCollector& operator=( VertexCollector&& other ) noexcept = delete;
 
 
-    void Reset();
-
-
     struct CopyRanges
     {
         CopyRange vertices;
@@ -91,6 +88,17 @@ public:
                 .texCoord3 = CopyRange::merge( a.texCoord3, b.texCoord3 ),
             };
         }
+
+        static auto RemoveAtStart( const CopyRanges& full, const CopyRanges& toremove )
+        {
+            return CopyRanges{
+                .vertices  = CopyRange::remove_at_start( full.vertices,  toremove.vertices ),
+                .indices   = CopyRange::remove_at_start( full.indices,   toremove.indices ),
+                .texCoord1 = CopyRange::remove_at_start( full.texCoord1, toremove.texCoord1 ),
+                .texCoord2 = CopyRange::remove_at_start( full.texCoord2, toremove.texCoord2 ),
+                .texCoord3 = CopyRange::remove_at_start( full.texCoord3, toremove.texCoord3 ),
+            };
+        }
     };
     bool CopyFromStaging( VkCommandBuffer cmd, const CopyRanges& ranges );
     bool CopyFromStaging( VkCommandBuffer cmd );
@@ -107,12 +115,14 @@ public:
         uint32_t                                 firstVertex_Layer3;
     };
 
-    auto Upload( VertexCollectorFilterTypeFlags geomFlags,
-                 const RgMeshInfo&              mesh,
-                 const RgMeshPrimitiveInfo&     prim,
-                 CopyRanges*                    resultRanges ) -> std::optional< UploadResult >;
+    auto Upload( VertexCollectorFilterTypeFlags geomFlags, const RgMeshPrimitiveInfo& prim )
+        -> std::optional< UploadResult >;
+
+    
+    void Reset( const CopyRanges* rangeToPreserve );
 
 
+    CopyRanges GetCurrentRanges() const;
     VkBuffer GetVertexBuffer() const;
     VkBuffer GetTexcoordBuffer_Layer1() const;
     VkBuffer GetTexcoordBuffer_Layer2() const;
@@ -226,7 +236,6 @@ private:
 
     uint32_t curVertexCount{ 0 };
     uint32_t curIndexCount{ 0 };
-    uint32_t curPrimitiveCount{ 0 };
     uint32_t curTexCoordCount_Layer1{ 0 };
     uint32_t curTexCoordCount_Layer2{ 0 };
     uint32_t curTexCoordCount_Layer3{ 0 };

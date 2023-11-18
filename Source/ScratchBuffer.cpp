@@ -25,18 +25,14 @@
 #include "RgException.h"
 #include "Utils.h"
 
-namespace
-{
-constexpr VkDeviceSize InitialChunkBufferSize = 1 << 24;
-}
-
 RTGL1::ChunkedStackAllocator::ChunkedStackAllocator( std::shared_ptr< MemoryAllocator >& _allocator,
                                                      VkBufferUsageFlags                  _usage,
-                                                     VkDeviceSize                        _alignment,
+                                                     VkDeviceSize     _initialChunkSize,
+                                                     VkDeviceSize     _alignment,
                                                      std::string_view _debugName )
     : allocator{ _allocator }
     , usage{ _usage }
-    , chunkAllocSize{ Utils::Align( InitialChunkBufferSize, _alignment ) }
+    , chunkAllocSize{ Utils::Align( _initialChunkSize, _alignment ) }
     , alignment{ _alignment }
     , debugName{ _debugName }
 {

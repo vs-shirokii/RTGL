@@ -87,18 +87,15 @@ public:
                              bool              isUnderwater,
                              RgColor4DPacked32 underwaterColor ) const;
 
-    void NewScene( VkCommandBuffer           cmd,
-                   uint32_t                  frameIndex,
-                   const GltfImporter&       staticScene,
-                   TextureManager&           textureManager,
-                   const TextureMetaManager& textureMeta,
-                   LightManager&             lightManager );
-
-    void RereadReplacements( VkCommandBuffer              cmdForTextures,
-                             uint32_t                     frameIndex,
-                             const std::filesystem::path& replacementsFolder,
-                             TextureManager&              textureManager,
-                             const TextureMetaManager&    textureMeta );
+    void NewScene( VkCommandBuffer              cmd,
+                   uint32_t                     frameIndex,
+                   const RgTransform&           worldTransform,
+                   float                        worldScale,
+                   const std::filesystem::path& staticSceneGltfPath,
+                   const std::filesystem::path* replacementsFolder,
+                   TextureManager&              textureManager,
+                   const TextureMetaManager&    textureMeta,
+                   LightManager&                lightManager );
 
     const std::shared_ptr< ASManager >&           GetASManager();
     const std::shared_ptr< VertexPreprocessing >& GetVertexPreprocessing();
