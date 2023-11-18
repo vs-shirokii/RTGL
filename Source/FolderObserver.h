@@ -68,7 +68,7 @@ public:
 private:
     std::vector< std::filesystem::path > foldersToCheck;
 
-    Clock::time_point           lastCheck;
+    std::optional< Clock::time_point > lastCheck;
     std::deque< DependentFile > prevAllFiles;
 
     std::vector< std::weak_ptr< IFileDependency > > subscribers;

@@ -83,43 +83,49 @@ RTGL1::FolderObserver::FolderObserver( const fs::path &ovrdFolder )
 
 void RTGL1::FolderObserver::RecheckFiles()
 {
-    if( Clock::now() - lastCheck < CHECK_FREQUENCY )
+    if( lastCheck )
     {
-        return;
+        if( Clock::now() - lastCheck.value() < CHECK_FREQUENCY )
+        {
+            return;
+        }
     }
 
 
     std::deque< DependentFile > curAllFiles;
-    for( const fs::path &f : foldersToCheck )
+    for( const fs::path& f : foldersToCheck )
     {
         InsertAllFolderFiles( curAllFiles, f );
     }
 
 
-    for( const auto& cur : curAllFiles )
+    if( lastCheck )
     {
-        bool foundInPrev = false;
-
-        for( const auto& prev : prevAllFiles )
+        for( const auto& cur : curAllFiles )
         {
-            // if file previously existed
-            if( cur.pathHash == prev.pathHash && cur.path == prev.path )
+            bool foundInPrev = false;
+
+            for( const auto& prev : prevAllFiles )
             {
-                // if was changed
-                if( cur.lastWriteTime != prev.lastWriteTime )
+                // if file previously existed
+                if( cur.pathHash == prev.pathHash && cur.path == prev.path )
                 {
-                    CallSubsbribers( &IFileDependency::OnFileChanged, cur.type, cur.path );
+                    // if was changed
+                    if( cur.lastWriteTime != prev.lastWriteTime )
+                    {
+                        CallSubsbribers( &IFileDependency::OnFileChanged, cur.type, cur.path );
+                    }
+
+                    foundInPrev = true;
+                    break;
                 }
-
-                foundInPrev = true;
-                break;
             }
-        }
 
-        // if new file
-        if( !foundInPrev )
-        {
-            CallSubsbribers( &IFileDependency::OnFileChanged, cur.type, cur.path );
+            // if new file
+            if( !foundInPrev )
+            {
+                CallSubsbribers( &IFileDependency::OnFileChanged, cur.type, cur.path );
+            }
         }
     }
 
