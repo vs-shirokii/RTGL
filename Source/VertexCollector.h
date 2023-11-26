@@ -39,9 +39,7 @@ struct ShVertex;
 
 class GeomInfoManager;
 
-// The class collects vertex data to buffers with shader struct types.
-// Geometries are passed to the class by chunks and the result of collecting
-// is a vertex buffer with ready data and infos for acceleration structure creation/building.
+// Accumulating vertex data
 class VertexCollector
 {
 public:
@@ -92,16 +90,18 @@ public:
         static auto RemoveAtStart( const CopyRanges& full, const CopyRanges& toremove )
         {
             return CopyRanges{
-                .vertices  = CopyRange::remove_at_start( full.vertices,  toremove.vertices ),
-                .indices   = CopyRange::remove_at_start( full.indices,   toremove.indices ),
+                .vertices  = CopyRange::remove_at_start( full.vertices, toremove.vertices ),
+                .indices   = CopyRange::remove_at_start( full.indices, toremove.indices ),
                 .texCoord1 = CopyRange::remove_at_start( full.texCoord1, toremove.texCoord1 ),
                 .texCoord2 = CopyRange::remove_at_start( full.texCoord2, toremove.texCoord2 ),
                 .texCoord3 = CopyRange::remove_at_start( full.texCoord3, toremove.texCoord3 ),
             };
         }
     };
+    void AllocateStaging( MemoryAllocator& alloc );
     bool CopyFromStaging( VkCommandBuffer cmd, const CopyRanges& ranges );
     bool CopyFromStaging( VkCommandBuffer cmd );
+    void DeleteStaging();
 
 
     struct UploadResult
@@ -118,18 +118,18 @@ public:
     auto Upload( VertexCollectorFilterTypeFlags geomFlags, const RgMeshPrimitiveInfo& prim )
         -> std::optional< UploadResult >;
 
-    
+
     void Reset( const CopyRanges* rangeToPreserve );
 
 
     CopyRanges GetCurrentRanges() const;
-    VkBuffer GetVertexBuffer() const;
-    VkBuffer GetTexcoordBuffer_Layer1() const;
-    VkBuffer GetTexcoordBuffer_Layer2() const;
-    VkBuffer GetTexcoordBuffer_Layer3() const;
-    VkBuffer GetIndexBuffer() const;
-    uint32_t GetCurrentVertexCount() const;
-    uint32_t GetCurrentIndexCount() const;
+    VkBuffer   GetVertexBuffer() const;
+    VkBuffer   GetTexcoordBuffer_Layer1() const;
+    VkBuffer   GetTexcoordBuffer_Layer2() const;
+    VkBuffer   GetTexcoordBuffer_Layer3() const;
+    VkBuffer   GetIndexBuffer() const;
+    uint32_t   GetCurrentVertexCount() const;
+    uint32_t   GetCurrentIndexCount() const;
 
 
     // Make sure that copying was done
@@ -157,65 +157,68 @@ private:
             return std::format( "{}{}", basename, isStaging ? " (staging)" : "" );
         }
 
-        void Init( std::shared_ptr< Buffer > otherDeviceLocal,
-                   MemoryAllocator&          allocator,
-                   std::string_view          name )
+    public:
+        void InitStaging( MemoryAllocator& allocator )
         {
-            deviceLocal = std::move( otherDeviceLocal );
-            assert( deviceLocal->GetSize() > 0 );
-
-            staging.Init( allocator,
-                          deviceLocal->GetSize(),
-                          VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                          MakeName( name, true ).c_str() );
-            mapped = static_cast< T* >( staging.Map() );
+            if( !staging.IsInitted() )
+            {
+                if( deviceLocal && deviceLocal->GetSize() > 0 )
+                {
+                    staging.Init( allocator,
+                                  deviceLocal->GetSize(),
+                                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                  MakeName( debugName, true ).c_str() );
+                    assert( !mapped );
+                    mapped = static_cast< T* >( staging.Map() );
+                }
+            }
         }
 
-    public:
+        void DestroyStaging()
+        {
+            if( mapped )
+            {
+                staging.TryUnmap();
+                mapped = nullptr;
+            }
+            staging.Destroy();
+        }
+
         explicit SharedDeviceLocal( MemoryAllocator&   allocator,
                                     size_t             maxElements,
                                     VkBufferUsageFlags usage,
                                     std::string_view   name )
+            : debugName{ name }
         {
             if( maxElements > 0 )
             {
-                auto newDeviceLocal = std::make_shared< Buffer >();
-                newDeviceLocal->Init( allocator,
-                                      sizeof( T ) * maxElements,
-                                      usage,
-                                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                                      MakeName( name, false ).c_str() );
-                Init( newDeviceLocal, allocator, name );
+                deviceLocal = std::make_shared< Buffer >();
+                deviceLocal->Init( allocator,
+                                   sizeof( T ) * maxElements,
+                                   usage,
+                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                   MakeName( debugName, false ).c_str() );
             }
         }
 
         explicit SharedDeviceLocal( const SharedDeviceLocal& other,
                                     MemoryAllocator&         allocator,
                                     std::string_view         name )
+            : deviceLocal{ other.deviceLocal }, debugName{ name }
         {
-            if( other.IsInitialized() )
-            {
-                Init( other.deviceLocal, allocator, name );
-            }
         }
 
         [[nodiscard]] bool IsInitialized() const { return deviceLocal != nullptr; }
         [[nodiscard]] auto ElementCount() const
         {
-            assert( deviceLocal->GetSize() == staging.GetSize() );
+            assert( !staging.IsInitted() || deviceLocal->GetSize() == staging.GetSize() );
             assert( deviceLocal->GetSize() % sizeof( T ) == 0 );
             return deviceLocal->GetSize() / sizeof( T );
         }
 
-        ~SharedDeviceLocal()
-        {
-            if( IsInitialized() )
-            {
-                staging.TryUnmap();
-            }
-        }
+        ~SharedDeviceLocal() { DestroyStaging(); }
 
         SharedDeviceLocal( const SharedDeviceLocal& )                = delete;
         SharedDeviceLocal( SharedDeviceLocal&& ) noexcept            = delete;
@@ -225,6 +228,7 @@ private:
         std::shared_ptr< Buffer > deviceLocal{};
         Buffer                    staging{};
         T*                        mapped{ nullptr };
+        std::string               debugName{};
     };
 
 

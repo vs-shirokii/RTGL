@@ -659,6 +659,7 @@ RTGL1::StaticGeometryToken RTGL1::ASManager::BeginStaticGeometry( bool freeRepla
 
     erase_if( curFrame_objects, []( const Object& o ) { return o.isStatic; } );
 
+    collectorStatic->AllocateStaging( *allocator );
     assert( asBuilder->IsEmpty() );
     return StaticGeometryToken( InitAsExisting );
 }
@@ -676,6 +677,7 @@ void RTGL1::ASManager::SubmitStaticGeometry( StaticGeometryToken& token, bool bu
 
     if( builtStaticInstances.empty() && !buildReplacements )
     {
+        collectorStatic->DeleteStaging();
         return;
     }
 
@@ -700,6 +702,8 @@ void RTGL1::ASManager::SubmitStaticGeometry( StaticGeometryToken& token, bool bu
     // submit and wait
     cmdManager->Submit( cmd, staticCopyFence );
     Utils::WaitAndResetFence( device, staticCopyFence );
+
+    collectorStatic->DeleteStaging();
 }
 
 RTGL1::DynamicGeometryToken RTGL1::ASManager::BeginDynamicGeometry( VkCommandBuffer cmd,

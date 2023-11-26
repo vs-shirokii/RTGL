@@ -91,6 +91,10 @@ RTGL1::VertexCollector::VertexCollector( VkDevice         _device,
                          MakeUsage( _isDynamic, false ),
                          MakeName( "Texcoords Layer3", _debugName ) }
 {
+    if( _isDynamic )
+    {
+        AllocateStaging( _allocator );
+    }
 }
 
 // device local buffers are shared with the "src" vertex collector
@@ -110,6 +114,11 @@ RTGL1::VertexCollector::VertexCollector( const VertexCollector& _src,
                          _allocator,
                          MakeName( "Texcoords Layer3", _debugName ) }
 {
+    // allocate staging, if "src" had staging allocated
+    if( _src.bufVertices.staging.IsInitted() )
+    {
+        AllocateStaging( _allocator );
+    }
 }
 
 auto RTGL1::VertexCollector::CreateWithSameDeviceLocalBuffers( const VertexCollector& src,
@@ -340,6 +349,24 @@ RTGL1::VertexCollector::CopyRanges RTGL1::VertexCollector::GetCurrentRanges() co
 bool RTGL1::VertexCollector::CopyFromStaging( VkCommandBuffer cmd )
 {
     return CopyFromStaging( cmd, GetCurrentRanges() );
+}
+
+void RTGL1::VertexCollector::AllocateStaging( MemoryAllocator& alloc )
+{
+    bufVertices.InitStaging( alloc );
+    bufIndices.InitStaging( alloc );
+    bufTexcoordLayer1.InitStaging( alloc );
+    bufTexcoordLayer2.InitStaging( alloc );
+    bufTexcoordLayer3.InitStaging( alloc );
+}
+
+void RTGL1::VertexCollector::DeleteStaging()
+{
+    bufVertices.DestroyStaging();
+    bufIndices.DestroyStaging();
+    bufTexcoordLayer1.DestroyStaging();
+    bufTexcoordLayer2.DestroyStaging();
+    bufTexcoordLayer3.DestroyStaging();
 }
 
 bool RTGL1::VertexCollector::CopyFromStaging( VkCommandBuffer cmd, const CopyRanges& ranges )
