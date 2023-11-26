@@ -732,7 +732,7 @@ typedef enum RgRenderResolutionMode
     RG_RENDER_RESOLUTION_MODE_PERFORMANCE,
     RG_RENDER_RESOLUTION_MODE_BALANCED,
     RG_RENDER_RESOLUTION_MODE_QUALITY,
-    RG_RENDER_RESOLUTION_MODE_DLAA, // Only available with DLSS
+    RG_RENDER_RESOLUTION_MODE_NATIVE_AA,
 } RgRenderResolutionMode;
 
 typedef struct RgDrawFrameRenderResolutionParams

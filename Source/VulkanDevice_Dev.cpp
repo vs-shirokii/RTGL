@@ -198,12 +198,13 @@ void RTGL1::VulkanDevice::Dev_Draw() const
                 ImGui::RadioButton( "Quality##Resolution",
                                     reinterpret_cast< int* >( &modifiers.resolutionMode ),
                                     RG_RENDER_RESOLUTION_MODE_QUALITY );
-                if( modifiers.upscaleTechnique == RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS )
+                if( modifiers.upscaleTechnique == RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS ||
+                    modifiers.upscaleTechnique == RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2 )
                 {
                     ImGui::SameLine();
-                    ImGui::RadioButton( "DLAA##Resolution",
+                    ImGui::RadioButton( "Native AA##Resolution",
                                         reinterpret_cast< int* >( &modifiers.resolutionMode ),
-                                        RG_RENDER_RESOLUTION_MODE_DLAA );
+                                        RG_RENDER_RESOLUTION_MODE_NATIVE_AA );
                 }
                 ImGui::EndDisabled();
             }

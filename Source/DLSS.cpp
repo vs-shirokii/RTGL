@@ -290,7 +290,7 @@ static NVSDK_NGX_PerfQuality_Value ToNGXPerfQuality( RgRenderResolutionMode mode
             return NVSDK_NGX_PerfQuality_Value::NVSDK_NGX_PerfQuality_Value_Balanced;
         case RG_RENDER_RESOLUTION_MODE_QUALITY:
             return NVSDK_NGX_PerfQuality_Value::NVSDK_NGX_PerfQuality_Value_MaxQuality;
-        case RG_RENDER_RESOLUTION_MODE_DLAA:
+        case RG_RENDER_RESOLUTION_MODE_NATIVE_AA:
             return NVSDK_NGX_PerfQuality_Value::NVSDK_NGX_PerfQuality_Value_DLAA;
         default:
             assert( 0 );

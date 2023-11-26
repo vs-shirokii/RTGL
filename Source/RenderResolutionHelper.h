@@ -27,6 +27,11 @@
 #include "RgException.h"
 #include "ResolutionState.h"
 
+#ifdef _MSC_VER
+    #pragma warning( push )
+    #pragma warning( error : 4061 ) // switch must contain all cases
+#endif
+
 namespace RTGL1
 {
 
@@ -86,7 +91,7 @@ public:
                 case RG_RENDER_RESOLUTION_MODE_PERFORMANCE:
                 case RG_RENDER_RESOLUTION_MODE_BALANCED:
                 case RG_RENDER_RESOLUTION_MODE_QUALITY:
-                case RG_RENDER_RESOLUTION_MODE_DLAA: break;
+                case RG_RENDER_RESOLUTION_MODE_NATIVE_AA: break;
                 default:
                     throw RgException(
                         RG_RESULT_WRONG_FUNCTION_ARGUMENT,
@@ -97,13 +102,6 @@ public:
 
         if( upscaleTechnique == RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2 )
         {
-            if( resolutionMode == RG_RENDER_RESOLUTION_MODE_DLAA )
-            {
-                resolutionMode = RG_RENDER_RESOLUTION_MODE_QUALITY;
-                throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT,
-                                   "DLAA must not be used with FSR2" );
-            }
-
             if( resolutionMode == RG_RENDER_RESOLUTION_MODE_CUSTOM )
             {
                 renderWidth  = params.customRenderSize.width;
@@ -119,6 +117,8 @@ public:
                     case RG_RENDER_RESOLUTION_MODE_PERFORMANCE: div = 2.0f; break;
                     case RG_RENDER_RESOLUTION_MODE_BALANCED: div = 1.7f; break;
                     case RG_RENDER_RESOLUTION_MODE_QUALITY: div = 1.5f; break;
+                    case RG_RENDER_RESOLUTION_MODE_NATIVE_AA: div = 1.0f; break;
+                    case RG_RENDER_RESOLUTION_MODE_CUSTOM:
                     default: assert( 0 ); break;
                 }
 
@@ -232,3 +232,7 @@ private:
 };
 
 }
+
+#ifdef _MSC_VER
+    #pragma warning( pop )
+#endif
