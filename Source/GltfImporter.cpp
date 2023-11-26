@@ -536,14 +536,8 @@ namespace
                 if( !std::string_view( t->image->uri )
                          .starts_with( TEXTURES_FOLDER_JUNCTION_PREFIX ) )
                 {
-                    debug::Warning( "Suspicious URI \"{}\" of an image with name \"{}\": "
-                                    "If \"name\" field is provided, assumed that it's "
-                                    "the original game texture. "
-                                    "So expecting URI to start with {}. "
-                                    "Texture overloading is disabled for this texture",
-                                    t->image->uri,
-                                    t->image->name,
-                                    TEXTURES_FOLDER_JUNCTION_PREFIX );
+                    debug::Info( "Found gltf texture (overloading disabled): \'{}\'",
+                                 t->image->uri );
                 }
             }
 
