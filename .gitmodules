@@ -10,3 +10,6 @@
 [submodule "Source/glaze"]
 	path = Source/glaze
 	url = https://github.com/stephenberry/glaze.git
+[submodule "Source/glm"]
+	path = Source/glm
+	url = https://github.com/g-truc/glm
