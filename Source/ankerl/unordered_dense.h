@@ -1,7 +1,7 @@
 ///////////////////////// ankerl::unordered_dense::{map, set} /////////////////////////
 
 // A fast & densely stored hashmap and hashset based on robin-hood backward shift deletion.
-// Version 4.1.0
+// Version 4.1.2
 // https://github.com/martinus/unordered_dense
 //
 // Licensed under the MIT License <http://opensource.org/licenses/MIT>.
@@ -32,7 +32,7 @@
 // see https://semver.org/spec/v2.0.0.html
 #define ANKERL_UNORDERED_DENSE_VERSION_MAJOR 4 // NOLINT(cppcoreguidelines-macro-usage) incompatible API changes
 #define ANKERL_UNORDERED_DENSE_VERSION_MINOR 1 // NOLINT(cppcoreguidelines-macro-usage) backwards compatible functionality
-#define ANKERL_UNORDERED_DENSE_VERSION_PATCH 0 // NOLINT(cppcoreguidelines-macro-usage) backwards compatible bug fixes
+#define ANKERL_UNORDERED_DENSE_VERSION_PATCH 2 // NOLINT(cppcoreguidelines-macro-usage) backwards compatible bug fixes
 
 // API versioning with inline namespace, see https://www.foonathan.net/2018/11/inline-namespaces/
 
@@ -159,7 +159,7 @@ namespace detail {
 
 // This is a stripped-down implementation of wyhash: https://github.com/wangyi-fudan/wyhash
 // No big-endian support (because different values on different machines don't matter),
-// hardcodes seed and the secret, reformattes the code, and clang-tidy fixes.
+// hardcodes seed and the secret, reformats the code, and clang-tidy fixes.
 namespace detail::wyhash {
 
 inline void mum(uint64_t* a, uint64_t* b) {
@@ -347,7 +347,7 @@ ANKERL_UNORDERED_DENSE_HASH_STATICCAST(bool);
 ANKERL_UNORDERED_DENSE_HASH_STATICCAST(char);
 ANKERL_UNORDERED_DENSE_HASH_STATICCAST(signed char);
 ANKERL_UNORDERED_DENSE_HASH_STATICCAST(unsigned char);
-#    if ANKERL_UNORDERED_DENSE_CPP_VERSION >= 202002L
+#    if ANKERL_UNORDERED_DENSE_CPP_VERSION >= 202002L && defined(__cpp_char8_t)
 ANKERL_UNORDERED_DENSE_HASH_STATICCAST(char8_t);
 #    endif
 ANKERL_UNORDERED_DENSE_HASH_STATICCAST(char16_t);
@@ -1046,7 +1046,7 @@ private:
         while (true) {
             auto* bucket = &at(m_buckets, bucket_idx);
             if (dist_and_fingerprint == bucket->m_dist_and_fingerprint) {
-                if (m_equal(key, m_values[bucket->m_value_idx].first)) {
+                if (m_equal(key, get_key(m_values[bucket->m_value_idx]))) {
                     return {begin() + static_cast<difference_type>(bucket->m_value_idx), false};
                 }
             } else if (dist_and_fingerprint > bucket->m_dist_and_fingerprint) {
@@ -1386,7 +1386,7 @@ public:
                     break;
                 }
                 if (dist_and_fingerprint == bucket.m_dist_and_fingerprint &&
-                    m_equal(key, m_values[bucket.m_value_idx].first)) {
+                    m_equal(key, get_key(m_values[bucket.m_value_idx]))) {
                     key_found = true;
                     break;
                 }
