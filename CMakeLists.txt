@@ -215,6 +215,9 @@ set_target_properties(RayTracedGL1 PROPERTIES
 )
 
 
+# GLM
+target_include_directories(RayTracedGL1 PUBLIC Source/glm)
+
 # KTX
 target_include_directories(RayTracedGL1 PRIVATE "Source/KTX/include")
 target_include_directories(RayTracedGL1 PRIVATE "Source/KTX/include" "Source/KTX/other_include" "Source/KTX/lib/basisu/zstd")
@@ -281,8 +284,9 @@ if (RG_WITH_EXAMPLES)
     add_executable(RtglExample Tests/RtglTest.cpp)
     set_property(TARGET RtglExample PROPERTY CXX_STANDARD 20)
     target_link_libraries(RtglExample glfw)
+    target_include_directories(ImGui PRIVATE glfw)
     target_include_directories(RtglExample PRIVATE "Include" )
-    target_include_directories(RtglExample PUBLIC Tests/Libs/glm)
+    target_include_directories(RtglExample PUBLIC Source/glm)
     # not needed, but let RtglExample be built after RayTracedGL1
     add_dependencies(RtglExample RayTracedGL1)
 endif()
