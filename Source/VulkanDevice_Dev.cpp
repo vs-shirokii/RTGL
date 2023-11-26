@@ -592,8 +592,6 @@ void RTGL1::VulkanDevice::Dev_Draw() const
     {
         ImGui::Checkbox( "Auto-scroll", &devmode->logAutoScroll );
         ImGui::SameLine();
-        ImGui::Checkbox( "Compact", &devmode->logCompact );
-        ImGui::SameLine();
         if( ImGui::Button( "Clear" ) )
         {
             devmode->logs.clear();
@@ -609,54 +607,14 @@ void RTGL1::VulkanDevice::Dev_Draw() const
         ImGui::CheckboxFlags( "Verbose", &devmode->logFlags, RG_MESSAGE_SEVERITY_VERBOSE );
         ImGui::Separator();
 
-        struct MsgEntry
-        {
-            uint32_t               count{ 0 };
-            RgMessageSeverityFlags severity{ 0 };
-            std::string_view       text{};
-            uint64_t               hash{ 0 };
-        };
-
-        std::deque< MsgEntry > msgs;
-        for( auto& [ severity, text, hash ] : devmode->logs | std::ranges::views::reverse )
-        {
-            bool found = false;
-
-            if( devmode->logCompact )
-            {
-                for( auto& existing : msgs )
-                {
-                    if( severity == existing.severity && hash == existing.hash &&
-                        text == existing.text )
-                    {
-                        existing.count++;
-
-                        found = true;
-                        break;
-                    }
-                }
-            }
-
-            if( !found )
-            {
-                msgs.emplace_front( MsgEntry{
-                    .count    = 1,
-                    .severity = severity,
-                    .text     = text,
-                    .hash     = std::hash< std::string_view >{}( text ),
-                } );
-            }
-        }
-
-
         if( ImGui::BeginChild( "##LogScrollingRegion",
                                ImVec2( 0, 0 ),
                                false,
                                ImGuiWindowFlags_HorizontalScrollbar ) )
         {
-            for( const auto& msg : msgs )
+            for( const auto& [ severity, count, text ] : devmode->logs )
             {
-                RgMessageSeverityFlags filtered = msg.severity & devmode->logFlags;
+                RgMessageSeverityFlags filtered = severity & devmode->logFlags;
 
                 if( filtered == 0 )
                 {
@@ -678,13 +636,13 @@ void RTGL1::VulkanDevice::Dev_Draw() const
                     ImGui::PushStyleColor( ImGuiCol_Text, *color );
                 }
 
-                if( msg.count == 1 )
+                if( count == 1 )
                 {
-                    ImGui::TextUnformatted( msg.text.data() );
+                    ImGui::TextUnformatted( text.data() );
                 }
                 else
                 {
-                    ImGui::Text( "[%u] %s", msg.count, msg.text.data() );
+                    ImGui::Text( "[%u] %s", count, text.data() );
                 }
 
                 if( color )

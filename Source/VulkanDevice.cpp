@@ -1585,7 +1585,31 @@ void RTGL1::VulkanDevice::Print( std::string_view msg, RgMessageSeverityFlags se
 {
     if( devmode )
     {
-        devmode->logs.emplace_back( severity, msg, std::hash< std::string_view >{}( msg ) );
+        auto getCountIfSameAsLast = [ & ]() -> uint32_t* {
+            if( !devmode->logs.empty() )
+            {
+                auto& [ severityLast, count, msgLast ] = devmode->logs.back();
+                if( severityLast == severity && msgLast == msg )
+                {
+                    return &count;
+                }
+            }
+            return nullptr;
+        };
+
+        if( uint32_t* same = getCountIfSameAsLast() )
+        {
+            *same = *same + 1;
+        }
+        else
+        {
+            if( devmode->logs.size() > 2048 )
+            {
+                devmode->logs.pop_front();
+            }
+
+            devmode->logs.emplace_back( severity, 1, msg );
+        }
     }
 
     if( userPrint )

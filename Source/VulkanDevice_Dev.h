@@ -105,8 +105,7 @@ struct Devmode
     RgMessageSeverityFlags logFlags{ RG_MESSAGE_SEVERITY_VERBOSE | RG_MESSAGE_SEVERITY_INFO |
                                      RG_MESSAGE_SEVERITY_WARNING | RG_MESSAGE_SEVERITY_ERROR };
     bool                   logAutoScroll{ true };
-    bool                   logCompact{ true };
-    std::deque< std::tuple< RgMessageSeverityFlags, std::string, uint64_t /* str hash */ > > logs{};
+    std::deque< std::tuple< RgMessageSeverityFlags, uint32_t /* count */, std::string > > logs{};
 };
 
 }
