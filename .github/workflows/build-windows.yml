@@ -4,7 +4,6 @@ on: push
 
 env:
   BUILD_TYPE: RelWithDebInfo
-  TARGET_FOLDER: Build/Release
   DLSS_SDK_PATH: ${{ github.workspace }}\DLSS
 
 jobs:
@@ -41,19 +40,19 @@ jobs:
           python GenerateShaders.py
 
       - name: CMake
-        run: cmake -B ${{github.workspace}}/BuildCMake/${{env.BUILD_FOLDER}} -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DRG_WITH_SURFACE_WIN32=ON -DRG_WITH_NVIDIA_DLSS=${{ matrix.dlss }}
+        run: |
+          mkdir -p Build/bin
+          cmake -B ${{github.workspace}}/BuildCMake -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DRG_WITH_SURFACE_WIN32=ON -DRG_WITH_NVIDIA_DLSS=${{ matrix.dlss }}
 
       - name: Build
-        run: cmake --build ${{github.workspace}}/BuildCMake/${{env.BUILD_FOLDER}} --config ${{env.BUILD_TYPE}}
+        run: cmake --build ${{github.workspace}}/BuildCMake --config ${{env.BUILD_TYPE}}
 
       - name: Prepare folder
         run: |
-          mkdir final/bin
-          copy BuildCMake/RelWithDebInfo/RayTracedGL1.lib final/bin/RayTracedGL1.lib
-          copy BuildCMake/RelWithDebInfo/RayTracedGL1.pdb final/bin/RayTracedGL1.pdb
-          copy BuildCMake/RelWithDebInfo/RayTracedGL1.dll final/bin/RayTracedGL1.dll
-          mkdir final/include
-          mkdir final/include/RTGL1
+          mkdir -p final/bin
+          copy Build/bin/RTGL1.pdb final/bin/RTGL1.pdb
+          copy Build/bin/RTGL1.dll final/bin/RTGL1.dll
+          mkdir -p final/include/RTGL1
           copy Include/RTGL1/RTGL1.h final/include/RTGL1/RTGL1.h
           mkdir final/ovrd
           copy Tools/BlueNoise_LDR_RGBA_128.ktx2 final/ovrd/BlueNoise_LDR_RGBA_128.ktx2
