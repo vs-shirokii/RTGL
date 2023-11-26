@@ -216,7 +216,7 @@ set_target_properties(RayTracedGL1 PROPERTIES
 
 
 # GLM
-target_include_directories(RayTracedGL1 PUBLIC Source/glm)
+target_include_directories(RayTracedGL1 PRIVATE Source/glm)
 
 # KTX
 target_include_directories(RayTracedGL1 PRIVATE "Source/KTX/include")
