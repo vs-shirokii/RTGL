@@ -10,6 +10,7 @@ RTGL1 is a library that aims to simplify the process of porting 3D applications 
     * [CMake](https://cmake.org/download/)
     * [Vulkan SDK](https://vulkan.lunarg.com/)
     * [Python 3](https://www.python.org/downloads/) (for building the shaders)
+    * Windows SDK >= 10.0.22621.0
  
 1. Clone the repository
     * `git clone https://github.com/sultim-t/RayTracedGL1.git`

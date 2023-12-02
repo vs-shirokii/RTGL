@@ -37,6 +37,16 @@ layout(local_size_x = COMPUTE_LUM_HISTOGRAM_GROUP_SIZE_X, local_size_y = COMPUTE
 
 shared uint histogramWorkGroup[COMPUTE_LUM_HISTOGRAM_GROUP_SIZE_X * COMPUTE_LUM_HISTOGRAM_GROUP_SIZE_Y];
 
+float getInputLuminance( ivec2 pix )
+{
+    if( classicShading( pix ) )
+    {
+        return 0;
+    }
+
+    return getLuminance( texelFetch( framebufPreFinal_Sampler, pix, 0 ).rgb );
+}
+
 // c -- linear HDR color
 uint getColorBin(float inputLum, float minLogLuminance, float maxLogLuminance)
 {
@@ -68,12 +78,12 @@ void main()
 
     const ivec2 pix = ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y);
 
-    if (pix.x < uint(globalUniform.renderWidth) && pix.y < uint(globalUniform.renderHeight))
+    if( pix.x < uint( globalUniform.renderWidth ) && pix.y < uint( globalUniform.renderHeight ) )
     {
-        float lum = texelFetch( framebufHistogramInput_Sampler, pix, 0 ).r;
-
-        const uint colorBin = getColorBin(lum, globalUniform.minLogLuminance, globalUniform.maxLogLuminance);
-        atomicAdd(histogramWorkGroup[colorBin], 1);
+        const uint colorBin = getColorBin( getInputLuminance( pix ),
+                                           globalUniform.minLogLuminance,
+                                           globalUniform.maxLogLuminance );
+        atomicAdd( histogramWorkGroup[ colorBin ], 1 );
     }
 
     groupMemoryBarrier();

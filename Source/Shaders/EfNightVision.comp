@@ -1,0 +1,134 @@
+// Copyright (c) 2022 Sultim Tsyrendashiev
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+#version 460
+
+#include "EfSimple.inl"
+
+// Interpolate between a, b, c by t
+vec3 mix3( vec3 a, vec3 b, vec3 c, float t )
+{
+    return mix( mix( a, b, clamp( t * 2, 0, 1 ) ), c, clamp( ( t - 0.5 ) * 2, 0, 1 ) );
+}
+
+float contrast( float c, float contrast )
+{
+    return max( ( c - 0.5 ) * contrast + 0.5, 0 );
+}
+
+vec3 contrast( vec3 c, float contrast )
+{
+    return max( vec3( 0 ), ( c - 0.5 ) * contrast + 0.5 );
+}
+
+vec3 nightVision( ivec2 pix, float hdrLuminance )
+{
+    float bw = hdrLuminance * 6;
+
+    // add albedo, so dark places are visible too
+    const float DarknessThreshold = 0.5;
+
+    if( bw < DarknessThreshold )
+    {
+        float albedoContrib;
+        {
+            ivec2 sz         = effect_getFramebufSize();
+            float halfExtent = max( sz.x, sz.y ) * 0.5;
+
+            // centerize
+            vec2 c = vec2( pix ) - 0.5 * vec2( sz );
+
+            c = clamp( c / halfExtent, -1, 1 );
+            c.x += 0.05; // offset a bit
+            c.y += 0.04;
+            c *= 2;      // max smaller
+
+            // the further from center, the less brightness
+            float t = 1.0 - clamp( dot( c, c ), 0, 1 );
+
+            albedoContrib = mix( 0.1, 0.7, t );
+        }
+
+        vec3 albedo = vec3( 0 );
+        if( !classicShading_Upscaled( pix ) )
+        {
+            const ivec2 rendPix =
+                ivec2( effect_getFramebufUV( pix ) *
+                       vec2( globalUniform.renderWidth, globalUniform.renderHeight ) );
+            albedo = texelFetch( framebufAlbedo_Sampler, rendPix, 0 ).rgb;
+        }
+
+        float t = albedoContrib * max( 0, 1 - bw / DarknessThreshold );
+        bw += t * getLuminance( albedo );
+    }
+
+    float bwForLerp = contrast( clamp( bw, 0, 1 ), 1.05 );
+
+    vec3 dst = mix( vec3( 0.0, 0.13, 0.09 ), vec3( 0.7, 1.0, 0.97 ), bwForLerp );
+    dst      = contrast( dst, 1.16 );
+
+    return dst * max( 1, bw );
+}
+
+float border( ivec2 pix, float progress )
+{
+    const float MaxThresh = 1.4;
+    const float Thresh    = 0.7;
+
+    ivec2 sz     = effect_getFramebufSize();
+    float aspect = float( sz.x ) / float( sz.y );
+
+    vec2 c = effect_getCenteredFromPix( pix );
+    if( aspect < 1 )
+    {
+        aspect = 1.0 / aspect;
+        c.x /= aspect;
+    }
+    else
+    {
+        c.y /= aspect;
+    }
+
+    progress     = pow( progress, 0.2 );
+    float border = mix( MaxThresh, Thresh, progress );
+
+    float isfar = dot( c, c );
+    return 1 - smoothstep( border, border + 0.07, isfar );
+}
+
+void main()
+{
+    const ivec2 pix = ivec2( gl_GlobalInvocationID.x, gl_GlobalInvocationID.y );
+
+    if( !effect_isPixValid( pix ) )
+    {
+        return;
+    }
+
+    vec3 color = effect_loadFromSource( pix );
+
+    vec3 dst = nightVision( pix, getLuminance( color ) );
+
+    float visible = mix( 1.0, border( pix, getProgress() ), smoothstep( 0, 0.1, getProgress() ) );
+
+    dst = mix( color, dst, getProgress() ) * visible;
+
+    effect_storeToTarget( dst, pix );
+}

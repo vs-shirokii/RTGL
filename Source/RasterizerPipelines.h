@@ -37,7 +37,7 @@ public:
                                   const ShaderManager& shaderManager,
                                   std::string_view     shaderNameVert,
                                   std::string_view     shaderNameFrag,
-                                  bool                 isWorld,
+                                  bool                 notOnlyColorAttachment,
                                   bool                 applyVertexColorGamma,
                                   const VkViewport*    pViewport = nullptr,
                                   const VkRect2D*      pScissors = nullptr );
@@ -80,7 +80,7 @@ private:
     std::optional< VkRect2D >   nonDynamicScissors;
 
     uint32_t applyVertexColorGamma;
-    bool     isWorld;
+    bool     onlyColorAttachment;
 };
 
 }

@@ -23,13 +23,16 @@
 #include <cassert>
 #include <cmath>
 
-#include "DLSS.h"
+#include "DLSS2.h"
+#include "DLSS3_DX12.h"
+#include "FSR2.h"
+#include "FSR3_DX12.h"
 #include "RgException.h"
 #include "ResolutionState.h"
 
 #ifdef _MSC_VER
-    #pragma warning( push )
-    #pragma warning( error : 4061 ) // switch must contain all cases
+#pragma warning( push )
+#pragma warning( error : 4061 ) // switch must contain all cases
 #endif
 
 namespace RTGL1
@@ -41,16 +44,26 @@ public:
     RenderResolutionHelper()  = default;
     ~RenderResolutionHelper() = default;
 
-    RenderResolutionHelper( const RenderResolutionHelper& other )                = delete;
-    RenderResolutionHelper( RenderResolutionHelper&& other ) noexcept            = delete;
-    RenderResolutionHelper& operator=( const RenderResolutionHelper& other )     = delete;
-    RenderResolutionHelper& operator=( RenderResolutionHelper&& other ) noexcept = delete;
+    RenderResolutionHelper( const RenderResolutionHelper& )                = delete;
+    RenderResolutionHelper( RenderResolutionHelper&& ) noexcept            = delete;
+    RenderResolutionHelper& operator=( const RenderResolutionHelper& )     = delete;
+    RenderResolutionHelper& operator=( RenderResolutionHelper&& ) noexcept = delete;
 
-    void Setup( const RgDrawFrameRenderResolutionParams& params,
-                uint32_t                                 windowWidth,
-                uint32_t                                 windowHeight,
-                const std::shared_ptr< DLSS >&           dlss )
+    void Setup( const RgStartFrameRenderResolutionParams& params,
+                uint32_t                                  windowWidth,
+                uint32_t                                  windowHeight,
+                const FSR2*                               fsr2,
+                const FSR3_DX12*                          fsr3dx12,
+                const DLSS2*                              dlss2,
+                const DLSS3_DX12*                         dlss3dx12 )
     {
+        // HACKHACK: render into something when the window is minimized
+        if( windowWidth == 0 || windowHeight == 0 )
+        {
+            windowWidth  = 32;
+            windowHeight = 32;
+        }
+
         renderWidth  = windowWidth;
         renderHeight = windowHeight;
 
@@ -66,23 +79,27 @@ public:
             switch( upscaleTechnique )
             {
                 case RG_RENDER_UPSCALE_TECHNIQUE_NEAREST:
-                case RG_RENDER_UPSCALE_TECHNIQUE_LINEAR:
+                case RG_RENDER_UPSCALE_TECHNIQUE_LINEAR: break;
                 case RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2:
-                case RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS: break;
-                default:
-                    throw RgException(
-                        RG_RESULT_WRONG_FUNCTION_ARGUMENT,
-                        "RgDrawFrameRenderResolutionParams::upscaleTechnique is incorrect" );
+                    if( !fsr2 && !fsr3dx12 )
+                    {
+                        upscaleTechnique = RG_RENDER_UPSCALE_TECHNIQUE_NEAREST;
+                    }
+                    break;
+                case RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS:
+                    if( !dlss2 && !dlss3dx12 )
+                    {
+                        upscaleTechnique = RG_RENDER_UPSCALE_TECHNIQUE_NEAREST;
+                    }
+                    break;
+                default: upscaleTechnique = RG_RENDER_UPSCALE_TECHNIQUE_NEAREST; break;
             }
             switch( sharpenTechnique )
             {
                 case RG_RENDER_SHARPEN_TECHNIQUE_NONE:
                 case RG_RENDER_SHARPEN_TECHNIQUE_NAIVE:
                 case RG_RENDER_SHARPEN_TECHNIQUE_AMD_CAS: break;
-                default:
-                    throw RgException(
-                        RG_RESULT_WRONG_FUNCTION_ARGUMENT,
-                        "RgDrawFrameRenderResolutionParams::sharpenTechnique is incorrect" );
+                default: sharpenTechnique = RG_RENDER_SHARPEN_TECHNIQUE_NONE; break;
             }
             switch( resolutionMode )
             {
@@ -92,16 +109,14 @@ public:
                 case RG_RENDER_RESOLUTION_MODE_BALANCED:
                 case RG_RENDER_RESOLUTION_MODE_QUALITY:
                 case RG_RENDER_RESOLUTION_MODE_NATIVE_AA: break;
-                default:
-                    throw RgException(
-                        RG_RESULT_WRONG_FUNCTION_ARGUMENT,
-                        "RgDrawFrameRenderResolutionParams::resolutionMode is incorrect" );
+                default: resolutionMode = RG_RENDER_RESOLUTION_MODE_BALANCED; break;
             }
         }
 
 
         if( upscaleTechnique == RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2 )
         {
+            assert( fsr2 || fsr3dx12 );
             if( resolutionMode == RG_RENDER_RESOLUTION_MODE_CUSTOM )
             {
                 renderWidth  = params.customRenderSize.width;
@@ -129,6 +144,7 @@ public:
         }
         else if( upscaleTechnique == RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS )
         {
+            assert( dlss2 || dlss3dx12 );
             if( resolutionMode == RG_RENDER_RESOLUTION_MODE_CUSTOM )
             {
                 renderWidth  = params.customRenderSize.width;
@@ -136,8 +152,16 @@ public:
             }
             else
             {
-                dlss->GetOptimalSettings(
-                    windowWidth, windowHeight, resolutionMode, &renderWidth, &renderHeight );
+                if( dlss3dx12 )
+                {
+                    std::tie( renderWidth, renderHeight ) =
+                        dlss3dx12->GetOptimalSettings( windowWidth, windowHeight, resolutionMode );
+                }
+                else if( dlss2 )
+                {
+                    std::tie( renderWidth, renderHeight ) =
+                        dlss2->GetOptimalSettings( windowWidth, windowHeight, resolutionMode );
+                }
 
                 // ultra quality returns (0,0)
                 if( renderWidth == 0 || renderHeight == 0 )
@@ -179,6 +203,15 @@ public:
     uint32_t UpscaledWidth() const { return upscaledWidth; }
     uint32_t UpscaledHeight() const { return upscaledHeight; }
 
+    float Aspect() const
+    {
+        if( UpscaledWidth() == 0 || UpscaledHeight() == 0 )
+        {
+            return 1.0f;
+        }
+        return float( UpscaledWidth() ) / float( UpscaledHeight() );
+    }
+
     bool IsAmdFsr2Enabled() const
     {
         return upscaleTechnique == RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2;
@@ -211,7 +244,7 @@ public:
                                                                        : VK_FILTER_LINEAR;
     }
 
-    // RgRenderResolutionMode   GetResolutionMode()      const { return resolutionMode; }
+    RgRenderResolutionMode GetResolutionMode() const { return resolutionMode; }
 
     ResolutionState GetResolutionState() const
     {
@@ -234,5 +267,5 @@ private:
 }
 
 #ifdef _MSC_VER
-    #pragma warning( pop )
+#pragma warning( pop )
 #endif

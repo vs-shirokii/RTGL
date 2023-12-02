@@ -42,10 +42,6 @@
 #endif 
 
 
-#define HITINFO_INL_CLASSIC_SHADING
-bool classicShading_PRIM();
-
-
 #define DESC_SET_TLAS 0
 #define DESC_SET_FRAMEBUFFERS 1
 #define DESC_SET_GLOBAL_UNIFORM 2
@@ -87,12 +83,14 @@ vec2 getMotionForInfinitePoint(const ivec2 pix)
     return screenSpacePrev - screenSpaceCur;
 }
 
-void storeSky(
-    const ivec2 pix, const vec3 rayDir, bool calculateSkyAndStoreToAlbedo, const vec3 throughput,
+void storeSky( const ivec2 pix,
+               const vec3  rayDir,
+               bool        calculateSkyAndStoreToAlbedo,
+               const vec3  throughput,
 #ifdef RAYGEN_PRIMARY_SHADER
-    float firstHitDepthNDC )
+               float firstHitDepthNDC )
 #else
-    bool wasSplit )
+               bool wasSplit )
 #endif
 {
     imageStore( framebufIsSky, pix, ivec4( 1 ) );
@@ -103,11 +101,10 @@ void storeSky(
             calculateSkyAndStoreToAlbedo
                 ? getSkyAlbedo( rayDir )
                 : imageLoad( framebufAlbedo, getRegularPixFromCheckerboardPix( pix ) ).rgb;
-                
-        if( !classicShading_PRIM() )
+
         {
             // to hdr
-            skyColor = adjustSky( skyColor );
+            skyColor = adjustSky( skyColor ) / M_PI;
         }
 
         imageStore(
@@ -124,7 +121,6 @@ void storeSky(
     imageStore(framebufVisibilityBuffer,    pix, vec4(UINT32_MAX));
     imageStore(framebufViewDirection,       pix, vec4(rayDir, 0.0));
     imageStore(framebufScreenEmisRT,        getRegularPixFromCheckerboardPix( pix ), vec4( 0.0 ) );
-    imageStore(framebufAcidFogRT,           getRegularPixFromCheckerboardPix( pix ), vec4( 0.0 ) );
 #ifdef RAYGEN_PRIMARY_SHADER
     imageStore(framebufPrimaryToReflRefr,   pix, uvec4(0, 0, PORTAL_INDEX_NONE, 0));
     imageStore(framebufDepthGrad,           pix, vec4(0.0));
@@ -244,20 +240,23 @@ bool isBackface( const vec3 normal, const vec3 rayDir )
 }
 
 vec3 getNormal( const vec3    position,
+                bool          hasNormalMap,
                 vec3          normal,
                 const RayCone rayCone,
                 const vec3    rayDir,
                 bool          isWater,
                 bool          wasPortal )
 {
-    if( isWater )
+    // TODO: water normal must be a material property, not refl/refr specific
+    if( isWater && !hasNormalMap)
     {
         if( isBackface( normal, rayDir ) )
         {
             normal *= -1;
         }
 
-        return getWaterNormal( rayCone, rayDir, normal, position, wasPortal );
+        normal = getWaterNormal( rayCone, rayDir, normal, position, wasPortal );
+        return sanitizeNormal( normal /* TODO: needs to be tri normal */, normal, rayDir );
     }
     else
     {
@@ -270,13 +269,77 @@ vec3 getNormal( const vec3    position,
     }
 }
 
-bool classicShading_PRIM()
+#ifdef RAYGEN_PRIMARY_SHADER
+vec4 makeNdcCoord(const ivec2 pix_regular, float ndcDepth)
 {
-    const ivec2 regularPix = ivec2( gl_LaunchIDEXT.xy );
-    return classicShading( regularPix );
+    return vec4( ( pix_regular.x + 0.5 ) / float( globalUniform.renderWidth ) * 2.0 - 1.0,
+                 ( pix_regular.y + 0.5 ) / float( globalUniform.renderHeight ) * 2.0 - 1.0,
+                 ndcDepth,
+                 1.0 );
 }
 
-#ifdef RAYGEN_PRIMARY_SHADER
+bool tryAsFluid( const ivec2 pix, const ivec2 pix_regular, const vec3 cameraRayDir, const float hitDepth )
+{
+    if( globalUniform.fluidEnabled == 0 )
+    {
+        return false;
+    }
+
+    const float fluidDepthNDC =
+        saturate( texelFetch( framebufDepthFluid_Sampler, pix_regular, 0 ).r );
+    if( fluidDepthNDC > hitDepth )
+    {
+        return false;
+    }
+
+    // restore world position, motion vectors
+    const vec4 ndcCur = makeNdcCoord( pix_regular, fluidDepthNDC );
+
+    vec4 viewSpacePosCur = globalUniform.invProjection * ndcCur;
+    viewSpacePosCur /= viewSpacePosCur.w;
+
+          vec3 worldPos         = ( globalUniform.invView * viewSpacePosCur ).xyz;
+    const vec4 viewSpacePosPrev = globalUniform.viewPrev * vec4( worldPos, 1.0 );
+    const vec4 clipSpacePosPrev = globalUniform.projectionPrev * viewSpacePosPrev;
+    const vec3 ndcPrev          = clipSpacePosPrev.xyz / clipSpacePosPrev.w;
+
+    const vec2 screenSpaceCur  = ndcCur.xy * 0.5 + 0.5;
+    const vec2 screenSpacePrev = ndcPrev.xy * 0.5 + 0.5;
+
+    const vec2  motionCurToPrev            = ( screenSpacePrev - screenSpaceCur );
+    const float fluidDepthLinear           = length( viewSpacePosCur.xyz );
+    const float motionDepthLinearCurToPrev = length( viewSpacePosPrev.xyz ) - fluidDepthLinear;
+
+    const vec3 normal =
+        decodeNormal( texelFetch( framebufFluidNormal_Sampler, pix_regular, 0 ).r );
+
+    // SHIPPING_HACK: apply some offset to prevent clipping with base surface
+    worldPos += -0.005 * cameraRayDir;
+    // SHIPPING_HACK
+
+    // clang-format off
+    // emulate primary surface
+    imageStore( framebufIsSky,              pix,            ivec4( 0 ) );
+    imageStore( framebufAlbedo,             pix_regular,    vec4( 1, 1, 1, 0 ) );
+    imageStore( framebufScreenEmisRT,       pix_regular,    vec4( 0 ) );
+    imageStoreNormal(                       pix,            normal );
+    imageStore( framebufMetallicRoughness,  pix,            vec4( 1 /* metallic */, 0 /* roughness */, 0, 0 ) );
+    imageStore( framebufDepthWorld,         pix,            vec4( fluidDepthLinear ) );
+    imageStore( framebufDepthGrad,          pix,            vec4( 0 ) );
+    imageStore( framebufMotion,             pix,            vec4( motionCurToPrev, motionDepthLinearCurToPrev, 0.0 ) );
+    imageStore( framebufSurfacePosition,    pix,            vec4( worldPos, 0 /* instCustomIndex */ ) );
+    imageStore( framebufVisibilityBuffer,   pix,            packVisibilityBuffer_Invalid() );
+    imageStore( framebufViewDirection,      pix,            vec4( cameraRayDir, 0.0 ) );
+    imageStore( framebufThroughput,         pix,            vec4( globalUniform.fluidColor.xyz, 0.0 ) );
+    imageStore( framebufPrimaryToReflRefr,  pix,            uvec4( GEOM_INST_FLAG_REFRACT | GEOM_INST_FLAG_REFLECT | GEOM_INST_FLAG_MEDIA_TYPE_GLASS, 0 /* no instIdAndIndex */, 0, 0 ) );
+    imageStore( framebufDepthNdc,           pix_regular,    vec4( clamp( fluidDepthNDC, 0.0, 1.0 ) ) );
+    imageStore( framebufMotionDlss,         pix_regular,    vec4( getMotionVectorForUpscaler( motionCurToPrev ), 0.0, 0.0 ) );
+    imageStore( framebufReactivity,         pix_regular,    vec4( 0.0 ) );
+    // clang-format on
+
+    return true;
+}
+
 void main() 
 {
     const ivec2 regularPix = ivec2(gl_LaunchIDEXT.xy);
@@ -288,9 +351,19 @@ void main()
     const vec3 cameraRayDirAX = getRayDirAX(inUV);
     const vec3 cameraRayDirAY = getRayDirAY(inUV);
 
-    const uint randomSeed = getRandomSeed(pix, globalUniform.frameId);
-    
-    
+    // Note: offset a bit, so upscalers do not fail on the edge
+    if( classicShading( ivec2( regularPix.x + 16, regularPix.y ) ) ||
+        globalUniform.lightmapScreenCoverage >= 0.999 )
+    {
+        storeSky( pix,
+                  cameraRayDir,
+                  globalUniform.skyType != SKY_TYPE_RASTERIZED_GEOMETRY,
+                  vec3( 1.0 ),
+                  1.0 );
+        return;
+    }
+
+
     const ShPayload primaryPayload = tracePrimaryRay(cameraOrigin, cameraRayDir);
 
 
@@ -300,23 +373,46 @@ void main()
     // was no hit
     if (!doesPayloadContainHitInfo(primaryPayload))
     {
+        if( tryAsFluid( pix, regularPix, cameraRayDir, 0.999999 ) )
+        {
+            return;
+        }
+
         vec3 throughput = vec3(1.0);
         // throughput *= getMediaTransmittance(currentRayMedia, pow(abs(dot(cameraRayDir, globalUniform.worldUpVector.xyz)), -3));
 
         // if sky is a rasterized geometry, it was already rendered to albedo framebuf 
-        storeSky(pix, cameraRayDir, globalUniform.skyType != SKY_TYPE_RASTERIZED_GEOMETRY, throughput, MAX_RAY_LENGTH * 2.0);
+        storeSky( pix,
+                  cameraRayDir,
+                  globalUniform.skyType != SKY_TYPE_RASTERIZED_GEOMETRY,
+                  throughput,
+                  1.0 );
         return;
     }
 
 
-    vec2 motionCurToPrev;
+    vec2  motionCurToPrev;
     float motionDepthLinearCurToPrev;
-    vec2 gradDepth;
+    vec2  gradDepth;
     float firstHitDepthNDC;
     float firstHitDepthLinear;
-    vec3 screenEmission;
-    const ShHitInfo h = getHitInfoPrimaryRay(primaryPayload, cameraOrigin, cameraRayDirAX, cameraRayDirAY, motionCurToPrev, motionDepthLinearCurToPrev, gradDepth, firstHitDepthNDC, firstHitDepthLinear, screenEmission);
+    vec3  screenEmission;
+    const ShHitInfo h = getHitInfoPrimaryRay( primaryPayload,
+                                              cameraOrigin,
+                                              cameraRayDir,
+                                              cameraRayDirAX,
+                                              cameraRayDirAY,
+                                              motionCurToPrev,
+                                              motionDepthLinearCurToPrev,
+                                              gradDepth,
+                                              firstHitDepthNDC,
+                                              firstHitDepthLinear,
+                                              screenEmission );
 
+    if( tryAsFluid( pix, regularPix, cameraRayDir, firstHitDepthNDC ) )
+    {
+        return;
+    }
 
     vec3 throughput = vec3(1.0);
     throughput *= getMediaTransmittance(currentRayMedia, firstHitDepthLinear);
@@ -325,7 +421,6 @@ void main()
     imageStore(framebufIsSky,               pix, ivec4(0));
     imageStore(framebufAlbedo,              getRegularPixFromCheckerboardPix(pix), vec4(h.albedo, 0.0));
     imageStore(framebufScreenEmisRT,        getRegularPixFromCheckerboardPix(pix), vec4(screenEmission * throughput , 0.0));
-    imageStore(framebufAcidFogRT,           getRegularPixFromCheckerboardPix(pix), vec4(getGlowingMediaFog(currentRayMedia, firstHitDepthLinear), 0));
     imageStoreNormal(                       pix, h.normal);
     imageStore(framebufMetallicRoughness,   pix, vec4(h.metallic, h.roughness, 0, 0));
     imageStore(framebufDepthWorld,          pix, vec4(firstHitDepthLinear));
@@ -389,8 +484,8 @@ void main()
     float       motionDepthLinearCurToPrev  = motionBuf.b;
     float       firstHitDepthLinear         = texelFetch(framebufDepthWorld_Sampler, pix, 0).r;
     vec3        screenEmission              = texelFetch(framebufScreenEmisRT_Sampler, getRegularPixFromCheckerboardPix(pix), 0).rgb;
-    vec3        acidFog                     = texelFetch(framebufAcidFogRT_Sampler, getRegularPixFromCheckerboardPix(pix), 0).rgb;
     vec3        throughput                  = texelFetch(framebufThroughput_Sampler, pix, 0).rgb;
+    bool        hasNormalMap                = false; // hack for water normal...
     ShPayload currentPayload;
     currentPayload.instIdAndIndex           = primaryToReflRefrBuf.g;
 
@@ -445,7 +540,7 @@ void main()
                            newRayMedia == MEDIA_TYPE_ACID || currentRayMedia == MEDIA_TYPE_ACID );
 
         const vec3 normal =
-            getNormal( h.hitPosition, h.normal, rayCone, rayDir, isWater, wasPortal );
+            getNormal( h.hitPosition, hasNormalMap, h.normal, rayCone, rayDir, isWater, wasPortal );
 
         vec3  rayOrigin = h.hitPosition;
         bool  doSplit   = !wasSplit;
@@ -564,7 +659,8 @@ void main()
             virtualPos, 
             rayLen, 
             motionCurToPrev, motionDepthLinearCurToPrev,
-            scrEmis
+            scrEmis,
+            hasNormalMap
         );
 
 
@@ -573,7 +669,6 @@ void main()
         propagateRayCone(rayCone, rayLen);
         fullPathLength += rayLen;
         screenEmission += scrEmis * throughput;
-        acidFog += getGlowingMediaFog(currentRayMedia, rayLen) * (doSplit ? 2.0 : 1.0);
     }
 
 
@@ -585,8 +680,7 @@ void main()
 
     imageStore(framebufIsSky,               pix, ivec4(0));
     imageStore(framebufAlbedo,              getRegularPixFromCheckerboardPix(pix), vec4(h.albedo, 0.0));
-    imageStore(framebufScreenEmisRT,        getRegularPixFromCheckerboardPix(pix), vec4(screenEmission + ( globalUniform.cameraMediaType != MEDIA_TYPE_ACID ? acidFog * 0.05 : vec3( 0.0 ) ), 0.0));
-    imageStore(framebufAcidFogRT,           getRegularPixFromCheckerboardPix(pix), vec4(acidFog, 0));
+    imageStore(framebufScreenEmisRT,        getRegularPixFromCheckerboardPix(pix), vec4(screenEmission, 0.0));
     imageStoreNormal(                       pix, h.normal);
     imageStore(framebufMetallicRoughness,   pix, vec4(h.metallic, h.roughness, 0, 0));
     imageStore(framebufDepthWorld,          pix, vec4(fullPathLength));

@@ -26,7 +26,6 @@
 
 #include "Common.h"
 #include "CommandBufferManager.h"
-#include "ISwapchainDependency.h"
 #include "IFramebuffersDependency.h"
 #include "MemoryAllocator.h"
 #include "SamplerManager.h"
@@ -35,6 +34,8 @@
 namespace RTGL1
 {
 
+class Swapchain;
+
 // Hold info for previous and current frames
 #define FRAMEBUFFERS_HISTORY_LENGTH 2
 
@@ -42,6 +43,7 @@ class Framebuffers
 {
 public:
     explicit Framebuffers( VkDevice                                device,
+                           VkPhysicalDevice                        physDevice,
                            std::shared_ptr< MemoryAllocator >      allocator,
                            std::shared_ptr< CommandBufferManager > cmdManager,
                            const RgInstanceCreateInfo&             info );
@@ -52,7 +54,7 @@ public:
     Framebuffers& operator=( const Framebuffers& other ) = delete;
     Framebuffers& operator=( Framebuffers&& other ) noexcept = delete;
 
-    bool          PrepareForSize( ResolutionState resolutionState );
+    bool PrepareForSize( ResolutionState resolutionState, bool needShared );
 
     enum class BarrierType
     {
@@ -74,13 +76,6 @@ public:
                                            const FramebufferImageIndex ( &framebufImageIndices )[ BARRIER_COUNT ],
                                            BarrierType barrierTypeFrom = BarrierType::All );
 
-    void PresentToSwapchain( VkCommandBuffer                     cmd,
-                             uint32_t                            frameIndex,
-                             const std::shared_ptr< Swapchain >& swapchain,
-                             FramebufferImageIndex               framebufImageIndex,
-                             VkFilter                            filter,
-                             bool                                showPrevious );
-
     FramebufferImageIndex BlitForEffects( VkCommandBuffer       cmd,
                                           uint32_t              frameIndex,
                                           FramebufferImageIndex framebufImageIndex,
@@ -98,30 +93,34 @@ public:
         FramebufferImageIndex  fbImageIndex,
         uint32_t               frameIndex,
         const ResolutionState& resolutionState ) const;
+    auto GetImageForAlias( FramebufferImageIndex fbImageIndex, uint32_t frameIndex ) const
+        -> std::tuple< VkFormat, VkDeviceMemory >;
+
+    VkExtent2D GetFramebufSize( const ResolutionState& resolutionState,
+                                FramebufferImageIndex  index ) const;
 
     // Subscribe to framebuffers' size change event.
     // shared_ptr will be transformed to weak_ptr
-    void Subscribe( std::shared_ptr< IFramebuffersDependency > subscriber );
+    void Subscribe( const std::shared_ptr< IFramebuffersDependency >& subscriber );
+    void Unsubscribe( const IFramebuffersDependency* subscriber );
 
 private:
     static FramebufferImageIndex FrameIndexToFBIndex( FramebufferImageIndex framebufferImageIndex,
                                                       uint32_t              frameIndex );
 
-    void                         CreateDescriptors();
-    void                         CreateSamplers();
+    void CreateDescriptors();
+    void CreateSamplers();
 
-    void                         CreateImages( ResolutionState resolutionState );
-    void                         UpdateDescriptors();
+    void CreateImages( ResolutionState resolutionState, bool sharedExist, bool needShared );
+    void UpdateDescriptors();
 
-    VkExtent2D                   GetFramebufSize( const ResolutionState& resolutionState,
-                                                  FramebufferImageIndex  index ) const;
-
-    void                         DestroyImages();
+    void DestroyImages();
 
     void NotifySubscribersAboutResize( const ResolutionState& resolutionState );
 
 private:
     VkDevice                                              device;
+    VkPhysicalDevice                                      physDevice;
     bool                                                  effectWipeIsUsed;
 
     VkSampler                                             bilinearSampler;

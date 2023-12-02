@@ -132,17 +132,17 @@ public:
     uint32_t   GetCurrentIndexCount() const;
 
 
-    // Make sure that copying was done
-    void InsertVertexPreprocessBeginBarrier( VkCommandBuffer cmd );
-    // Make sure that preprocessing is done, and prepare for use in AS build and in shaders
-    void InsertVertexPreprocessFinishBarrier( VkCommandBuffer cmd );
+    // begin=0: Make sure that copying was done
+    // begin=1: Make sure that preprocessing is done, and prepare for use in AS build and in shaders
+    void InsertVertexPreprocessBarrier( VkCommandBuffer cmd, bool begin );
 
 private:
-    void CopyVertexDataToStaging( const RgMeshPrimitiveInfo& info,
-                                  uint32_t                   vertIndex,
-                                  uint32_t                   texcIndex_1,
-                                  uint32_t                   texcIndex_2,
-                                  uint32_t                   texcIndex_3 );
+    void CopyDataToStaging( const RgMeshPrimitiveInfo& info,
+                            uint32_t                   vertIndex,
+                            std::optional< uint32_t >  indIndex,
+                            uint32_t                   texcIndex_1,
+                            uint32_t                   texcIndex_2,
+                            uint32_t                   texcIndex_3 );
 
 private:
     VkDevice device;
@@ -238,11 +238,29 @@ private:
     SharedDeviceLocal< RgFloat2D > bufTexcoordLayer2;
     SharedDeviceLocal< RgFloat2D > bufTexcoordLayer3;
 
-    uint32_t curVertexCount{ 0 };
-    uint32_t curIndexCount{ 0 };
-    uint32_t curTexCoordCount_Layer1{ 0 };
-    uint32_t curTexCoordCount_Layer2{ 0 };
-    uint32_t curTexCoordCount_Layer3{ 0 };
+    struct Count
+    {
+        uint32_t vertex{ 0 };
+        uint32_t index{ 0 };
+        uint32_t texCoord_Layer1{ 0 };
+        uint32_t texCoord_Layer2{ 0 };
+        uint32_t texCoord_Layer3{ 0 };
+    };
+
+    Count count{};
+
+    // need to track offset, because Reset can be called with rangeToPreserve,
+    // so need to copy from staging to device local considering offsets
+    Count stagingOffset{};
+
+    // we can't have both in one barrier, so delay:
+    // VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
+    // VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+    struct
+    {
+        VkBufferMemoryBarrier2 barriers[ 2 ]{};
+        uint32_t               barriers_count{ 0 };
+    } afterBuild{};
 };
 
 }

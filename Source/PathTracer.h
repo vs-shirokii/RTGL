@@ -57,21 +57,37 @@ public:
     PathTracer& operator=( const PathTracer& other ) = delete;
     PathTracer& operator=( PathTracer&& other ) noexcept = delete;
 
-    TraceParams Bind( VkCommandBuffer                  cmd,
-                      uint32_t                         frameIndex,
-                      uint32_t                         width,
-                      uint32_t                         height,
-                      Scene&                           scene,
-                      const GlobalUniform&             uniform,
-                      const TextureManager&            textureManager,
-                      std::shared_ptr< Framebuffers >  framebuffers,
-                      std::shared_ptr< RestirBuffers > restirBuffers,
-                      const BlueNoise&                 blueNoise,
-                      const LightManager&              lightManager,
-                      const CubemapManager&            cubemapManager,
-                      const RenderCubemap&             renderCubemap,
-                      const PortalList&                portalList,
-                      const Volumetric&                volumetric );
+    void BindDescSet( VkPipelineBindPoint   bindPoint,
+                      VkCommandBuffer       cmd,
+                      uint32_t              frameIndex,
+                      Scene&                scene,
+                      const GlobalUniform&  uniform,
+                      const TextureManager& textureManager,
+                      const Framebuffers&   framebuffers,
+                      const RestirBuffers&  restirBuffers,
+                      const BlueNoise&      blueNoise,
+                      const LightManager&   lightManager,
+                      const CubemapManager& cubemapManager,
+                      const RenderCubemap&  renderCubemap,
+                      const PortalList&     portalList,
+                      const Volumetric&     volumetric );
+
+    // Includes BindDescSet
+    TraceParams BindRayTracing( VkCommandBuffer                  cmd,
+                                uint32_t                         frameIndex,
+                                uint32_t                         width,
+                                uint32_t                         height,
+                                Scene&                           scene,
+                                const GlobalUniform&             uniform,
+                                const TextureManager&            textureManager,
+                                std::shared_ptr< Framebuffers >  framebuffers,
+                                std::shared_ptr< RestirBuffers > restirBuffers,
+                                const BlueNoise&                 blueNoise,
+                                const LightManager&              lightManager,
+                                const CubemapManager&            cubemapManager,
+                                const RenderCubemap&             renderCubemap,
+                                const PortalList&                portalList,
+                                const Volumetric&                volumetric );
 
     void        TracePrimaryRays( const TraceParams& params );
     void        TraceReflectionRefractionRays( const TraceParams& params );
@@ -79,6 +95,21 @@ public:
     void        TraceDirectllumination( const TraceParams& params );
     void        CalculateGradientsSamples( const TraceParams& params );
     void        TraceIndirectllumination( const TraceParams& params );
+    void        FinalizeIndirectIllumination_Compute( VkCommandBuffer       cmd,
+                                                      uint32_t              frameIndex,
+                                                      uint32_t              width,
+                                                      uint32_t              height,
+                                                      Scene&                scene,
+                                                      const GlobalUniform&  uniform,
+                                                      const TextureManager& textureManager,
+                                                      Framebuffers&         framebuffers,
+                                                      const RestirBuffers&  restirBuffers,
+                                                      const BlueNoise&      blueNoise,
+                                                      const LightManager&   lightManager,
+                                                      const CubemapManager& cubemapManager,
+                                                      const RenderCubemap&  renderCubemap,
+                                                      const PortalList&     portalList,
+                                                      const Volumetric&     volumetric );
     void        TraceVolumetric( const TraceParams& params );
 
 private:

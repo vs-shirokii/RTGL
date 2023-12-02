@@ -77,6 +77,12 @@ public:
                            const TextureManager&      textureManager,
                            GeomInfoManager&           geomInfoManager );
 
+    void Hack_PatchTexturesForStaticPrimitive( const PrimitiveUniqueID& uniqueID,
+                                               const char*              pTextureName,
+                                               const TextureManager&    textureManager );
+    void Hack_PatchGeomInfoTransformForStatic( const PrimitiveUniqueID& geomUniqueID,
+                                               const RgTransform&       transform );
+
     void CacheReplacement( std::string_view           meshName,
                            const RgMeshPrimitiveInfo& primitive,
                            uint32_t                   index );
@@ -86,7 +92,6 @@ public:
     void BuildTLAS( VkCommandBuffer cmd,
                     uint32_t        frameIndex,
                     uint32_t        uniformData_rayCullMaskWorld,
-                    bool            allowGeometryWithSkyFlag,
                     bool            disableRTGeometry );
 
 
@@ -121,11 +126,10 @@ private:
                            VertexCollectorFilterTypeFlags geomFlags,
                            VertexCollector&               vertexAlloc,
                            ChunkedStackAllocator&         accelStructAlloc,
-                           const bool                     isDynamic ) -> std::shared_ptr< BuiltAS >;
+                           const bool                     isDynamic ) -> std::unique_ptr< BuiltAS >;
 
     static auto MakeVkTLAS( const BuiltAS&                 builtAS,
                             uint32_t                       rayCullMaskWorld,
-                            bool                           allowGeometryWithSkyFlag,
                             const RgTransform&             instanceTransform,
                             VertexCollectorFilterTypeFlags instanceFlags )
         -> std::optional< VkAccelerationStructureInstanceKHR >;
@@ -152,14 +156,14 @@ private:
     std::shared_ptr< TextureManager >       textureMgr;
     std::shared_ptr< GeomInfoManager >      geomInfoMgr;
 
-    std::unique_ptr< ChunkedStackAllocator > allocTlas;
+    std::unique_ptr< ChunkedStackAllocator > allocTlas[ MAX_FRAMES_IN_FLIGHT ];
     std::unique_ptr< ChunkedStackAllocator > allocReplacementsGeom;
     std::unique_ptr< ChunkedStackAllocator > allocStaticGeom;
-    std::unique_ptr< ChunkedStackAllocator > allocDynamicGeom;
+    std::unique_ptr< ChunkedStackAllocator > allocDynamicGeom[ MAX_FRAMES_IN_FLIGHT ];
 
-    rgl::string_map< std::vector< std::shared_ptr< BuiltAS > > > builtReplacements;
-    std::vector< std::shared_ptr< BuiltAS > >                    builtStaticInstances;
-    std::vector< std::shared_ptr< BuiltAS > > builtDynamicInstances[ MAX_FRAMES_IN_FLIGHT ];
+    rgl::string_map< std::vector< std::unique_ptr< BuiltAS > > > builtReplacements;
+    std::vector< std::unique_ptr< BuiltAS > >                    builtStaticInstances;
+    std::vector< std::unique_ptr< BuiltAS > > builtDynamicInstances[ MAX_FRAMES_IN_FLIGHT ];
 
     // Exists only in the current frame
     struct Object

@@ -51,7 +51,7 @@ public:
                            uint32_t            height,
                            bool                justClear );
 
-    void          CreateFramebuffers( VkImageView pDepthAttchViews[ MAX_FRAMES_IN_FLIGHT ],
+    void          CreateFramebuffers( VkImageView depthAttchView,
                                       uint32_t    width,
                                       uint32_t    height );
     void          DestroyFramebuffers();
@@ -67,7 +67,7 @@ private:
     VkDevice         device;
 
     VkRenderPass     renderPass;
-    VkFramebuffer    framebuffers[ MAX_FRAMES_IN_FLIGHT ];
+    VkFramebuffer    framebuffer;
 
     VkPipelineLayout pipelineLayout;
     VkPipeline       pipeline;

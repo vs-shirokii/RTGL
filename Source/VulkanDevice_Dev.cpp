@@ -90,6 +90,29 @@ bool RTGL1::VulkanDevice::Dev_IsDevmodeInitialized() const
     return debugWindows && devmode;
 }
 
+namespace
+{
+
+template< size_t N >
+struct StringLiteral
+{
+    consteval StringLiteral( const char ( &str )[ N ] ) { std::copy_n( str, N, value ); }
+    consteval auto c_str() const { return value; }
+    char value[ N ];
+};
+
+template< StringLiteral Name >
+void imgui_ShowAlwaysOnCheckbox()
+{
+    ImGui::BeginDisabled( true );
+    static bool alwaysOn;
+    alwaysOn = true;
+    ImGui::Checkbox( Name.c_str(), &alwaysOn );
+    ImGui::EndDisabled();
+}
+
+}
+
 void RTGL1::VulkanDevice::Dev_Draw() const
 {
     if( !Dev_IsDevmodeInitialized() )
@@ -124,19 +147,73 @@ void RTGL1::VulkanDevice::Dev_Draw() const
 
         ImGui::Checkbox( "Override", &modifiers.enable );
         ImGui::BeginDisabled( !modifiers.enable );
-        if( ImGui::TreeNode( "Present" ) )
+        if( ImGui::TreeNodeEx( "Present", ImGuiTreeNodeFlags_DefaultOpen ) )
         {
-            ImGui::Checkbox( "Vsync", &modifiers.vsync );
-
-            static_assert(
-                std::is_same_v< int, std::underlying_type_t< RgRenderUpscaleTechnique > > );
-            static_assert(
-                std::is_same_v< int, std::underlying_type_t< RgRenderSharpenTechnique > > );
-            static_assert(
-                std::is_same_v< int, std::underlying_type_t< RgRenderResolutionMode > > );
-
-            bool dlssOk = IsUpscaleTechniqueAvailable( RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS );
+            ImGui::Checkbox( "HDR", &modifiers.hdr );
+            
+            if( modifiers.frameGeneration != RG_FRAME_GENERATION_MODE_OFF &&
+                modifiers.upscaleTechnique == RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS)
             {
+                imgui_ShowAlwaysOnCheckbox< "Vsync" >();
+            }
+            else
+            {
+                ImGui::Checkbox( "Vsync", &modifiers.vsync );
+            }
+            
+            if( modifiers.frameGeneration == RG_FRAME_GENERATION_MODE_OFF )
+            {
+                ImGui::Checkbox( "Prefer DXGI for Present", &modifiers.preferDxgiPresent );
+            }
+            else
+            {
+                imgui_ShowAlwaysOnCheckbox< "Prefer DXGI for Present" >();
+            }
+
+            static_assert(
+                std::same_as< int, std::underlying_type_t< RgRenderUpscaleTechnique > > );
+            static_assert(
+                std::same_as< int, std::underlying_type_t< RgRenderSharpenTechnique > > );
+            static_assert( std::same_as< int, std::underlying_type_t< RgRenderResolutionMode > > );
+            static_assert( std::same_as< int, std::underlying_type_t< RgFrameGenerationMode > > );
+
+            {
+                ImGui::Spacing();
+                ImGui::TextUnformatted( "Frame Generation:" );
+                ImGui::RadioButton( "Off##FG",
+                                    reinterpret_cast< int* >( &modifiers.frameGeneration ),
+                                    RG_FRAME_GENERATION_MODE_OFF );
+                ImGui::SameLine();
+                ImGui::BeginDisabled( !IsUpscaleTechniqueAvailable( modifiers.upscaleTechnique, //
+                                                                    RG_FRAME_GENERATION_MODE_ON,
+                                                                    nullptr ) );
+                ImGui::RadioButton( "On##FG",
+                                    reinterpret_cast< int* >( &modifiers.frameGeneration ),
+                                    RG_FRAME_GENERATION_MODE_ON );
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                ImGui::BeginDisabled(
+                    !IsUpscaleTechniqueAvailable( modifiers.upscaleTechnique, //
+                                                  RG_FRAME_GENERATION_MODE_WITHOUT_GENERATED,
+                                                  nullptr ) );
+                ImGui::RadioButton( "On, but skip generated frame##FG",
+                                    reinterpret_cast< int* >( &modifiers.frameGeneration ),
+                                    RG_FRAME_GENERATION_MODE_WITHOUT_GENERATED );
+                ImGui::EndDisabled();
+            }
+
+            const char* dlssError{};
+            const char* fsrError{};
+
+            bool dlssOk = IsUpscaleTechniqueAvailable( RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS, //
+                                                       modifiers.frameGeneration,
+                                                       &dlssError );
+            bool fsrOk  = IsUpscaleTechniqueAvailable( RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2, //
+                                                      modifiers.frameGeneration,
+                                                      &fsrError );
+            {
+                ImGui::Spacing();
+                ImGui::TextUnformatted( "Upscaler:" );
                 ImGui::RadioButton( "Linear##Upscale",
                                     reinterpret_cast< int* >( &modifiers.upscaleTechnique ),
                                     RG_RENDER_UPSCALE_TECHNIQUE_LINEAR );
@@ -145,28 +222,25 @@ void RTGL1::VulkanDevice::Dev_Draw() const
                                     reinterpret_cast< int* >( &modifiers.upscaleTechnique ),
                                     RG_RENDER_UPSCALE_TECHNIQUE_NEAREST );
                 ImGui::SameLine();
-                ImGui::RadioButton( "FSR 2.1##Upscale",
+                ImGui::BeginDisabled( !fsrOk );
+                ImGui::RadioButton( "AMD FSR##Upscale",
                                     reinterpret_cast< int* >( &modifiers.upscaleTechnique ),
                                     RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2 );
+                ImGui::EndDisabled();
                 ImGui::SameLine();
                 ImGui::BeginDisabled( !dlssOk );
-                ImGui::RadioButton( "DLSS 2##Upscale",
+                ImGui::RadioButton( "NVIDIA DLSS##Upscale",
                                     reinterpret_cast< int* >( &modifiers.upscaleTechnique ),
                                     RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS );
                 ImGui::EndDisabled();
             }
+            if( !Utils::IsCstrEmpty( dlssError ) )
             {
-                ImGui::RadioButton( "None##Sharp",
-                                    reinterpret_cast< int* >( &modifiers.sharpenTechnique ),
-                                    RG_RENDER_SHARPEN_TECHNIQUE_NONE );
-                ImGui::SameLine();
-                ImGui::RadioButton( "Naive sharpening##Sharp",
-                                    reinterpret_cast< int* >( &modifiers.sharpenTechnique ),
-                                    RG_RENDER_SHARPEN_TECHNIQUE_NAIVE );
-                ImGui::SameLine();
-                ImGui::RadioButton( "AMD CAS sharpening##Sharp",
-                                    reinterpret_cast< int* >( &modifiers.sharpenTechnique ),
-                                    RG_RENDER_SHARPEN_TECHNIQUE_AMD_CAS );
+                ImGui::TextUnformatted( dlssError );
+            }
+            if( !Utils::IsCstrEmpty( fsrError ) )
+            {
+                ImGui::TextUnformatted( fsrError );
             }
 
             bool forceCustom =
@@ -225,6 +299,22 @@ void RTGL1::VulkanDevice::Dev_Draw() const
                 }
             }
 
+            {
+                ImGui::Spacing();
+                ImGui::TextUnformatted( "Sharpening:" );
+                ImGui::RadioButton( "None##Sharp",
+                                    reinterpret_cast< int* >( &modifiers.sharpenTechnique ),
+                                    RG_RENDER_SHARPEN_TECHNIQUE_NONE );
+                ImGui::SameLine();
+                ImGui::RadioButton( "Naive##Sharp",
+                                    reinterpret_cast< int* >( &modifiers.sharpenTechnique ),
+                                    RG_RENDER_SHARPEN_TECHNIQUE_NAIVE );
+                ImGui::SameLine();
+                ImGui::RadioButton( "AMD CAS##Sharp",
+                                    reinterpret_cast< int* >( &modifiers.sharpenTechnique ),
+                                    RG_RENDER_SHARPEN_TECHNIQUE_AMD_CAS );
+            }
+
             ImGui::TreePop();
         }
         if( ImGui::TreeNode( "Tonemapping" ) )
@@ -264,9 +354,60 @@ void RTGL1::VulkanDevice::Dev_Draw() const
                                 "%.2f" );
             ImGui::TreePop();
         }
+        if( ImGui::TreeNode( "Texturing" ) )
+        {
+            ImGui::SliderFloat( "Normal map Scale", &modifiers.normalMapStrength, 0.f, 1.f );
+            ImGui::SliderFloat( "Height map Depth", &modifiers.heightMapDepth, 0.f, 0.05f );
+            ImGui::SliderFloat( "Emission map GI Boost", &modifiers.emissionMapBoost, 0.f, 100.f );
+            ImGui::SliderFloat( "Emission map Screen Scale", &modifiers.emissionMaxScreenColor, 0.f, 100.f );
+            ImGui::TreePop();
+        }
         if( ImGui::TreeNode( "Lightmap" ) )
         {
             ImGui::SliderFloat( "Screen coverage", &modifiers.lightmapScreenCoverage, 0.0f, 1.0f );
+            ImGui::TreePop();
+        }
+        if( ImGui::TreeNodeEx( "Fluid", ImGuiTreeNodeFlags_DefaultOpen ) )
+        {
+            ImGui::Checkbox( "Enable", &modifiers.fluidEnabled );
+            ImGui::DragFloat3(
+                "Gravity##fluid", modifiers.fluidGravity.data, 0.1f, -100, 100, "%.1f" );
+            modifiers.fluidReset = ImGui::Button( "Reset", { -1, 48 } );
+            ImGui::Checkbox( "Suppress Fluid Raster", &devmode->fluidStopVisualize );
+            if( ImGui::TreeNodeEx( "Debug Spawn##fluidspw", ImGuiTreeNodeFlags_DefaultOpen ) )
+            {
+                static int       spawnCount                   = 1000;
+                static RgFloat3D spawnPosition                = { 0, 3, 0 };
+                static RgFloat3D spawnVelocity                = { 0, 2, 0 };
+                static float     spawnVelocityDispersion      = 1.0f;
+                static float     spawnVelocityDispersionAngle = 180;
+                {
+                    ImGui::InputInt( "Count##fluidspw", &spawnCount, 1000, 10'000 );
+                    spawnCount = std::clamp( spawnCount, 0, 1'000'000 );
+                }
+                ImGui::DragFloat3( "Position##fluidspw", spawnPosition.data, 0.5f );
+                ImGui::DragFloat3( "Velocity##fluidspw", spawnVelocity.data, 0.5f );
+                ImGui::DragFloat( "Dispersion##fluidspw", &spawnVelocityDispersion, 0.1f, 0, 1 );
+                ImGui::DragFloat(
+                    "Dispersion Angle##fluidspw", &spawnVelocityDispersionAngle, 5, 0, 180 );
+                if( ImGui::Button( "Spawn", { -1, 48 } ) )
+                {
+                    auto info = RgSpawnFluidInfo{
+                        .sType                  = RG_STRUCTURE_TYPE_SPAWN_FLUID_INFO,
+                        .pNext                  = nullptr,
+                        .position               = spawnPosition,
+                        .radius                 = 0,
+                        .velocity               = spawnVelocity,
+                        .dispersionVelocity     = spawnVelocityDispersion,
+                        .dispersionAngleDegrees = spawnVelocityDispersionAngle,
+                        .count                  = static_cast< uint32_t >( spawnCount ),
+                    };
+                    static_assert( sizeof( RgSpawnFluidInfo ) == 56, "Change here" );
+                    // dev const hack
+                    const_cast< VulkanDevice* >( this )->SpawnFluid( &info );
+                }
+                ImGui::TreePop();
+            }
             ImGui::TreePop();
         }
         ImGui::EndDisabled();
@@ -289,6 +430,7 @@ void RTGL1::VulkanDevice::Dev_Draw() const
                 { "Motion vectors", DEBUG_SHOW_FLAG_MOTION_VECTORS },
                 { "Gradients", DEBUG_SHOW_FLAG_GRADIENTS },
                 { "Light grid", DEBUG_SHOW_FLAG_LIGHT_GRID },
+                { "Bloom", DEBUG_SHOW_FLAG_BLOOM },
             };
             for( const auto [ name, f ] : fs )
             {
@@ -403,6 +545,11 @@ void RTGL1::VulkanDevice::Dev_Draw() const
                      1000.0f / ImGui::GetIO().Framerate,
                      ImGui::GetIO().Framerate );
         ImGui::EndTabItem();
+
+        ImGui::Text( "Chosen volumetric light: %d",
+                     uniform->GetData()->volumeLightSourceIndex == LIGHT_INDEX_NONE
+                         ? -1
+                         : uniform->GetData()->volumeLightSourceIndex );
     }
 
     if( ImGui::BeginTabItem( "Primitives" ) )
@@ -760,7 +907,9 @@ void RTGL1::VulkanDevice::Dev_Draw() const
                 sceneImportExport->RequestExport();
             }
             ImGui::PopStyleColor( 3 );
-
+            ImGui::Checkbox( "Allow auto-export, if scene's GLTF doesn't exist",
+                             &devmode->drawInfoOvrd.allowMapAutoExport );
+            ImGui::Dummy( ImVec2( 0, 8 ) );
             ImGui::Text( "Export path: %s",
                          sceneImportExport->dev_GetSceneExportGltfPath().c_str() );
             ImGui::BeginDisabled( !dev.exportName.enable );
@@ -813,10 +962,11 @@ void RTGL1::VulkanDevice::Dev_Draw() const
             ColumnTextureIndex1,
             ColumnTextureIndex2,
             ColumnTextureIndex3,
+            ColumnTextureIndex4,
             ColumnMaterialName,
             Column_Count,
         };
-        static_assert( std::size( TextureManager::Debug_MaterialInfo{}.textures.indices ) == 4 );
+        static_assert( std::size( TextureManager::Debug_MaterialInfo{}.textures.indices ) == 5 );
 
         ImGui::Checkbox( "Record", &devmode->materialsTableEnable );
         ImGui::TextUnformatted( "Blue - if material is non-original (i.e. was loaded from GLTF)" );
@@ -835,6 +985,7 @@ void RTGL1::VulkanDevice::Dev_Draw() const
                 ImGui::TableSetupColumn( "P", 0, 8 );
                 ImGui::TableSetupColumn( "N", 0, 8 );
                 ImGui::TableSetupColumn( "E", 0, 8 );
+                ImGui::TableSetupColumn( "H", 0, 8 );
                 ImGui::TableSetupColumn( "Material name",
                                          ImGuiTableColumnFlags_WidthStretch |
                                              ImGuiTableColumnFlags_DefaultSort,
@@ -873,6 +1024,9 @@ void RTGL1::VulkanDevice::Dev_Draw() const
                                     break;
                                 case ColumnTextureIndex3:
                                     ord = ( a.textures.indices[ 3 ] <=> b.textures.indices[ 3 ] );
+                                    break;
+                                case ColumnTextureIndex4:
+                                    ord = ( a.textures.indices[ 4 ] <=> b.textures.indices[ 4 ] );
                                     break;
                                 case ColumnMaterialName:
                                     ord = ( a.materialName <=> b.materialName );
@@ -972,6 +1126,17 @@ void RTGL1::VulkanDevice::Dev_Draw() const
                                 }
                                 break;
 
+                            case ColumnTextureIndex4:
+                                writeTexIndex( 4 );
+                                if( ImGui::TableGetColumnFlags( col ) &
+                                    ImGuiTableColumnFlags_IsHovered )
+                                {
+                                    ImGui::SetTooltip( "Image\n[R] Height map\n"
+                                                       "    0.0 - deepest point\n"
+                                                       "    1.0 - surface level" );
+                                }
+                                break;
+
                             case ColumnMaterialName:
                                 ImGui::TextUnformatted( mat.materialName.c_str() );
 
@@ -1009,7 +1174,9 @@ void RTGL1::VulkanDevice::Dev_Draw() const
     }
 }
 
-void RTGL1::VulkanDevice::Dev_Override( RgStartFrameInfo& info ) const
+void RTGL1::VulkanDevice::Dev_Override( RgStartFrameInfo&                   info,
+                                        RgStartFrameRenderResolutionParams& resolution,
+                                        RgStartFrameFluidParams&            fluid ) const
 {
     if( !Dev_IsDevmodeInitialized() )
     {
@@ -1020,20 +1187,85 @@ void RTGL1::VulkanDevice::Dev_Override( RgStartFrameInfo& info ) const
 
     if( modifiers.enable )
     {
-        RgStartFrameInfo& dst = info;
+        RgStartFrameInfo&                   dst       = info;
+        RgStartFrameRenderResolutionParams& dst_resol = resolution;
+        RgStartFrameFluidParams&            dst_fluid = fluid;
 
         // apply modifiers
         {
-            dst.vsync = modifiers.vsync;
+            dst.vsync                  = modifiers.vsync;
+            dst.hdr                    = modifiers.hdr;
+            dst.allowMapAutoExport     = modifiers.allowMapAutoExport;
+            dst.lightmapScreenCoverage = modifiers.lightmapScreenCoverage;
+        }
+        {
+            dst_fluid.enabled = modifiers.fluidEnabled;
+            dst_fluid.reset   = modifiers.fluidReset;
+            dst_fluid.gravity = modifiers.fluidGravity;
+        }
+        {
+            float aspect = float( renderResolution.UpscaledWidth() ) /
+                           float( renderResolution.UpscaledHeight() );
+
+            dst_resol.upscaleTechnique  = modifiers.upscaleTechnique;
+            dst_resol.resolutionMode    = modifiers.resolutionMode;
+            dst_resol.frameGeneration   = modifiers.frameGeneration;
+            dst_resol.preferDxgiPresent = modifiers.preferDxgiPresent;
+            dst_resol.sharpenTechnique  = modifiers.sharpenTechnique;
+            dst_resol.customRenderSize  = {
+                ClampPix< uint32_t >( modifiers.customRenderSizeScale *
+                                      float( renderResolution.UpscaledWidth() ) ),
+                ClampPix< uint32_t >( modifiers.customRenderSizeScale *
+                                      float( renderResolution.UpscaledHeight() ) ),
+            };
+            dst_resol.pixelizedRenderSizeEnable = modifiers.pixelizedEnable;
+            dst_resol.pixelizedRenderSize       = {
+                ClampPix< uint32_t >(
+                    static_cast< uint32_t >( aspect * float( modifiers.pixelizedHeight ) ) ),
+                ClampPix< uint32_t >( modifiers.pixelizedHeight ),
+            };
         }
     }
     else
     {
-        const RgStartFrameInfo& src = info;
+        const RgStartFrameInfo&                   src       = info;
+        const RgStartFrameRenderResolutionParams& src_resol = resolution;
+        const RgStartFrameFluidParams&            src_fluid = fluid;
 
         // reset modifiers
         {
-            modifiers.vsync = src.vsync;
+            modifiers.vsync                  = src.vsync;
+            modifiers.hdr                    = src.hdr;
+            modifiers.allowMapAutoExport     = src.allowMapAutoExport;
+            modifiers.lightmapScreenCoverage = src.lightmapScreenCoverage;
+        }
+        {
+            modifiers.fluidEnabled = src_fluid.enabled;
+            modifiers.fluidReset   = src_fluid.reset;
+            modifiers.fluidGravity = src_fluid.gravity;
+        }
+        {
+            modifiers.upscaleTechnique  = src_resol.upscaleTechnique;
+            modifiers.resolutionMode    = src_resol.resolutionMode;
+            modifiers.frameGeneration   = src_resol.frameGeneration;
+            modifiers.preferDxgiPresent = src_resol.preferDxgiPresent;
+            modifiers.sharpenTechnique  = src_resol.sharpenTechnique;
+
+            if( modifiers.resolutionMode == RG_RENDER_RESOLUTION_MODE_CUSTOM )
+            {
+                modifiers.customRenderSizeScale = float( src_resol.customRenderSize.height ) /
+                                                  float( renderResolution.UpscaledHeight() );
+            }
+            else
+            {
+                modifiers.customRenderSizeScale = 1.0f;
+            }
+
+            modifiers.pixelizedEnable = src_resol.pixelizedRenderSizeEnable;
+            modifiers.pixelizedHeight =
+                src_resol.pixelizedRenderSizeEnable
+                    ? ClampPix< int >( src_resol.pixelizedRenderSize.height )
+                    : 0;
         }
     }
 }
@@ -1078,10 +1310,9 @@ void RTGL1::VulkanDevice::Dev_Override( RgCameraInfo& info ) const
     }
 }
 
-void RTGL1::VulkanDevice::Dev_Override( RgDrawFrameRenderResolutionParams& resolution,
-                                        RgDrawFrameIlluminationParams&     illumination,
-                                        RgDrawFrameTonemappingParams&      tonemappingp,
-                                        RgDrawFrameLightmapParams&         lightmap ) const
+void RTGL1::VulkanDevice::Dev_Override( RgDrawFrameIlluminationParams& illumination,
+                                        RgDrawFrameTonemappingParams&  tonemappingp,
+                                        RgDrawFrameTexturesParams&     textures ) const
 {
     if( !Dev_IsDevmodeInitialized() )
     {
@@ -1092,32 +1323,11 @@ void RTGL1::VulkanDevice::Dev_Override( RgDrawFrameRenderResolutionParams& resol
 
     if( modifiers.enable )
     {
-        RgDrawFrameRenderResolutionParams& dst_resol = resolution;
-        RgDrawFrameIlluminationParams&     dst_illum = illumination;
-        RgDrawFrameTonemappingParams&      dst_tnmp  = tonemappingp;
-        RgDrawFrameLightmapParams&         dst_ltmp  = lightmap;
+        RgDrawFrameIlluminationParams& dst_illum = illumination;
+        RgDrawFrameTonemappingParams&  dst_tnmp  = tonemappingp;
+        RgDrawFrameTexturesParams&     dst_tex   = textures;
 
         // apply modifiers
-        {
-            float aspect = float( renderResolution.UpscaledWidth() ) /
-                           float( renderResolution.UpscaledHeight() );
-
-            dst_resol.upscaleTechnique = modifiers.upscaleTechnique;
-            dst_resol.sharpenTechnique = modifiers.sharpenTechnique;
-            dst_resol.resolutionMode   = modifiers.resolutionMode;
-            dst_resol.customRenderSize = {
-                ClampPix< uint32_t >( modifiers.customRenderSizeScale *
-                                      float( renderResolution.UpscaledWidth() ) ),
-                ClampPix< uint32_t >( modifiers.customRenderSizeScale *
-                                      float( renderResolution.UpscaledHeight() ) ),
-            };
-            dst_resol.pixelizedRenderSizeEnable = modifiers.pixelizedEnable;
-            dst_resol.pixelizedRenderSize       = {
-                ClampPix< uint32_t >(
-                    static_cast< uint32_t >( aspect * float( modifiers.pixelizedHeight ) ) ),
-                ClampPix< uint32_t >( modifiers.pixelizedHeight ),
-            };
-        }
         {
             dst_illum.maxBounceShadows                 = modifiers.maxBounceShadows;
             dst_illum.enableSecondBounceForIndirect    = modifiers.enableSecondBounceForIndirect;
@@ -1134,40 +1344,21 @@ void RTGL1::VulkanDevice::Dev_Override( RgDrawFrameRenderResolutionParams& resol
             dst_tnmp.crosstalk            = { RG_ACCESS_VEC3( modifiers.crosstalk ) };
         }
         {
-            dst_ltmp.lightmapScreenCoverage = modifiers.lightmapScreenCoverage;
+            dst_tex.normalMapStrength      = modifiers.normalMapStrength;
+            dst_tex.heightMapDepth         = modifiers.heightMapDepth;
+            dst_tex.emissionMapBoost       = modifiers.emissionMapBoost;
+            dst_tex.emissionMaxScreenColor = modifiers.emissionMaxScreenColor;
         }
     }
     else
     {
-        const RgDrawFrameRenderResolutionParams& src_resol = resolution;
-        const RgDrawFrameIlluminationParams&     src_illum = illumination;
-        const RgDrawFrameTonemappingParams&      src_tnmp  = tonemappingp;
-        const RgDrawFrameLightmapParams&         src_ltmp  = lightmap;
+        const RgDrawFrameIlluminationParams& src_illum = illumination;
+        const RgDrawFrameTonemappingParams&  src_tnmp  = tonemappingp;
+        const RgDrawFrameTexturesParams&     src_tex   = textures;
 
         // reset modifiers
         {
             devmode->antiFirefly = true;
-        }
-        {
-            modifiers.upscaleTechnique = src_resol.upscaleTechnique;
-            modifiers.sharpenTechnique = src_resol.sharpenTechnique;
-            modifiers.resolutionMode   = src_resol.resolutionMode;
-
-            if( modifiers.resolutionMode == RG_RENDER_RESOLUTION_MODE_CUSTOM )
-            {
-                modifiers.customRenderSizeScale = float( src_resol.customRenderSize.height ) /
-                                                  float( renderResolution.UpscaledHeight() );
-            }
-            else
-            {
-                modifiers.customRenderSizeScale = 1.0f;
-            }
-
-            modifiers.pixelizedEnable = src_resol.pixelizedRenderSizeEnable;
-            modifiers.pixelizedHeight =
-                src_resol.pixelizedRenderSizeEnable
-                    ? ClampPix< int >( src_resol.pixelizedRenderSize.height )
-                    : 0;
         }
         {
             modifiers.maxBounceShadows                 = int( src_illum.maxBounceShadows );
@@ -1185,7 +1376,10 @@ void RTGL1::VulkanDevice::Dev_Override( RgDrawFrameRenderResolutionParams& resol
             RG_SET_VEC3_A( modifiers.crosstalk, src_tnmp.crosstalk.data );
         }
         {
-            modifiers.lightmapScreenCoverage = src_ltmp.lightmapScreenCoverage;
+            modifiers.normalMapStrength      = src_tex.normalMapStrength;
+            modifiers.heightMapDepth         = src_tex.heightMapDepth;
+            modifiers.emissionMapBoost       = src_tex.emissionMapBoost;
+            modifiers.emissionMaxScreenColor = src_tex.emissionMaxScreenColor;
         }
     }
 }
@@ -1226,4 +1420,107 @@ void RTGL1::VulkanDevice::Dev_TryBreak( const char* pTextureName, bool isImageUp
         devmode->breakOnTexturePrimitive = false;
     }
 #endif
+}
+
+namespace RTGL1
+{
+extern bool g_showAutoExportPlaque;
+}
+
+void RTGL1::VulkanDevice::DrawEndUserWarnings()
+{
+    constexpr int   OverallDurationInSeconds = 7;
+    constexpr float FadingInSeconds          = 3;
+
+    using clock        = std::chrono::high_resolution_clock;
+    static auto stopAt = clock::time_point{};
+    static auto ratio  = 0.0f;
+
+    if( g_showAutoExportPlaque )
+    {
+        stopAt                 = clock::now() + std::chrono::seconds{ OverallDurationInSeconds };
+        ratio                  = 1.0f;
+        g_showAutoExportPlaque = false;
+    }
+
+    if( ratio <= 0 )
+    {
+        return;
+    }
+
+    {
+        float diffStop = std::chrono::duration< float >{ stopAt - clock::now() }.count();
+        ratio          = std::clamp( diffStop / FadingInSeconds, 0.f, 1.f );
+        if( ratio <= 0 )
+        {
+            return;
+        }
+    }
+
+    static constexpr RgColor4DPacked32 white       = Utils::PackColor( 255, 255, 255, 255 );
+    static constexpr RgPrimitiveVertex quadVerts[] = {
+        RgPrimitiveVertex{ .position = { -1, -1, 0 }, .texCoord = { 0, 0 }, .color = white },
+        RgPrimitiveVertex{ .position = { -1, +1, 0 }, .texCoord = { 0, 1 }, .color = white },
+        RgPrimitiveVertex{ .position = { +1, -1, 0 }, .texCoord = { 1, 0 }, .color = white },
+        RgPrimitiveVertex{ .position = { +1, -1, 0 }, .texCoord = { 1, 0 }, .color = white },
+        RgPrimitiveVertex{ .position = { -1, +1, 0 }, .texCoord = { 0, 1 }, .color = white },
+        RgPrimitiveVertex{ .position = { +1, +1, 0 }, .texCoord = { 1, 1 }, .color = white },
+    };
+
+    const float screen[] = {
+        static_cast< float >( renderResolution.GetResolutionState().upscaledWidth ),
+        static_cast< float >( renderResolution.GetResolutionState().upscaledHeight ),
+    };
+    // size of MATERIAL_NAME_SCENEBUILDINGWARNING texture
+    constexpr float plaque[] = {
+        1024,
+        256,
+    };
+    if( screen[ 0 ] < 1 || screen[ 1 ] < 1 )
+    {
+        return;
+    }
+
+    constexpr float safeZoneAt1080 = 96;
+    constexpr float heightAt1080   = 128;
+
+    const float safeZone  = safeZoneAt1080 / 1080 * screen[ 1 ];
+    const float pixHeight = heightAt1080 / 1080 * screen[ 1 ];
+    const float pixWidth  = pixHeight / plaque[ 1 ] * plaque[ 0 ];
+
+    auto vp = RgViewport{
+        .x        = screen[ 0 ] / 2 - pixWidth / 2, // at center
+        .y        = safeZone,
+        .width    = pixWidth,
+        .height   = pixHeight,
+        .minDepth = 0.0f,
+        .maxDepth = 1.0f,
+    };
+    static constexpr float identity[] = {
+        1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
+    };
+    auto sw = RgMeshPrimitiveSwapchainedEXT{
+        .sType           = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_SWAPCHAINED_EXT,
+        .pViewport       = &vp,
+        .pViewProjection = identity,
+    };
+    auto prim = RgMeshPrimitiveInfo{
+        .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
+        .pNext                = &sw,
+        .flags                = RG_MESH_PRIMITIVE_TRANSLUCENT,
+        .primitiveIndexInMesh = 0,
+        .pVertices            = quadVerts,
+        .vertexCount          = std::size( quadVerts ),
+        .pTextureName         = MATERIAL_NAME_SCENEBUILDINGWARNING,
+        .color                = Utils::PackColorFromFloat( 1, 1, 1, ratio ),
+    };
+
+    auto warnPlaque = RgMeshInfo{
+        .sType          = RG_STRUCTURE_TYPE_MESH_INFO,
+        .uniqueObjectID = 0,
+        .pMeshName      = nullptr,
+        .transform      = RG_TRANSFORM_IDENTITY,
+    };
+
+    UploadMeshPrimitive( &warnPlaque, &prim );
 }

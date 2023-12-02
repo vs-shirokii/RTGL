@@ -31,22 +31,22 @@ RTGL1::RasterizerPipelines::RasterizerPipelines( VkDevice             _device,
                                                  const ShaderManager& _shaderManager,
                                                  std::string_view     _shaderNameVert,
                                                  std::string_view     _shaderNameFrag,
-                                                 bool                 _isWorld,
+                                                 bool                 _notOnlyColorAttachment,
                                                  bool                 _applyVertexColorGamma,
                                                  const VkViewport*    _pViewport,
                                                  const VkRect2D*      _pScissors )
-    : device( _device )
-    , shaderNameVert( _shaderNameVert )
-    , shaderNameFrag( _shaderNameFrag )
-    , pipelineLayout( _pipelineLayout )
-    , renderPass( _renderPass )
+    : device{ _device }
+    , shaderNameVert{ _shaderNameVert }
+    , shaderNameFrag{ _shaderNameFrag }
+    , pipelineLayout{ _pipelineLayout }
+    , renderPass{ _renderPass }
     , vertShaderStage{}
     , fragShaderStage{}
-    , pipelineCache( VK_NULL_HANDLE )
-    , nonDynamicViewport( _pViewport ? std::optional( *_pViewport ) : std::nullopt )
-    , nonDynamicScissors( _pScissors ? std::optional( *_pScissors ) : std::nullopt )
-    , applyVertexColorGamma( _applyVertexColorGamma )
-    , isWorld( _isWorld )
+    , pipelineCache{ VK_NULL_HANDLE }
+    , nonDynamicViewport{ _pViewport ? std::optional( *_pViewport ) : std::nullopt }
+    , nonDynamicScissors{ _pScissors ? std::optional( *_pScissors ) : std::nullopt }
+    , applyVertexColorGamma{ _applyVertexColorGamma }
+    , onlyColorAttachment{ !_notOnlyColorAttachment }
 {
     VkPipelineCacheCreateInfo info = { .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
 
@@ -105,39 +105,65 @@ VkPipeline RTGL1::RasterizerPipelines::CreatePipeline( PipelineStateFlags pipeli
     assert( vertShaderStage.sType != 0 && fragShaderStage.sType != 0 );
 
 
-    uint32_t alphaTest   = pipelineState & PipelineStateFlagBits::ALPHA_TEST ? 1 : 0;
-    bool     translucent = pipelineState & PipelineStateFlagBits::TRANSLUCENT;
-    bool     additive    = pipelineState & PipelineStateFlagBits::ADDITIVE;
-    bool     depthTest   = pipelineState & PipelineStateFlagBits::DEPTH_TEST;
-    bool     depthWrite  = pipelineState & PipelineStateFlagBits::DEPTH_WRITE;
-    bool     isLines     = pipelineState & PipelineStateFlagBits::DRAW_AS_LINES;
+    const bool alphaTest       = pipelineState & PipelineStateFlagBits::ALPHA_TEST;
+    const bool translucent     = pipelineState & PipelineStateFlagBits::TRANSLUCENT;
+    const bool additive        = pipelineState & PipelineStateFlagBits::ADDITIVE;
+    const bool depthTest       = pipelineState & PipelineStateFlagBits::DEPTH_TEST;
+    const bool depthWrite      = pipelineState & PipelineStateFlagBits::DEPTH_WRITE;
+    const bool isLines         = pipelineState & PipelineStateFlagBits::DRAW_AS_LINES;
+    const bool isSkyVisibility = pipelineState & PipelineStateFlagBits::SKY_VISIBILITY;
 
 
-    VkSpecializationMapEntry vertMapEntry = {
-        .constantID = 0,
-        .offset     = 0,
-        .size       = sizeof( uint32_t ),
+    struct VertSpec
+    {
+        uint32_t applyVertexColorGamma;
+    };
+    const VkSpecializationMapEntry vertSpecDefinition[] = {
+        {
+            .constantID = 0,
+            .offset     = offsetof( VertSpec, applyVertexColorGamma ),
+            .size       = sizeof( VertSpec::applyVertexColorGamma ),
+        },
+    };
+    const auto vertSpecData = VertSpec{
+        .applyVertexColorGamma = applyVertexColorGamma,
+    };
+    const auto vertSpecInfo = VkSpecializationInfo{
+        .mapEntryCount = std::size( vertSpecDefinition ),
+        .pMapEntries   = vertSpecDefinition,
+        .dataSize      = sizeof( vertSpecData ),
+        .pData         = &vertSpecData,
     };
 
-    VkSpecializationInfo vertSpecInfo = {
-        .mapEntryCount = 1,
-        .pMapEntries   = &vertMapEntry,
-        .dataSize      = sizeof( applyVertexColorGamma ),
-        .pData         = &applyVertexColorGamma,
+
+    struct FragSpec
+    {
+        uint32_t alphaTest;
+        uint32_t isSkyVisibility;
+    };
+    const VkSpecializationMapEntry fragSpecDefinition[] = {
+        {
+            .constantID = 0,
+            .offset     = offsetof( FragSpec, alphaTest ),
+            .size       = sizeof( FragSpec::alphaTest ),
+        },
+        {
+            .constantID = 1,
+            .offset     = offsetof( FragSpec, isSkyVisibility ),
+            .size       = sizeof( FragSpec::isSkyVisibility ),
+        },
+    };
+    const auto fragSpecData = FragSpec{
+        .alphaTest       = alphaTest ? 1u : 0u,
+        .isSkyVisibility = isSkyVisibility ? 1u : 0u,
+    };
+    const auto fragSpecInfo = VkSpecializationInfo{
+        .mapEntryCount = std::size( fragSpecDefinition ),
+        .pMapEntries   = std::data( fragSpecDefinition ),
+        .dataSize      = sizeof( fragSpecData ),
+        .pData         = &fragSpecData,
     };
 
-    VkSpecializationMapEntry fragMapEntry = {
-        .constantID = 0,
-        .offset     = 0,
-        .size       = sizeof( uint32_t ),
-    };
-
-    VkSpecializationInfo fragSpecInfo = {
-        .mapEntryCount = 1,
-        .pMapEntries   = &fragMapEntry,
-        .dataSize      = sizeof( alphaTest ),
-        .pData         = &alphaTest,
-    };
 
     VkPipelineShaderStageCreateInfo shaderStages[] = {
         vertShaderStage,
@@ -220,7 +246,7 @@ VkPipeline RTGL1::RasterizerPipelines::CreatePipeline( PipelineStateFlags pipeli
         }
     }
     VkPipelineColorBlendAttachmentState colorBlendAttchs[] = {
-        // base 
+        // base
         {
             .blendEnable         = additive || translucent,
             .srcColorBlendFactor = blendSrc,
@@ -261,7 +287,7 @@ VkPipeline RTGL1::RasterizerPipelines::CreatePipeline( PipelineStateFlags pipeli
     VkPipelineColorBlendStateCreateInfo colorBlendState = {
         .sType           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
         .logicOpEnable   = VK_FALSE,
-        .attachmentCount = isWorld ? uint32_t( std::size( colorBlendAttchs ) ) : 1,
+        .attachmentCount = onlyColorAttachment ? 1 : uint32_t( std::size( colorBlendAttchs ) ),
         .pAttachments    = colorBlendAttchs,
     };
 

@@ -20,6 +20,8 @@
 
 #version 460
 
+#if LIGHT_GRID_ENABLED
+
 #define DESC_SET_GLOBAL_UNIFORM 0
 #define DESC_SET_RANDOM 1
 #define DESC_SET_LIGHT_SOURCES 2
@@ -103,3 +105,9 @@ void main()
 
     storeLightSample(combined, arrayIndex);
 }
+
+#else
+
+void main() {}
+
+#endif // LIGHT_GRID_ENABLED

@@ -21,6 +21,7 @@
 #ifndef UTILS_H_
 #define UTILS_H_
 
+#ifndef __cplusplus
 
 
 #define M_PI        3.14159265358979323846
@@ -40,7 +41,16 @@ vec4 unpackLittleEndianUintColor(uint c)
     );
 }
 
-uint packLittleEndianUintColor(const vec4 c)
+uint packLittleEndianUintColor_U8( uint r, uint g, uint b, uint a )
+{
+    return
+        ( r & 0xFF )       |
+        ( g & 0xFF ) << 8  |
+        ( b & 0xFF ) << 16 |
+        ( a & 0xFF ) << 24 ;
+}
+
+uint packLittleEndianUintColor_F(const vec4 c)
 {
     return
         (uint(c.r * 255.0) & 0x000000FF)        |
@@ -50,6 +60,7 @@ uint packLittleEndianUintColor(const vec4 c)
 }
 
 #define unpackUintColor unpackLittleEndianUintColor
+#define packUintColor packLittleEndianUintColor_U8
 
 float getLuminance(vec3 c)
 {
@@ -191,13 +202,30 @@ vec3 decodeNormal(uint _packed)
     return decode_uint_oct_to_norm(_packed);
 }
 
-vec3 safeNormalize(const vec3 v)
+vec3 safeNormalize2( const vec3 v, const vec3 fallback )
 {
-    const float len = length(v);
-    return len > 0.001 ? v / len : vec3(0, 1, 0);
+    const float len     = length( v );
+    const float safeLen = max( len, 0.0001 );
+    return mix( fallback, v / safeLen, step( 0.0001, len ) );
+}
+
+vec3 safeNormalize3(const vec3 v, float threshold, const vec3 fallback)
+{
+    const float len     = length( v );
+    const float safeLen = max( len, threshold );
+    return mix( fallback, v / safeLen, step( threshold, len ) );
+}
+
+vec4 safeNormalize4( const vec3 v, const vec3 fallback )
+{
+    const float len     = length( v );
+    const float safeLen = max( len, 0.0001 );
+    return vec4( mix( fallback, v / safeLen, step( 0.0001, len ) ), len );
 }
 
 
+
+#endif // !__cpluscplus
 
 // https://www.khronos.org/registry/OpenGL/extensions/EXT/EXT_texture_shared_exponent.txt
 

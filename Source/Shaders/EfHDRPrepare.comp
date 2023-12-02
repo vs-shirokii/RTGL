@@ -1,0 +1,238 @@
+// Copyright (c) 2023 V.Shirokii
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+#version 460
+
+struct EffectHDRPrepare_PushConst
+{
+    float crosstalk_r;
+    float crosstalk_g;
+    float crosstalk_b;
+    float hdrBrightnessMult;
+};
+
+#define EFFECT_PUSH_CONST_T EffectHDRPrepare_PushConst
+#include "EfSimple.inl"
+
+#define DESC_SET_LPM_PARAMS 2
+
+// --- LPM BEGIN --- //
+
+#define DEBUG_LPM 0
+#define A_GLSL    1
+#define A_GPU     1
+#include "LPM/ffx_a.h"
+layout( set = DESC_SET_LPM_PARAMS, binding = BINDING_LPM_PARAMS ) readonly uniform LpmParams_BT
+{
+    AU4 g_lpmParams[ 24 ];
+};
+#if DEBUG_LPM
+AU4  debug_lpmParams[ 24 ];
+void LpmSetupOut( AU1 i, inAU4 v )
+{
+    debug_lpmParams[ i ] = v;
+}
+AU4 LpmFilterCtl( AU1 i )
+{
+    return debug_lpmParams[ i ];
+}
+#else
+    #define LPM_NO_SETUP 1
+AU4 LpmFilterCtl( AU1 i )
+{
+    return g_lpmParams[ i ];
+}
+#endif
+#include "LPM/ffx_lpm.h"
+#define LPM_RG_CONTEXT /* used on CPU side */
+
+vec3 lpmTonemap( vec3 c )
+{
+#if DEBUG_LPM
+    const float hdr10S = LpmHdr10ScrgbScalar( 1000 ); // hdr: LpmHdr10RawScalar( 1000 );
+
+    const float sat = 0.0;
+    varAF3( saturation ) = initAF3( sat, sat, sat );
+    varAF3( crosstalk )  = initAF3( 0.75, 1, 1 );
+    LpmSetup( LPM_RG_CONTEXT false,
+              LPM_CONFIG_709_709, // hdr: LPM_CONFIG_HDR10RAW_2020
+              LPM_COLORS_709_709, // hdr: LPM_COLORS_HDR10RAW_2020
+              0.0f,   // softGap
+              256.0f, // hdrMax
+              8.0f,   // exposure
+              0.1f,   // contrast
+              1.1f,   // shoulder contrast
+              saturation,
+              crosstalk );
+#endif
+
+    if( hdrDisplayEnabled() )
+    {
+        // for fakeHdr()
+        LpmFilter( c.r, c.g, c.b, false, LPM_CONFIG_HDR10RAW_2020 );
+    }
+    else
+    {
+        LpmFilter( c.r, c.g, c.b, false, LPM_CONFIG_709_709 );
+    }
+
+    return c;
+}
+// --- LPM END --- //
+
+vec3 uncharted2TonemapOp( const vec3 x )
+{
+    float A = 0.15;
+    float B = 0.50;
+    float C = 0.10;
+    float D = 0.20;
+    float E = 0.02;
+    float F = 0.30;
+
+    return ( ( x * ( A * x + C * B ) + D * E ) / ( x * ( A * x + B ) + D * F ) ) - E / F;
+}
+
+vec3 uncharted2Tonemap( const vec3 color )
+{
+    return uncharted2TonemapOp( 2.0 * color ) /
+           uncharted2TonemapOp( vec3( globalUniform.luminanceWhitePoint ) );
+}
+
+vec3 reinhard( const vec3 color )
+{
+    const vec3 c1 = clamp(
+        color, exp2( globalUniform.minLogLuminance ), exp2( globalUniform.maxLogLuminance ) );
+    const float w2 = globalUniform.luminanceWhitePoint * globalUniform.luminanceWhitePoint;
+    return color * ( 1.0 + c1 / w2 ) / ( 1.0 + c1 );
+}
+
+vec3 hdrToLdr( ivec2 pix, vec3 hdr )
+{
+    if( classicShading_Upscaled( pix ) )
+    {
+        return uncharted2Tonemap( hdr );
+    }
+
+    // note: OverExposeColor is already included into LPM
+    return lpmTonemap( hdr );
+}
+
+const float ReferenceWhiteNits = 80.0;
+const float ST2084Max          = 10000.0;
+
+vec3 rec709ToRec2020( vec3 color )
+{
+    // clang-format off
+    const mat3 conversion = mat3(
+        0.627402, 0.069095, 0.016394,
+        0.329292, 0.919544, 0.088028,
+        0.043306, 0.011360, 0.895578 );
+    return conversion * color;
+    // clang-format on
+}
+
+vec3 linearToST2084( vec3 color )
+{
+    float m1 = 2610.0 / 4096.0 / 4;
+    float m2 = 2523.0 / 4096.0 * 128;
+    float c1 = 3424.0 / 4096.0;
+    float c2 = 2413.0 / 4096.0 * 32;
+    float c3 = 2392.0 / 4096.0 * 32;
+    vec3  cp = pow( abs( color ), vec3( m1 ) );
+    return pow( ( c1 + c2 * cp ) / ( 1 + c3 * cp ), vec3( m2 ) );
+}
+
+vec3 linearToSRGB( vec3 color )
+{
+    return pow( color, vec3( 1.0 / 2.2 ) );
+}
+
+vec3 getCrosstalk()
+{
+    return vec3( push.custom.crosstalk_r, push.custom.crosstalk_g, push.custom.crosstalk_b );
+}
+
+// So extreme colors would shift towards white
+vec3 overExposeColor( vec3 color )
+{
+    // value to equalize other components of color
+    float mmax      = max( color.r, max( color.g, color.b ) );
+    vec3  equalizer = ( vec3( mmax ) - color ) * getCrosstalk();
+
+    // the brighter, the more value to add
+    // must be 0..1, as we need to only equalize with other components,
+    // don't minimize the originals
+    float addRatio = smoothstep( 1.0, 8.0, getLuminance( color ) );
+    color          = color + equalizer * addRatio;
+
+    return color;
+}
+
+// Tonemap HDR to LDR, but rescale that LDR to the original HDR brightness.
+// This will not preserve all HDR details, but will look kinda compareable to LDR.
+vec3 fakeHdr( const ivec2 pix, const vec3 hdr )
+{
+    // hack
+    if( classicShading_Upscaled( pix ) )
+    {
+        return uncharted2Tonemap( hdr ) * 2;
+    }
+
+    const float originalHdrBrightness = max( 1, max( hdr.r, max( hdr.g, hdr.b ) ) );
+
+    // look lpmTonemap for fakeHdr logic
+    const vec3 ldr = hdrToLdr( pix, hdr );
+
+    return ldr * originalHdrBrightness * ReferenceWhiteNits * push.custom.hdrBrightnessMult;
+}
+
+void main()
+{
+    const ivec2 pix = ivec2( gl_GlobalInvocationID.x, gl_GlobalInvocationID.y );
+    if( !effect_isPixValid( pix ) )
+    {
+        return;
+    }
+
+    vec3 c = effect_loadFromSource( pix );
+
+    if( hdrDisplayType() == HDR_DISPLAY_NONE )
+    {
+        c = hdrToLdr( pix, c );
+    }
+    else
+    {
+#if 1
+        c = fakeHdr( pix, c );
+#else
+        c = overExposeColor( c );
+#endif
+
+        if( hdrDisplayType() == HDR_DISPLAY_ST2084 )
+        {
+            const float hdrScalar = ReferenceWhiteNits / ST2084Max;
+
+            c = rec709ToRec2020( c );
+            c = linearToST2084( c * hdrScalar );
+        }
+    }
+
+    effect_storeToTarget( c, pix );
+}

@@ -20,15 +20,60 @@
 
 #pragma once
 
-#include <list>
-#include <vector>
-
 #include "Common.h"
 #include "CommandBufferManager.h"
 #include "ISwapchainDependency.h"
+#include "MemoryAllocator.h"
+
+#include <expected>
 
 namespace RTGL1
 {
+
+
+struct PresentModes
+{
+    VkPresentModeKHR vsync{ VK_PRESENT_MODE_FIFO_KHR };
+    VkPresentModeKHR immediate{ VK_PRESENT_MODE_FIFO_KHR };
+};
+auto FindPresentModes( VkPhysicalDevice physDevice, VkSurfaceKHR surface ) -> PresentModes;
+
+
+struct SurfaceFormats
+{
+    VkSurfaceFormatKHR                  ldr{};
+    std::optional< VkSurfaceFormatKHR > hdr{};
+};
+auto FindLdrAndHdrSurfaceFormats( VkPhysicalDevice physDevice,
+                                  VkSurfaceKHR     surface,
+                                  bool             printReport = false ) -> SurfaceFormats;
+
+bool IsExtentOptimal( VkPhysicalDevice physDevice, VkSurfaceKHR surface );
+auto CalculateOptimalExtent( VkPhysicalDevice physDevice, VkSurfaceKHR surface ) -> VkExtent2D;
+auto CheckAndCalcImageCount( VkSurfaceKHR      surface,
+                             VkPhysicalDevice  physDevice,
+                             const VkExtent2D& suggested ) -> uint32_t;
+
+
+class FSR3_DX12;
+class DLSS3_DX12;
+class Framebuffers;
+
+
+enum SwapchainType
+{
+    SWAPCHAIN_TYPE_NONE,
+    SWAPCHAIN_TYPE_VULKAN_NATIVE,
+    SWAPCHAIN_TYPE_DXGI,
+    SWAPCHAIN_TYPE_FRAME_GENERATION_DLSS3,
+    SWAPCHAIN_TYPE_FRAME_GENERATION_FSR3,
+};
+// clang-format off
+template< typename T > constexpr size_t enum_size_t() = delete;
+template<>             constexpr size_t enum_size_t< SwapchainType >() { return 5; }
+template< typename T > constexpr size_t enum_size = enum_size_t< T >();
+// clang-format on
+
 
 class Swapchain
 {
@@ -36,81 +81,92 @@ public:
     Swapchain( VkDevice                                device,
                VkSurfaceKHR                            surface,
                VkPhysicalDevice                        physDevice,
-               std::shared_ptr< CommandBufferManager > cmdManager );
+               std::shared_ptr< CommandBufferManager > cmdManager,
+               std::shared_ptr< MemoryAllocator >      allocator,
+               std::shared_ptr< Framebuffers >         framebuffers,
+               std::shared_ptr< DLSS3_DX12 >&          dlss3,
+               std::shared_ptr< FSR3_DX12 >&           fsr3,
+               std::optional< uint64_t >               gpuLuid );
     ~Swapchain();
 
-    Swapchain( const Swapchain& other )     = delete;
-    Swapchain( Swapchain&& other ) noexcept = delete;
-    Swapchain& operator=( const Swapchain& other ) = delete;
-    Swapchain& operator=( Swapchain&& other ) noexcept = delete;
+    Swapchain( const Swapchain& )                = delete;
+    Swapchain( Swapchain&& ) noexcept            = delete;
+    Swapchain& operator=( const Swapchain& )     = delete;
+    Swapchain& operator=( Swapchain&& ) noexcept = delete;
 
-    bool       RequestVsync( bool enable );
+    void AcquireImage( bool          vsync,
+                       bool          hdr,
+                       SwapchainType type,
+                       VkSemaphore   imageAvailableSemaphore );
+    void BlitForPresent( VkCommandBuffer   cmd,
+                         VkImage           srcImage,
+                         const VkExtent2D& srcSize,
+                         VkFilter          filter,
+                         VkImageLayout     srcImageLayout = VK_IMAGE_LAYOUT_GENERAL );
+    void OnQueuePresent( VkResult queuePresentResult );
 
-    void       AcquireImage( VkSemaphore imageAvailableSemaphore );
-    void       BlitForPresent( VkCommandBuffer cmd,
-                               VkImage         srcImage,
-                               uint32_t        srcImageWidth,
-                               uint32_t        srcImageHeight,
-                               VkFilter        filter,
-                               VkImageLayout   srcImageLayout = VK_IMAGE_LAYOUT_GENERAL );
-    void       BlitPreviousForPresent( VkCommandBuffer cmd );
-    void       OnQueuePresent( VkResult queuePresentResult );
+    bool Valid() const;
 
-    // Subscribe to swapchain size chagne event.
-    // shared_ptr will be transformed to weak_ptr
-    void Subscribe( std::shared_ptr< ISwapchainDependency > subscriber );
+    bool SupportsHDR() const;
+    bool IsHDREnabled() const;
+    bool IsST2084ColorSpace() const;
+    bool WithDXGI() const;
+    bool WithDLSS3FrameGeneration() const;
+    bool WithFSR3FrameGeneration() const;
 
-    VkFormat           GetSurfaceFormat() const;
-    uint32_t           GetWidth() const;
-    uint32_t           GetHeight() const;
-    uint32_t           GetCurrentImageIndex() const;
-    uint32_t           GetImageCount() const;
-    VkImageView        GetImageView( uint32_t index ) const;
-    VkImage            GetImage( uint32_t index ) const;
-    const VkImageView* GetImageViews() const;
-    VkSwapchainKHR     GetHandle() const;
+    auto FailReason( SwapchainType t ) const -> const char*;
 
-    bool               IsExtentOptimal() const;
+    auto GetWidth() const -> uint32_t;
+    auto GetHeight() const -> uint32_t;
+    auto GetCurrentImageIndex() const -> uint32_t;
+    auto GetHandle() const -> VkSwapchainKHR;
+
+    void MarkAsFailed( SwapchainType t );
 
 private:
-    VkExtent2D     GetOptimalExtent() const;
-
     // Safe to call even if swapchain wasn't created
-    bool           TryRecreate( const VkExtent2D& newExtent, bool vsync );
+    bool TryRecreate( const VkExtent2D& newExtent,
+                      bool              vsync,
+                      bool              hdr,
+                      SwapchainType     type );
 
-    void           Create( uint32_t       newWidth,
-                           uint32_t       newHeight,
-                           bool           vsync,
-                           VkSwapchainKHR oldSwapchain = VK_NULL_HANDLE );
-    void           Destroy();
-    // Destroy dresources but not the swapchain itself. Old swapchain is returned.
-    VkSwapchainKHR DestroyWithoutSwapchain();
+    void Create( const VkExtent2D& size,
+                 bool              vsync,
+                 bool              hdr,
+                 SwapchainType     type,
+                 VkSwapchainKHR    oldSwapchain = VK_NULL_HANDLE );
 
-    void           CallCreateSubscribers();
-    void           CallDestroySubscribers();
+    auto DestroyWithoutSwapchain() -> VkSwapchainKHR;
 
 private:
-    VkDevice                                           device;
-    VkSurfaceKHR                                       surface;
-    VkPhysicalDevice                                   physDevice;
-    std::shared_ptr< CommandBufferManager >            cmdManager;
+    VkDevice                                device{};
+    VkSurfaceKHR                            surface{};
+    VkPhysicalDevice                        physDevice{};
+    std::shared_ptr< CommandBufferManager > cmdManager{};
+    std::shared_ptr< MemoryAllocator >      allocator{};
 
-    VkSurfaceFormatKHR                                 surfaceFormat;
-    VkPresentModeKHR                                   presentModeVsync;
-    VkPresentModeKHR                                   presentModeImmediate;
+    SurfaceFormats m_surfaceFormat{};
+    PresentModes   m_presentMode{};
 
-    bool                                               requestedVsync;
-    // current surface's size
-    VkExtent2D                                         surfaceExtent;
-    bool                                               isVsync;
+    VkExtent2D    surfaceExtent{ UINT32_MAX, UINT32_MAX };
+    bool          m_vsync{ false };
+    bool          isHDR{ false };
+    SwapchainType m_type{ SWAPCHAIN_TYPE_NONE };
 
-    VkSwapchainKHR                                     swapchain;
-    std::vector< VkImage >                             swapchainImages;
-    std::vector< VkImageView >                         swapchainViews;
+    VkSwapchainKHR                swapchain{};
+    std::vector< VkImage >        swapchainImages{};
+    std::vector< VkDeviceMemory > swapchainMemory{};
 
-    uint32_t                                           currentSwapchainIndex;
+    uint32_t currentSwapchainIndex{ UINT32_MAX };
 
-    std::list< std::weak_ptr< ISwapchainDependency > > subscribers;
+    std::shared_ptr< DLSS3_DX12 >& m_dlss3;
+    std::shared_ptr< FSR3_DX12 >&  m_fsr3;
+
+    std::shared_ptr< Framebuffers > m_framebuffers;
+    
+    std::optional< std::string > m_failed[ enum_size< SwapchainType > ]{};
+
+    std::optional< uint64_t > m_gpuLuid{};
 };
 
 }

@@ -90,35 +90,26 @@ void RTGL1::ImageComposition::PrepareForRaster( VkCommandBuffer      cmd,
     ProcessCheckerboard( cmd, frameIndex, uniform );
 }
 
-void RTGL1::ImageComposition::Finalize( VkCommandBuffer                     cmd,
-                                        uint32_t                            frameIndex,
-                                        const GlobalUniform&                uniform,
-                                        const Tonemapping&                  tonemapping,
-                                        const RgDrawFrameTonemappingParams& params )
-{
-    SetupLpmParams( cmd, frameIndex, params );
-    ApplyTonemapping( cmd, frameIndex, uniform, tonemapping );
-}
-
 void RTGL1::ImageComposition::OnShaderReload( const ShaderManager* shaderManager )
 {
     DestroyPipelines();
     CreatePipelines( shaderManager );
 }
 
-void RTGL1::ImageComposition::ApplyTonemapping( VkCommandBuffer      cmd,
-                                                uint32_t             frameIndex,
-                                                const GlobalUniform& uniform,
-                                                const Tonemapping&   tonemapping )
+void RTGL1::ImageComposition::Finalize( VkCommandBuffer                     cmd,
+                                        uint32_t                            frameIndex,
+                                        const GlobalUniform&                uniform,
+                                        const Tonemapping&                  tonemapping,
+                                        const RgDrawFrameTonemappingParams& params )
 {
     using FI = FramebufferImageIndex;
-    CmdLabel label( cmd, "Prefinal framebuf compose" );
+    auto label = CmdLabel{ cmd, "Prefinal framebuf compose" };
 
 
     // sync access
     FI fs[] = {
         FI::FB_IMAGE_INDEX_SCREEN_EMISSION, FI::FB_IMAGE_INDEX_FINAL,
-        FI::FB_IMAGE_INDEX_DEPTH_WORLD,     FI::FB_IMAGE_INDEX_ACID_FOG,
+        FI::FB_IMAGE_INDEX_DEPTH_WORLD,
         FI::FB_IMAGE_INDEX_SCATTERING,
     };
     framebuffers->BarrierMultiple( cmd, frameIndex, fs );
@@ -165,7 +156,6 @@ void RTGL1::ImageComposition::ProcessCheckerboard( VkCommandBuffer      cmd,
     FI fs[] = {
         FI::FB_IMAGE_INDEX_PRE_FINAL,
         FI::FB_IMAGE_INDEX_SCREEN_EMIS_R_T,
-        FI::FB_IMAGE_INDEX_ACID_FOG_R_T,
     };
     framebuffers->BarrierMultiple( cmd, frameIndex, fs );
 
@@ -361,24 +351,36 @@ void LpmSetupOut( void* pContext, AU1 i, const inAU4 value )
 #include "Shaders/LPM/ffx_lpm.h"
 #include "Shaders/LPM/LpmSetupCustom.inl"
 
-void RTGL1::ImageComposition::SetupLpmParams( VkCommandBuffer                     cmd,
+auto RTGL1::ImageComposition::SetupLpmParams( VkCommandBuffer                     cmd,
                                               uint32_t                            frameIndex,
-                                              const RgDrawFrameTonemappingParams& params )
+                                              const RgDrawFrameTonemappingParams& params,
+                                              bool hdr )
+    -> VkDescriptorSet
 {
+    // if no need to update device memory
     if( Utils::AreAlmostSame( lpmPrev.saturation, params.saturation ) &&
-        Utils::AreAlmostSame( lpmPrev.crosstalk, params.crosstalk ) )
+        Utils::AreAlmostSame( lpmPrev.crosstalk, params.crosstalk ) && 
+        Utils::AreAlmostSameF( lpmPrev.contrast, params.contrast )  &&
+        Utils::AreAlmostSame( lpmPrev.hdrSaturation, params.hdrSaturation ) &&
+        Utils::AreAlmostSameF( lpmPrev.hdrContrast, params.hdrContrast ) )
     {
-        return;
+        return descSet;
     }
 
     void* pContext = lpmParams->GetMapped( frameIndex );
 #define LPM_RG_CONTEXT pContext,
 
+    if( !hdr )
     {
-        varAF3( saturation ) = initAF3(
-            params.saturation.data[ 0 ], params.saturation.data[ 1 ], params.saturation.data[ 2 ] );
-        varAF3( crosstalk ) = initAF3(
-            params.crosstalk.data[ 0 ], params.crosstalk.data[ 1 ], params.crosstalk.data[ 2 ] );
+        float contrast = params.contrast;
+
+        varAF3( saturation ) = initAF3( params.saturation.data[ 0 ], //
+                                        params.saturation.data[ 1 ],
+                                        params.saturation.data[ 2 ] );
+
+        varAF3( crosstalk ) = initAF3( params.crosstalk.data[ 0 ], //
+                                       params.crosstalk.data[ 1 ],
+                                       params.crosstalk.data[ 2 ] );
 
         LpmSetup( LPM_RG_CONTEXT false,
                   LPM_CONFIG_709_709,
@@ -386,8 +388,33 @@ void RTGL1::ImageComposition::SetupLpmParams( VkCommandBuffer                   
                   0.0f,   // softGap
                   256.0f, // hdrMax
                   8.0f,   // exposure
-                  0.1f,   // contrast
-                  1.0f,   // shoulder contrast
+                  contrast,
+                  1.1f,   // shoulder contrast
+                  saturation,
+                  crosstalk );
+    }
+    else
+    {
+        float contrast = params.hdrContrast;
+
+        varAF3( saturation ) = initAF3( params.hdrSaturation.data[ 0 ], //
+                                        params.hdrSaturation.data[ 1 ],
+                                        params.hdrSaturation.data[ 2 ] );
+
+        varAF3( crosstalk ) = initAF3( params.crosstalk.data[ 0 ], //
+                                       params.crosstalk.data[ 1 ],
+                                       params.crosstalk.data[ 2 ] );
+
+        const float hdr10S = LpmHdr10RawScalar( 1000 );
+
+        LpmSetup( LPM_RG_CONTEXT false,
+                  LPM_CONFIG_HDR10RAW_2020,
+                  LPM_COLORS_HDR10RAW_2020,
+                  0.0f,   // softGap
+                  256.0f, // hdrMax
+                  8.0f,   // exposure
+                  contrast,
+                  1.1f, // shoulder contrast
                   saturation,
                   crosstalk );
     }
@@ -413,7 +440,14 @@ void RTGL1::ImageComposition::SetupLpmParams( VkCommandBuffer                   
 
     svkCmdPipelineBarrier2KHR( cmd, &info );
 
-    //
+    // cache
     lpmPrev.saturation = params.saturation;
     lpmPrev.crosstalk  = params.crosstalk;
+
+    return descSet;
+}
+
+auto RTGL1::ImageComposition::GetLpmDescSetLayout() -> VkDescriptorSetLayout
+{
+    return descLayout;
 }

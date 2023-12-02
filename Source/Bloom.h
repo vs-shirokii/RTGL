@@ -49,21 +49,21 @@ public:
     Bloom( Bloom&& other ) noexcept            = delete;
     Bloom& operator=( const Bloom& other )     = delete;
     Bloom& operator=( Bloom&& other ) noexcept = delete;
-
-    void Prepare( VkCommandBuffer      cmd,
-                  uint32_t             frameIndex,
-                  const GlobalUniform& uniform,
-                  const Tonemapping&   tonemapping );
-
+    
     FramebufferImageIndex Apply( VkCommandBuffer       cmd,
                                  uint32_t              frameIndex,
                                  const GlobalUniform&  uniform,
+                                 const Tonemapping&    tonemapping,
                                  const TextureManager& textureManager,
-                                 uint32_t              width,
-                                 uint32_t              height,
+                                 uint32_t              upscaledWidth,
+                                 uint32_t              upscaledHeight,
                                  FramebufferImageIndex inputFramebuf );
 
     void OnShaderReload( const ShaderManager* shaderManager ) override;
+
+    static VkExtent2D MakeSize( uint32_t              upscaledWidth,
+                                uint32_t              upscaledHeight,
+                                FramebufferImageIndex index );
 
 private:
     void CreatePipelines( const ShaderManager* shaderManager );
@@ -72,18 +72,18 @@ private:
     void DestroyPipelines();
 
 private:
-    static constexpr uint32_t StepCount = 8;
+    static constexpr uint32_t StepCount = 7;
 
     VkDevice device;
 
     std::shared_ptr< Framebuffers > framebuffers;
 
     VkPipelineLayout pipelineLayout;
-    VkPipelineLayout applyPipelineLayout;
 
     VkPipeline downsamplePipelines[ StepCount ];
     VkPipeline upsamplePipelines[ StepCount ];
 
+    VkPipeline preloadPipelines[ 2 ];
     VkPipeline applyPipelines[ 2 ];
 };
 

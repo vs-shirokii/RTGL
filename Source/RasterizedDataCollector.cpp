@@ -109,7 +109,8 @@ namespace
             r = r | PipelineStateFlagBits::ALPHA_TEST;
         }
 
-        if( info.flags & RG_MESH_PRIMITIVE_TRANSLUCENT )
+        if( ( info.flags & RG_MESH_PRIMITIVE_TRANSLUCENT ) ||
+            ( info.flags & RG_MESH_PRIMITIVE_GLASS ) || ( info.flags & RG_MESH_PRIMITIVE_WATER ) )
         {
             r = r | PipelineStateFlagBits::TRANSLUCENT;
         }
@@ -120,9 +121,18 @@ namespace
             r = r | PipelineStateFlagBits::TRANSLUCENT;
         }
 
+        // if emissive and translucent, then it's additive
         if( info.emissive > std::numeric_limits< float >::epsilon() )
         {
-            r = r | PipelineStateFlagBits::ADDITIVE;
+            if( r & PipelineStateFlagBits::TRANSLUCENT )
+            {
+                r = r | PipelineStateFlagBits::ADDITIVE;
+            }
+        }
+
+        if( info.flags & RG_MESH_PRIMITIVE_SKY_VISIBILITY )
+        {
+            r = r | PipelineStateFlagBits::SKY_VISIBILITY;
         }
 
         // allow depth test for world / sky geometry
@@ -228,9 +238,24 @@ void RTGL1::RasterizedDataCollector::AddPrimitive( uint32_t                   fr
     const auto textures = textureMgr->GetTexturesForLayers( info );
     const auto colors   = textureMgr->GetColorForLayers( info );
 
+    RgColor4DPacked32 baseColor = colors[ 0 ];
+    if( ( info.flags & RG_MESH_PRIMITIVE_GLASS ) || ( info.flags & RG_MESH_PRIMITIVE_WATER ) )
+    {
+        constexpr uint8_t AlphaAboveAlphaTestThreshold = 170;
+
+        uint8_t newAlpha = std::min( AlphaAboveAlphaTestThreshold,
+                                     Utils::UnpackAlphaFromPacked32AsUint8( colors[ 0 ] ) );
+        baseColor        = Utils::ReplaceAlphaInPacked32( colors[ 0 ], newAlpha );
+    }
+
+    if( rasterType == GeometryRasterType::WORLD_CLASSIC )
+    {
+        baseColor = Utils::MultiplyColorPacked32( baseColor, info.classicLight );
+    }
+
     const auto pbrInfo = pnext::find< RgMeshPrimitivePBREXT >( &info );
 
-    PushInfo( rasterType ) = {
+    rasterDrawInfos[ static_cast< int >( rasterType ) ].push_back( {
         .transform = transform,
         .flags     = GeomInfoManager::GetPrimitiveFlags( nullptr, info, false ),
 
@@ -243,7 +268,7 @@ void RTGL1::RasterizedDataCollector::AddPrimitive( uint32_t                   fr
         .texture_layer2   = textures[ 2 ].indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
         .texture_lightmap = textures[ 3 ].indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
 
-        .colorFactor_base     = colors[ 0 ],
+        .colorFactor_base     = baseColor,
         .colorFactor_layer1   = colors[ 1 ],
         .colorFactor_layer2   = colors[ 2 ],
         .colorFactor_lightmap = colors[ 3 ],
@@ -262,42 +287,18 @@ void RTGL1::RasterizedDataCollector::AddPrimitive( uint32_t                   fr
         .viewport = IfNotNull( pViewport, ToVk( *pViewport ) ),
 
         .pipelineState = ToPipelineState( rasterType, info ),
-    };
+    } );
 
     curVertexCount += info.vertexCount;
     curIndexCount += info.indexCount;
 }
 
-RTGL1::RasterizedDataCollector::DrawInfo& RTGL1::RasterizedDataCollector::PushInfo(
-    GeometryRasterType rasterType )
-{
-    switch( rasterType )
-    {
-        case GeometryRasterType::WORLD: {
-            return rasterDrawInfos.emplace_back();
-        }
-        case GeometryRasterType::SKY: {
-            return skyDrawInfos.emplace_back();
-        }
-        case GeometryRasterType::SWAPCHAIN: {
-            return swapchainDrawInfos.emplace_back();
-        }
-        case GeometryRasterType::DECAL: {
-            return decalDrawInfos.emplace_back();
-        }
-        default: {
-            throw RgException( RG_RESULT_GRAPHICS_API_ERROR,
-                               "RasterizedDataCollector::PushInfo error" );
-        }
-    }
-}
-
 void RTGL1::RasterizedDataCollector::Clear( uint32_t frameIndex )
 {
-    rasterDrawInfos.clear();
-    swapchainDrawInfos.clear();
-    skyDrawInfos.clear();
-    decalDrawInfos.clear();
+    for( auto& is : rasterDrawInfos )
+    {
+        is.clear();
+    }
 
     curVertexCount = 0;
     curIndexCount  = 0;

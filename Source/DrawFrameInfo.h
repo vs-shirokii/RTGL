@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include "InternalExtensions.inl"
+
 namespace RTGL1
 {
 
@@ -59,7 +61,7 @@ namespace detail
     constexpr auto TypeToStructureType = RgStructureType{ RG_STRUCTURE_TYPE_NONE };
 
     // clang-format off
-    template<> constexpr auto TypeToStructureType< RgDrawFrameRenderResolutionParams    > = RG_STRUCTURE_TYPE_DRAW_FRAME_RENDER_RESOLUTION_PARAMS  ;
+    template<> constexpr auto TypeToStructureType< RgStartFrameRenderResolutionParams   > = RG_STRUCTURE_TYPE_START_FRAME_RENDER_RESOLUTION_PARAMS ;
     template<> constexpr auto TypeToStructureType< RgDrawFrameIlluminationParams        > = RG_STRUCTURE_TYPE_DRAW_FRAME_ILLUMINATION_PARAMS       ;
     template<> constexpr auto TypeToStructureType< RgDrawFrameVolumetricParams          > = RG_STRUCTURE_TYPE_DRAW_FRAME_VOLUMETRIC_PARAMS         ;
     template<> constexpr auto TypeToStructureType< RgDrawFrameTonemappingParams         > = RG_STRUCTURE_TYPE_DRAW_FRAME_TONEMAPPING_PARAMS        ;
@@ -67,7 +69,6 @@ namespace detail
     template<> constexpr auto TypeToStructureType< RgDrawFrameReflectRefractParams      > = RG_STRUCTURE_TYPE_DRAW_FRAME_REFLECT_REFRACT_PARAMS    ;
     template<> constexpr auto TypeToStructureType< RgDrawFrameSkyParams                 > = RG_STRUCTURE_TYPE_DRAW_FRAME_SKY_PARAMS                ;
     template<> constexpr auto TypeToStructureType< RgDrawFrameTexturesParams            > = RG_STRUCTURE_TYPE_DRAW_FRAME_TEXTURES_PARAMS           ;
-    template<> constexpr auto TypeToStructureType< RgDrawFrameLightmapParams            > = RG_STRUCTURE_TYPE_DRAW_FRAME_LIGHTMAP_PARAMS           ;
     template<> constexpr auto TypeToStructureType< RgDrawFramePostEffectsParams         > = RG_STRUCTURE_TYPE_DRAW_FRAME_POST_EFFECTS_PARAMS       ;
     template<> constexpr auto TypeToStructureType< RgInstanceCreateInfo                 > = RG_STRUCTURE_TYPE_INSTANCE_CREATE_INFO                 ;
     template<> constexpr auto TypeToStructureType< RgMeshInfo                           > = RG_STRUCTURE_TYPE_MESH_INFO                            ;
@@ -90,6 +91,8 @@ namespace detail
     template<> constexpr auto TypeToStructureType< RgCameraInfo                         > = RG_STRUCTURE_TYPE_CAMERA_INFO                          ;
     template<> constexpr auto TypeToStructureType< RgCameraInfoReadbackEXT              > = RG_STRUCTURE_TYPE_CAMERA_INFO_READ_BACK_EXT            ;
     template<> constexpr auto TypeToStructureType< RgOriginalTextureDetailsEXT          > = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_DETAILS_EXT         ;
+    template<> constexpr auto TypeToStructureType< RgSpawnFluidInfo                     > = RG_STRUCTURE_TYPE_SPAWN_FLUID_INFO                     ;
+    template<> constexpr auto TypeToStructureType< RgStartFrameFluidParams              > = RG_STRUCTURE_TYPE_START_FRAME_FLUID_PARAMS             ;
     // clang-format on
 
     template< typename T >
@@ -101,7 +104,7 @@ namespace detail
                sizeof( T::pNext ) == sizeof( AnyInfoPrototype::pNext );
     }
 
-    static_assert( CheckMembers< RgDrawFrameRenderResolutionParams >() );
+    static_assert( CheckMembers< RgStartFrameRenderResolutionParams >() );
     static_assert( CheckMembers< RgDrawFrameIlluminationParams >() );
     static_assert( CheckMembers< RgDrawFrameVolumetricParams >() );
     static_assert( CheckMembers< RgDrawFrameTonemappingParams >() );
@@ -109,7 +112,6 @@ namespace detail
     static_assert( CheckMembers< RgDrawFrameReflectRefractParams >() );
     static_assert( CheckMembers< RgDrawFrameSkyParams >() );
     static_assert( CheckMembers< RgDrawFrameTexturesParams >() );
-    static_assert( CheckMembers< RgDrawFrameLightmapParams >() );
     static_assert( CheckMembers< RgDrawFramePostEffectsParams >() );
     static_assert( CheckMembers< RgInstanceCreateInfo >() );
     static_assert( CheckMembers< RgMeshInfo >() );
@@ -132,6 +134,8 @@ namespace detail
     static_assert( CheckMembers< RgCameraInfo >() );
     static_assert( CheckMembers< RgCameraInfoReadbackEXT >() );
     static_assert( CheckMembers< RgOriginalTextureDetailsEXT >() );
+    static_assert( CheckMembers< RgSpawnFluidInfo >() );
+    static_assert( CheckMembers< RgStartFrameFluidParams >() );
 
 
     template< typename T >
@@ -153,7 +157,8 @@ namespace detail
     template<> struct LinkRootHelper< RgLightPolygonalEXT                >{ using Root = RgLightInfo; };
     template<> struct LinkRootHelper< RgLightSpotEXT                     >{ using Root = RgLightInfo; };
     template<> struct LinkRootHelper< RgCameraInfoReadbackEXT            >{ using Root = RgCameraInfo; };
-    template<> struct LinkRootHelper< RgDrawFrameRenderResolutionParams  >{ using Root = RgDrawFrameInfo; };
+    template<> struct LinkRootHelper< RgStartFrameRenderResolutionParams >{ using Root = RgStartFrameInfo; };
+    template<> struct LinkRootHelper< RgStartFrameFluidParams            >{ using Root = RgStartFrameInfo; };
     template<> struct LinkRootHelper< RgDrawFrameIlluminationParams      >{ using Root = RgDrawFrameInfo; };
     template<> struct LinkRootHelper< RgDrawFrameVolumetricParams        >{ using Root = RgDrawFrameInfo; };
     template<> struct LinkRootHelper< RgDrawFrameTonemappingParams       >{ using Root = RgDrawFrameInfo; };
@@ -161,7 +166,6 @@ namespace detail
     template<> struct LinkRootHelper< RgDrawFrameReflectRefractParams    >{ using Root = RgDrawFrameInfo; };
     template<> struct LinkRootHelper< RgDrawFrameSkyParams               >{ using Root = RgDrawFrameInfo; };
     template<> struct LinkRootHelper< RgDrawFrameTexturesParams          >{ using Root = RgDrawFrameInfo; };
-    template<> struct LinkRootHelper< RgDrawFrameLightmapParams          >{ using Root = RgDrawFrameInfo; };
     template<> struct LinkRootHelper< RgDrawFramePostEffectsParams       >{ using Root = RgDrawFrameInfo; };
     // clang-format on
 
@@ -231,21 +235,39 @@ namespace detail
     };
 
     template<>
-    struct DefaultParams< RgDrawFrameRenderResolutionParams >
+    struct DefaultParams< RgStartFrameRenderResolutionParams >
     {
         constexpr static auto sType =
-            detail::TypeToStructureType< RgDrawFrameRenderResolutionParams >;
+            detail::TypeToStructureType< RgStartFrameRenderResolutionParams >;
 
-        constexpr static RgDrawFrameRenderResolutionParams value = {
+        constexpr static RgStartFrameRenderResolutionParams value = {
             .sType                     = sType,
             .pNext                     = nullptr,
             .upscaleTechnique          = RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2,
-            .sharpenTechnique          = RG_RENDER_SHARPEN_TECHNIQUE_NONE,
             .resolutionMode            = RG_RENDER_RESOLUTION_MODE_QUALITY,
+            .frameGeneration           = RG_FRAME_GENERATION_MODE_OFF,
+            .preferDxgiPresent         = false,
+            .sharpenTechnique          = RG_RENDER_SHARPEN_TECHNIQUE_NONE,
             .customRenderSize          = {},
             .pixelizedRenderSizeEnable = false,
             .pixelizedRenderSize       = {},
-            .resetUpscalerHistory      = false,
+        };
+    };
+
+    template<>
+    struct DefaultParams< RgStartFrameFluidParams >
+    {
+        constexpr static auto sType = detail::TypeToStructureType< RgStartFrameFluidParams >;
+
+        constexpr static RgStartFrameFluidParams value = {
+            .sType          = sType,
+            .pNext          = nullptr,
+            .enabled        = true,
+            .reset          = false,
+            .gravity        = { 0, -9.8f, 0 },
+            .color          = { 1, 1, 1 },
+            .particleBudget = 64 * 1024,
+            .particleRadius = 0.1f,
         };
     };
 
@@ -265,8 +287,6 @@ namespace detail
             .specularSensitivityToChange                 = 0.5f,
             .polygonalLightSpotlightFactor               = 2.0f,
             .lightUniqueIdIgnoreFirstPersonViewerShadows = nullptr,
-            .lightstyleValuesCount                       = 0,
-            .pLightstyleValues                           = nullptr,
         };
     };
 
@@ -305,6 +325,10 @@ namespace detail
             .luminanceWhitePoint  = 10.0f,
             .saturation           = { 0, 0, 0 },
             .crosstalk            = { 1, 1, 1 },
+            .contrast             = 0.1f,
+            .hdrBrightness        = 1.0f,
+            .hdrContrast          = 0.1f,
+            .hdrSaturation        = { 0.25f, 0.25f, 0.25f },
         };
     };
 
@@ -314,12 +338,12 @@ namespace detail
         constexpr static auto sType = detail::TypeToStructureType< RgDrawFrameBloomParams >;
 
         constexpr static RgDrawFrameBloomParams value = {
-            .sType                   = sType,
-            .pNext                   = nullptr,
-            .bloomIntensity          = 0.1f,
-            .inputThreshold          = 4.0f,
-            .bloomEmissionMultiplier = 16.0f,
-            .lensDirtIntensity       = 1.0f,
+            .sType             = sType,
+            .pNext             = nullptr,
+            .inputEV           = 6.0f,
+            .inputThreshold    = 16.0f,
+            .bloomIntensity    = 1.0f,
+            .lensDirtIntensity = 1.0f,
         };
     };
 
@@ -379,18 +403,7 @@ namespace detail
             .emissionMapBoost       = 100.0f,
             .emissionMaxScreenColor = 1.5f,
             .minRoughness           = 0.0f,
-        };
-    };
-
-    template<>
-    struct DefaultParams< RgDrawFrameLightmapParams >
-    {
-        constexpr static auto sType = detail::TypeToStructureType< RgDrawFrameLightmapParams >;
-
-        constexpr static RgDrawFrameLightmapParams value = {
-            .sType                  = sType,
-            .pNext                  = nullptr,
-            .lightmapScreenCoverage = 0.0f,
+            .heightMapDepth         = 0.02f,
         };
     };
 

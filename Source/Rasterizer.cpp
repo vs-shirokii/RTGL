@@ -29,6 +29,7 @@
 namespace
 {
 
+// A duplicate of GLSL's RasterizerFrag_BT
 struct RasterizedPushConst
 {
     float    vp[ 16 ];
@@ -37,15 +38,18 @@ struct RasterizedPushConst
     uint32_t emissiveTextureIndex;
     float    emissiveMult;
     uint32_t normalTextureIndex;
+    uint32_t manualSrgb;
 
     explicit RasterizedPushConst( const RTGL1::RasterizedDataCollector::DrawInfo& info,
-                                  const float*                                    defaultViewProj )
+                                  const float*                                    defaultViewProj,
+                                  bool                                            _manualSrgb )
         : vp{}
         , packedColor{ info.colorFactor_base }
         , textureIndex( info.texture_base )
         , emissiveTextureIndex( info.texture_base_E )
         , emissiveMult( info.emissive )
         , normalTextureIndex( info.texture_base_N )
+        , manualSrgb( _manualSrgb )
     {
         float model[ 16 ] = RG_MATRIX_TRANSPOSED( info.transform );
         RTGL1::Matrix::Multiply(
@@ -59,7 +63,7 @@ static_assert( offsetof( RasterizedPushConst, textureIndex ) == 68 );
 static_assert( offsetof( RasterizedPushConst, emissiveTextureIndex ) == 72 );
 static_assert( offsetof( RasterizedPushConst, emissiveMult ) == 76 );
 static_assert( offsetof( RasterizedPushConst, normalTextureIndex ) == 80 );
-static_assert( sizeof( RasterizedPushConst ) == 84 );
+static_assert( sizeof( RasterizedPushConst ) == 88 );
 
 VkPipelineLayout CreatePipelineLayout( VkDevice                           device,
                                        std::span< VkDescriptorSetLayout > descs,
@@ -229,19 +233,6 @@ namespace RTGL1
 {
 namespace
 {
-    void ApplyJitter( float*                               jitterredProj,
-                      const float*                         originalProj,
-                      const RgFloat2D&                     jitter,
-                      const RTGL1::RenderResolutionHelper& renderResolution )
-    {
-        memcpy( jitterredProj, originalProj, 16 * sizeof( float ) );
-        jitterredProj[ 2 * 4 + 0 ] +=
-            jitter.data[ 0 ] / static_cast< float >( renderResolution.Width() );
-        jitterredProj[ 2 * 4 + 1 ] +=
-            jitter.data[ 1 ] / static_cast< float >( renderResolution.Height() );
-    }
-
-
     void SetViewportIfNew( VkCommandBuffer                          cmd,
                            const RasterizedDataCollector::DrawInfo& info,
                            const VkViewport&                        defaultViewport,
@@ -284,6 +275,8 @@ struct RasterDrawParams
     float*                            defaultViewProj{ nullptr };
     // not the best way to optionally draw lens flares with a world pass
     std::optional< RasterLensFlares > flaresParams{};
+    std::optional< float >            classic{};
+    bool                              manualSrgb{ false };
 };
 
 }
@@ -297,7 +290,7 @@ void RTGL1::Rasterizer::DrawDecals( VkCommandBuffer               cmd,
                                     const RgFloat2D&              jitter,
                                     const RenderResolutionHelper& renderResolution )
 {
-    if( collector->GetDecalDrawInfos().empty() )
+    if( collector->GetDrawInfos( GeometryRasterType::DECAL ).empty() )
     {
         return;
     }
@@ -306,10 +299,11 @@ void RTGL1::Rasterizer::DrawDecals( VkCommandBuffer               cmd,
 
     decalManager->CopyRtGBufferToAttachments( cmd, frameIndex, uniform, *storageFramebuffers );
 
-    float jitterredProj[ 16 ];
-    ApplyJitter( jitterredProj, proj, jitter, renderResolution );
+    auto jitterredProj =
+        ApplyJitter( proj, jitter, renderResolution.Width(), renderResolution.Height() );
+
     float defaultViewProj[ 16 ];
-    Matrix::Multiply( defaultViewProj, view, jitterredProj );
+    Matrix::Multiply( defaultViewProj, view, jitterredProj.data() );
 
     VkDescriptorSet sets[] = {
         uniform.GetDescSet( frameIndex ),
@@ -320,7 +314,7 @@ void RTGL1::Rasterizer::DrawDecals( VkCommandBuffer               cmd,
     const RasterDrawParams params = {
         .standalonePipeline       = decalManager->GetDrawPipeline(),
         .standalonePipelineLayout = decalManager->GetDrawPipelineLayout(),
-        .drawInfos                = collector->GetDecalDrawInfos(),
+        .drawInfos                = collector->GetDrawInfos( GeometryRasterType::DECAL ),
         .renderPass               = decalManager->GetRenderPass(),
         .framebuffer              = decalManager->GetFramebuffer( frameIndex ),
         .width                    = renderResolution.Width(),
@@ -345,7 +339,7 @@ void RTGL1::Rasterizer::DrawSkyToAlbedo( VkCommandBuffer               cmd,
                                          const RgFloat2D&              jitter,
                                          const RenderResolutionHelper& renderResolution )
 {
-    CmdLabel label( cmd, "Rasterized sky to albedo framebuf" );
+    auto label = CmdLabel{ cmd, "Rasterized sky to albedo framebuf" };
 
 
     using FI = FramebufferImageIndex;
@@ -355,11 +349,11 @@ void RTGL1::Rasterizer::DrawSkyToAlbedo( VkCommandBuffer               cmd,
     float skyView[ 16 ];
     Matrix::SetNewViewerPosition( skyView, view, skyViewerPos.data );
 
-    float jitterredProj[ 16 ];
-    ApplyJitter( jitterredProj, proj, jitter, renderResolution );
+    auto jitterredProj =
+        ApplyJitter( proj, jitter, renderResolution.Width(), renderResolution.Height() );
 
     float defaultSkyViewProj[ 16 ];
-    Matrix::Multiply( defaultSkyViewProj, skyView, jitterredProj );
+    Matrix::Multiply( defaultSkyViewProj, skyView, jitterredProj.data() );
 
 
     VkDescriptorSet sets[] = {
@@ -368,9 +362,9 @@ void RTGL1::Rasterizer::DrawSkyToAlbedo( VkCommandBuffer               cmd,
 
     const RasterDrawParams params = {
         .pipelines       = rasterPass->GetSkyRasterPipelines().get(),
-        .drawInfos       = collector->GetSkyDrawInfos(),
+        .drawInfos       = collector->GetDrawInfos( GeometryRasterType::SKY ),
         .renderPass      = rasterPass->GetSkyRenderPass(),
-        .framebuffer     = rasterPass->GetSkyFramebuffer( frameIndex ),
+        .framebuffer     = rasterPass->GetSkyFramebuffer(),
         .width           = renderResolution.Width(),
         .height          = renderResolution.Height(),
         .vertexBuffer    = collector->GetVertexBuffer(),
@@ -391,10 +385,11 @@ void RTGL1::Rasterizer::DrawToFinalImage( VkCommandBuffer               cmd,
                                           const float*                  view,
                                           const float*                  proj,
                                           const RgFloat2D&              jitter,
-                                          const RenderResolutionHelper& renderResolution )
+                                          const RenderResolutionHelper& renderResolution,
+                                          float                         lightmapScreenCoverage )
 {
-    CmdLabel label( cmd, "Rasterized to final framebuf" );
-    using FI = FramebufferImageIndex;
+    auto label = CmdLabel{ cmd, "Rasterized to final framebuf" };
+    using FI   = FramebufferImageIndex;
 
 
     FI fs[] = {
@@ -416,12 +411,11 @@ void RTGL1::Rasterizer::DrawToFinalImage( VkCommandBuffer               cmd,
                                  renderResolution.Height() );
 
 
-    float jitterredProj[ 16 ];
-    ApplyJitter( jitterredProj, proj, jitter, renderResolution );
-
+    auto jitterredProj =
+        ApplyJitter( proj, jitter, renderResolution.Width(), renderResolution.Height() );
 
     float defaultViewProj[ 16 ];
-    Matrix::Multiply( defaultViewProj, view, jitterredProj );
+    Matrix::Multiply( defaultViewProj, view, jitterredProj.data() );
 
     VkDescriptorSet sets[] = {
         textureManager.GetDescSet( frameIndex ),
@@ -432,9 +426,9 @@ void RTGL1::Rasterizer::DrawToFinalImage( VkCommandBuffer               cmd,
 
     const RasterDrawParams params = {
         .pipelines       = rasterPass->GetRasterPipelines().get(),
-        .drawInfos       = collector->GetRasterDrawInfos(),
+        .drawInfos       = collector->GetDrawInfos( GeometryRasterType::WORLD ),
         .renderPass      = rasterPass->GetWorldRenderPass(),
-        .framebuffer     = rasterPass->GetWorldFramebuffer( frameIndex ),
+        .framebuffer     = rasterPass->GetWorldFramebuffer(),
         .width           = renderResolution.Width(),
         .height          = renderResolution.Height(),
         .vertexBuffer    = collector->GetVertexBuffer(),
@@ -442,6 +436,94 @@ void RTGL1::Rasterizer::DrawToFinalImage( VkCommandBuffer               cmd,
         .descSets        = sets,
         .defaultViewProj = defaultViewProj,
         .flaresParams    = RasterLensFlares{ .textureManager = &textureManager },
+        .classic         = -lightmapScreenCoverage,
+    };
+
+    Draw( cmd, frameIndex, params );
+}
+
+void RTGL1::Rasterizer::DrawClassic( VkCommandBuffer               cmd,
+                                     uint32_t                      frameIndex,
+                                     FramebufferImageIndex         destination,
+                                     const TextureManager&         textureManager,
+                                     const GlobalUniform&          uniform,
+                                     const Tonemapping&            tonemapping,
+                                     const Volumetric&             volumetric,
+                                     const float*                  view,
+                                     const float*                  proj,
+                                     const RenderResolutionHelper& renderResolution,
+                                     float                         lightmapScreenCoverage,
+                                     const RgFloat3D&              skyViewerPos )
+{
+    auto label = CmdLabel{ cmd, "Rasterized classic" };
+
+    assert( destination == FB_IMAGE_INDEX_UPSCALED_PING ||
+            destination == FB_IMAGE_INDEX_UPSCALED_PONG || destination == FB_IMAGE_INDEX_FINAL );
+    const bool upscaled = ( destination != FB_IMAGE_INDEX_FINAL );
+
+    storageFramebuffers->BarrierOne( cmd, frameIndex, destination );
+
+    VkDescriptorSet sets[] = {
+        textureManager.GetDescSet( frameIndex ),
+        uniform.GetDescSet( frameIndex ),
+        tonemapping.GetDescSet(),
+        volumetric.GetDescSet( frameIndex ),
+    };
+
+    // sky
+    {
+        float skyView[ 16 ];
+        Matrix::SetNewViewerPosition( skyView, view, skyViewerPos.data );
+
+        float defaultSkyViewProj[ 16 ];
+        Matrix::Multiply( defaultSkyViewProj, skyView, proj );
+        
+        const RasterDrawParams params = {
+            .pipelines   = rasterPass->GetClassicRasterPipelines().get(),
+            .drawInfos   = collector->GetDrawInfos( GeometryRasterType::SKY ),
+            .renderPass  = rasterPass->GetClassicRenderPass(),
+            .framebuffer = rasterPass->GetClassicFramebuffer( destination ),
+            .width       = upscaled ? renderResolution.UpscaledWidth() : renderResolution.Width(),
+            .height      = upscaled ? renderResolution.UpscaledHeight() : renderResolution.Height(),
+            .vertexBuffer    = collector->GetVertexBuffer(),
+            .indexBuffer     = collector->GetIndexBuffer(),
+            .descSets        = sets,
+            .defaultViewProj = defaultSkyViewProj,
+            .flaresParams    = {},
+            .classic         = lightmapScreenCoverage,
+        };
+
+        Draw( cmd, frameIndex, params );
+    }
+
+    float defaultViewProj[ 16 ];
+    Matrix::Multiply( defaultViewProj, view, proj );
+
+    // lightmapScreenCoverage is quantized by 1/renderSize rather than 1/upscaledSize
+    {
+        auto l_quantize = []( float value, float by ) {
+            return std::ceil( value / by ) * by;
+        };
+
+        float eps = std::max( 0.0f, 1.0f / float( renderResolution.Width() ) - 0.00001f );
+
+        lightmapScreenCoverage =
+            l_quantize( lightmapScreenCoverage + eps, 1.0f / float( renderResolution.Width() ) );
+    }
+
+    const RasterDrawParams params = {
+        .pipelines   = rasterPass->GetClassicRasterPipelines().get(),
+        .drawInfos   = collector->GetDrawInfos( GeometryRasterType::WORLD_CLASSIC ),
+        .renderPass  = rasterPass->GetClassicRenderPass(),
+        .framebuffer = rasterPass->GetClassicFramebuffer( destination ),
+        .width  = upscaled ? renderResolution.UpscaledWidth() : renderResolution.Width(),
+        .height = upscaled ? renderResolution.UpscaledHeight() : renderResolution.Height(),
+        .vertexBuffer    = collector->GetVertexBuffer(),
+        .indexBuffer     = collector->GetIndexBuffer(),
+        .descSets        = sets,
+        .defaultViewProj = defaultViewProj,
+        .flaresParams    = {},
+        .classic         = lightmapScreenCoverage,
     };
 
     Draw( cmd, frameIndex, params );
@@ -454,9 +536,10 @@ void RTGL1::Rasterizer::DrawToSwapchain( VkCommandBuffer       cmd,
                                          const float*          view,
                                          const float*          proj,
                                          uint32_t              swapchainWidth,
-                                         uint32_t              swapchainHeight )
+                                         uint32_t              swapchainHeight,
+                                         bool                  isHdr )
 {
-    CmdLabel label( cmd, "Rasterized to swapchain" );
+    auto label = CmdLabel{ cmd, "Rasterized to swapchain" };
 
 
     float defaultViewProj[ 16 ];
@@ -468,16 +551,17 @@ void RTGL1::Rasterizer::DrawToSwapchain( VkCommandBuffer       cmd,
     };
 
     const RasterDrawParams params = {
-        .pipelines       = swapchainPass->GetSwapchainPipelines().get(),
-        .drawInfos       = collector->GetSwapchainDrawInfos(),
-        .renderPass      = swapchainPass->GetSwapchainRenderPass(),
-        .framebuffer     = swapchainPass->GetSwapchainFramebuffer( imageToDrawIn, frameIndex ),
+        .pipelines       = swapchainPass->GetSwapchainPipelines( imageToDrawIn ),
+        .drawInfos       = collector->GetDrawInfos( GeometryRasterType::SWAPCHAIN ),
+        .renderPass      = swapchainPass->GetSwapchainRenderPass( imageToDrawIn ),
+        .framebuffer     = swapchainPass->GetSwapchainFramebuffer( imageToDrawIn ),
         .width           = swapchainWidth,
         .height          = swapchainHeight,
         .vertexBuffer    = collector->GetVertexBuffer(),
         .indexBuffer     = collector->GetIndexBuffer(),
         .descSets        = sets,
         .defaultViewProj = defaultViewProj,
+        .manualSrgb      = ( imageToDrawIn == FB_IMAGE_INDEX_HUD_ONLY && !isHdr ),
     };
 
     Draw( cmd, frameIndex, params );
@@ -502,7 +586,7 @@ void RTGL1::Rasterizer::Draw( VkCommandBuffer         cmd,
         lensFlares->SyncForDraw( cmd, frameIndex );
     }
 
-    const VkViewport defaultViewport = {
+    const auto defaultViewport = VkViewport{
         .x        = 0,
         .y        = 0,
         .width    = static_cast< float >( drawParams.width ),
@@ -511,14 +595,37 @@ void RTGL1::Rasterizer::Draw( VkCommandBuffer         cmd,
         .maxDepth = 1.0f,
     };
 
-    const VkRect2D defaultRenderArea = {
+    auto defaultRenderArea = VkRect2D{
         .offset = { 0, 0 },
         .extent = { drawParams.width, drawParams.height },
     };
 
-    const VkClearValue clear[] = {
+    if( drawParams.classic )
+    {
+        const bool  left = drawParams.classic.value() > 0;
+        const float c    = Utils::Saturate( std::abs( drawParams.classic.value() ) );
+        const float w    = static_cast< float >( drawParams.width );
+
+        if( left )
         {
-            .color = { .float32 = { 0.0f, 0.0f, 0.0f, 0.0 } },
+            defaultRenderArea = VkRect2D{
+                .offset = { 0, 0 },
+                .extent = { uint32_t( w * c ), drawParams.height },
+            };
+        }
+        else
+        {
+            defaultRenderArea = VkRect2D{
+                .offset = { int( w * c ), 0 },
+                .extent = { uint32_t( w * ( 1 - c ) ), drawParams.height },
+            };
+        }
+    }
+
+    constexpr VkClearValue clear[] = {
+        {
+            // NOTE: alpha=0 denotes no HUD for framegen in a swapchain pass
+            .color = { .float32 = { 0.0f, 0.0f, 0.0f, 0.0f } },
         },
         {
             .depthStencil = { .depth = 1.0f },
@@ -584,7 +691,8 @@ void RTGL1::Rasterizer::Draw( VkCommandBuffer         cmd,
 
             // push const
             {
-                auto push = RasterizedPushConst{ info, drawParams.defaultViewProj };
+                auto push =
+                    RasterizedPushConst{ info, drawParams.defaultViewProj, drawParams.manualSrgb };
 
                 vkCmdPushConstants( cmd,
                                     drawParams.pipelines ? drawParams.pipelines->GetPipelineLayout()
@@ -645,9 +753,12 @@ void RTGL1::Rasterizer::OnFramebuffersSizeChange( const ResolutionState& resolut
 
     rasterPass->CreateFramebuffers( resolutionState.renderWidth,
                                     resolutionState.renderHeight,
+                                    resolutionState.upscaledWidth,
+                                    resolutionState.upscaledHeight,
                                     *storageFramebuffers,
                                     *allocator,
                                     *cmdManager );
+
     swapchainPass->CreateFramebuffers(
-        resolutionState.upscaledWidth, resolutionState.upscaledHeight, storageFramebuffers );
+        resolutionState.upscaledWidth, resolutionState.upscaledHeight, *storageFramebuffers );
 }

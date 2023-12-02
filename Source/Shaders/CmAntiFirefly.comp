@@ -95,6 +95,21 @@ void preload()
 
 void main()
 {
+    if( globalUniform.antiFireflyEnabled == 0 )
+    {
+        const ivec2 pix = ivec2( gl_GlobalInvocationID );
+
+        if( pix.x >= int( globalUniform.renderWidth ) || pix.y >= int( globalUniform.renderHeight ) )
+        {
+            return;
+        }
+
+        imageStore( framebufDiffAccumColor, pix, texelFetch( framebufDiffTemporary_Sampler,  pix, 0 ) );
+        imageStore( framebufSpecPingColor,  pix, texelFetch( framebufSpecAccumColor_Sampler, pix, 0 ) );
+        imageStore( framebufIndirPing,      pix, texelFetch( framebufIndirAccum_Sampler,     pix, 0 ) );
+        return;
+    }
+
     preload();
     barrier();
 
@@ -103,16 +118,6 @@ void main()
 
     if( pix.x >= int( globalUniform.renderWidth ) || pix.y >= int( globalUniform.renderHeight ) )
     {
-        return;
-    }
-
-    if( globalUniform.antiFireflyEnabled == 0 )
-    {
-        Data c = GET_SDATA( 0, 0 );
-
-        imageStoreDiffAccumColor( pix, c.diffuse );
-        imageStoreSpecPingColor( pix, c.specular );
-        imageStoreIndirPing( pix, c.indir );
         return;
     }
 

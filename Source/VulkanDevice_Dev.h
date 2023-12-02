@@ -49,6 +49,7 @@ struct Devmode
     uint32_t debugShowFlags{ 0 };
 
     bool antiFirefly{ true };
+    bool fluidStopVisualize{ false };
 
     struct
     {
@@ -67,6 +68,9 @@ struct Devmode
         float crosstalk[ 3 ];
 
         bool                     vsync;
+        RgFrameGenerationMode    frameGeneration;
+        bool                     preferDxgiPresent;
+        bool                     hdr;
         RgRenderUpscaleTechnique upscaleTechnique;
         RgRenderSharpenTechnique sharpenTechnique;
         RgRenderResolutionMode   resolutionMode;
@@ -74,7 +78,17 @@ struct Devmode
         bool                     pixelizedEnable;
         int                      pixelizedHeight;
 
+        float normalMapStrength;
+        float heightMapDepth;
+        float emissionMapBoost;
+        float emissionMaxScreenColor;
+
         float lightmapScreenCoverage;
+        bool  fluidEnabled;
+        bool  fluidReset;
+        RgFloat3D fluidGravity;
+
+        bool allowMapAutoExport;
 
     } drawInfoOvrd;
 

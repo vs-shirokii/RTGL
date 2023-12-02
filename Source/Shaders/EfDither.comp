@@ -83,30 +83,8 @@ float ditheredChannel(float error, vec2 ditherBlockUV, float ditherSteps)
     return getPattern(ditherUV);
 }
 
-/// YUV/RGB color space calculations
-
-vec3 RGBtoYUV(vec3 rgb) {
-    vec3 yuv;
-    yuv.r = rgb.r * 0.2126 + 0.7152 * rgb.g + 0.0722 * rgb.b;
-    yuv.g = (rgb.b - yuv.r) / 1.8556;
-    yuv.b = (rgb.r - yuv.r) / 1.5748;
-
-    // Adjust to work on GPU
-    yuv.gb += 0.5;
-
-    return yuv;
-}
-
-vec3 YUVtoRGB(vec3 yuv) {
-    yuv.gb -= 0.5;
-    return vec3(
-        yuv.r * 1.0 + yuv.g * 0.0 + yuv.b * 1.5748,
-        yuv.r * 1.0 + yuv.g * -0.187324 + yuv.b * -0.468124,
-        yuv.r * 1.0 + yuv.g * 1.8556 + yuv.b * 0.0);
-}
-
 vec3 ditherColor(vec3 col, vec2 uv, ivec2 windowsize) {
-    vec3 yuv = RGBtoYUV(col);
+    vec3 yuv = col;
 
     vec3 col1 = floor(yuv * _Colors) / _Colors;
     vec3 col2 = ceil(yuv * _Colors) / _Colors;
@@ -114,7 +92,16 @@ vec3 ditherColor(vec3 col, vec2 uv, ivec2 windowsize) {
     // Calculate dither texture UV based on the input texture
     float ditherSize = DITHER_TEXTURE_SIZE_Y;
     float ditherSteps = DITHER_TEXTURE_SIZE_X / ditherSize;
-   
+
+    // to make dithering stand out more
+    if( windowsize.y >= 720 )
+    {
+        const int PixScale = 2;
+
+        windowsize = ivec2( ceil( vec2( windowsize ) / ditherSteps ) );
+        windowsize = ivec2( windowsize * ( ditherSteps / PixScale ) );
+    }
+
     vec2 ditherBlockUV;
     ditherBlockUV.x = mod(uv.x, (ditherSize / windowsize.x));
     ditherBlockUV.x /= (ditherSize / windowsize.x);
@@ -126,7 +113,7 @@ vec3 ditherColor(vec3 col, vec2 uv, ivec2 windowsize) {
     yuv.y = mix(col1.y, col2.y, ditheredChannel(channelError(yuv.y, col1.y, col2.y), ditherBlockUV, ditherSteps));
     yuv.z = mix(col1.z, col2.z, ditheredChannel(channelError(yuv.z, col1.z, col2.z), ditherBlockUV, ditherSteps));
     
-    return(YUVtoRGB(yuv));
+    return yuv;
 }
 
 

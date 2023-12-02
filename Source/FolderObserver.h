@@ -25,6 +25,7 @@
 
 #include <deque>
 #include <filesystem>
+#include <future>
 
 namespace RTGL1
 {
@@ -33,7 +34,7 @@ class FolderObserver
 {
 public:
     explicit FolderObserver( const std::filesystem::path& ovrdFolder );
-    ~FolderObserver() = default;
+    ~FolderObserver();
 
     FolderObserver( const FolderObserver& other )                = delete;
     FolderObserver( FolderObserver&& other ) noexcept            = delete;
@@ -44,39 +45,14 @@ public:
 
     void Subscribe( const std::shared_ptr< IFileDependency >& subscriber )
     {
-        subscribers.emplace_back( subscriber );
+        m_subscribers.emplace_back( subscriber );
     }
 
-public:
-    using Clock = std::filesystem::file_time_type::clock;
-
-    struct DependentFile
-    {
-        FileType              type;
-        std::filesystem::path path;
-        uint64_t              pathHash;
-        Clock::time_point     lastWriteTime;
-
-        friend std::strong_ordering operator<=>( const DependentFile& a,
-                                                 const DependentFile& b ) noexcept
-        {
-            // only path
-            return a.path <=> b.path;
-        }
-    };
-
 private:
-    std::vector< std::filesystem::path > foldersToCheck;
-
-    std::optional< Clock::time_point > lastCheck;
-    std::deque< DependentFile > prevAllFiles;
-
-    std::vector< std::weak_ptr< IFileDependency > > subscribers;
-
     template< typename Func, typename... Args >
     auto CallSubsbribers( Func f, Args&&... args )
     {
-        for( auto& ws : subscribers )
+        for( auto& ws : m_subscribers )
         {
             if( auto s = ws.lock() )
             {
@@ -84,6 +60,15 @@ private:
             }
         }
     }
+
+private:
+    std::future< void > m_asyncChecker;
+    std::stop_source    m_asyncStopSource;
+
+    std::mutex                                                  m_mutex;
+    std::vector< std::pair< FileType, std::filesystem::path > > m_changedFiles;
+
+    std::vector< std::weak_ptr< IFileDependency > > m_subscribers;
 };
 
 }

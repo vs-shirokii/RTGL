@@ -56,10 +56,13 @@ namespace RTGL1
         void DestroyPipelines();
 
     private:
+
+#if LIGHT_GRID_ENABLED_
         VkDevice device;
 
         VkPipelineLayout pipelineLayout;
         VkPipeline gridBuildPipeline;
+#endif
 
     };
 }

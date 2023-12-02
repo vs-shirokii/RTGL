@@ -80,7 +80,6 @@ struct AtrousData
     float   roughness;
     uint    encNormal;
     float   depth;
-    float   gradDepth;
 };
 
 // Preloaded data for filter pixel data. Additional FILTER_RADIUS pixels at both ends for each dimension
@@ -101,7 +100,6 @@ void fillFilterData( sampler2D   samplerDiff,
     AtrousData data;
     
     data.depth = texelFetch(framebufDepthWorld_Sampler, globalPix, 0).r;
-    data.gradDepth = texelFetch(framebufDepthGrad_Sampler, globalPix, 0).r;
 
     const vec4 cv           = texelFetch(samplerDiff,                       globalPix, 0);
     data.directDiffuseColor = cv.rgb;
@@ -233,8 +231,9 @@ void atrous0(
     normalWeightSpec = clamp(normalWeightSpec, 8, 1024);
 	normalWeightSpec *= normalWeightScale;
 
-    const float gradDepth = center.gradDepth;
-
+    const float gradDepth = texelFetch( framebufDepthGrad_Sampler, pix, 0 ).r;
+    const float isPrimary =
+        wasSplit( texelFetch( framebufThroughput_Sampler, pix, 0 ).a ) ? 0.0 : 1.0;
 
     float weightSum = 1.0;
     float weightSumSpec = 1.0;
@@ -257,9 +256,9 @@ void atrous0(
 
 
             const float l_q = getLuminance(other.directDiffuseColor);
-            const float n_n = max(0.0, dotEnc(center.encNormal, other.encNormal));
+            const float n_n = max(1.0 - isPrimary, dotEnc(center.encNormal, other.encNormal)); // always 1.0 if non-primary
 
-            const float w_z = abs(center.depth - other.depth) / max(gradDepth * (abs(xx) + abs(yy)), 0.01);
+            const float w_z = abs(center.depth - other.depth) / max(gradDepth * (abs(xx) + abs(yy)), 0.01) * isPrimary; // 0.0 if non-primary
             const float w_n = pow(n_n, 128.0);
             const float w_l = abs(l - l_q) * wLumMultiplier;
 

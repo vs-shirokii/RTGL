@@ -85,6 +85,21 @@ void RTGL1::SceneMetaManager::Modify( std::string_view             sceneName,
     }
 }
 
+bool RTGL1::SceneMetaManager::IsReplacementIgnored( std::string_view sceneName,
+                                                    std::string_view meshName ) const
+{
+    assert( !meshName.empty() );
+
+    auto iter = data.find( sceneName );
+    if( iter == data.end() )
+    {
+        return false;
+    }
+    assert( iter->first == sceneName );
+
+    return std::ranges::contains( iter->second.ignoredReplacements, meshName );
+}
+
 void RTGL1::SceneMetaManager::OnFileChanged( FileType type, const std::filesystem::path& filepath )
 {
     if( type == FileType::JSON )

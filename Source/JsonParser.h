@@ -20,29 +20,19 @@
 
 #pragma once
 
-#include "Common.h"
+#include "LibraryConfig.h"
+
+#include <RTGL1/RTGL1.h>
 
 #include <array>
 #include <filesystem>
 #include <string>
 #include <optional>
+#include <set>
 #include <vector>
 
 namespace RTGL1
 {
-
-struct LibraryConfig
-{
-    constexpr static int Version{ 0 };
-    constexpr static int RequiredVersion{ 0 };
-
-    bool developerMode    = false;
-    bool vulkanValidation = false;
-    bool dlssValidation   = false;
-    bool fpsMonitor       = false;
-};
-
-
 
 struct TextureMeta
 {
@@ -79,7 +69,10 @@ struct TextureMeta
 
     float                    attachedLightIntensity     = 0.0f;
     std::array< uint8_t, 3 > attachedLightColor         = { { 255, 255, 255 } };
+    char                     attachedLightColorHEX[ 7 ] = "FFFFFF";
     bool                     attachedLightEvenOnDynamic = false;
+
+    bool noShadow = false;
 };
 
 struct TextureMetaArray
@@ -109,6 +102,8 @@ struct SceneMeta
 
     std::optional< std::array< float, 3 > > volumeAmbient;
     std::optional< std::array< float, 3 > > volumeUnderwaterColor;
+
+    std::set< std::string > ignoredReplacements;
 };
 
 struct SceneMetaArray
@@ -129,6 +124,24 @@ struct PrimitiveExtraInfo
     int isSkyVisibility = 0;
     int isAcid          = 0;
     int isThinMedia     = 0;
+    int noShadow        = 0;
+};
+
+
+
+struct CameraExtraInfo
+{
+    struct FovAnimFrame
+    {
+        int   frame24{ 0 };
+        float fovDegrees{ 0 };
+    };
+
+    static constexpr uint32_t LatestVersion = 0;
+
+    uint32_t                    version{ LatestVersion };
+    std::vector< int >          anim_cuts_24fps{};
+    std::vector< FovAnimFrame > anim_fov_24fps{};
 };
 
 
@@ -150,6 +163,8 @@ namespace json_parser
             -> std::optional< RgLightAdditionalEXT >;
 
         auto ReadPrimitiveExtraInfo( const std::string_view& data ) -> PrimitiveExtraInfo;
+
+        auto ReadCameraExtraInfo( const std::string_view& data ) -> CameraExtraInfo;
     }
 
     // clang-format off
@@ -161,6 +176,7 @@ namespace json_parser
     template< typename T > auto ReadStringAs( const std::string_view& str ) = delete;
     template<> inline auto ReadStringAs< RgLightAdditionalEXT >( const std::string_view& data ) { return detail::ReadLightExtraInfo( data ); }
     template<> inline auto ReadStringAs< PrimitiveExtraInfo   >( const std::string_view& data ) { return detail::ReadPrimitiveExtraInfo( data ); }
+    template<> inline auto ReadStringAs< CameraExtraInfo   >( const std::string_view& data ) { return detail::ReadCameraExtraInfo( data ); }
     // clang-format on
 
     std::string MakeJsonString( const RgLightAdditionalEXT& info );

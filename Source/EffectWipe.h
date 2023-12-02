@@ -26,7 +26,7 @@
 namespace RTGL1
 {
 
-struct EffectWipe final : public EffectBase
+struct EffectWipe final : EffectBase
 {
     struct PushConst
     {
@@ -35,25 +35,196 @@ struct EffectWipe final : public EffectBase
         float beginTime;
         float endTime;
     };
-    
-    explicit EffectWipe( VkDevice                                      device,
-                         const std::shared_ptr< const Framebuffers >&  _framebuffers,
-                         const std::shared_ptr< const GlobalUniform >& _uniform,
-                         const std::shared_ptr< const BlueNoise >&     _blueNoise,
-                         const std::shared_ptr< const ShaderManager >& _shaderManager,
-                         bool                                          _effectWipeIsUsed )
-        : EffectBase( device ), push{}, effectWipeIsUsed{ _effectWipeIsUsed }
+
+    explicit EffectWipe( VkDevice             device,
+                         const Framebuffers&  _framebuffers,
+                         const GlobalUniform& _uniform,
+                         const BlueNoise&     _blueNoise,
+                         const ShaderManager& _shaderManager,
+                         bool                 _effectWipeIsUsed )
+        : EffectBase{ device }, push{}, effectWipeIsUsed{ _effectWipeIsUsed }
     {
         VkDescriptorSetLayout setLayouts[] = {
-            _framebuffers->GetDescSetLayout(),
-            _uniform->GetDescSetLayout(),
-            _blueNoise->GetDescSetLayout(),
+            _framebuffers.GetDescSetLayout(),
+            _uniform.GetDescSetLayout(),
+            _blueNoise.GetDescSetLayout(),
         };
 
         InitBase( _shaderManager, setLayouts, PushConst() );
     }
 
-    bool Setup(const CommonnlyUsedEffectArguments &args, const RgPostEffectWipe *params, const std::shared_ptr<Swapchain> &swapchain, uint32_t currentFrameId)
+    void CopyToWipeEffectSourceIfNeeded( VkCommandBuffer         cmd,
+                                         uint32_t                frameIndex,
+                                         Framebuffers&           framebuffers,
+                                         FramebufferImageIndex   previouslyPresented,
+                                         const ResolutionState&  resolution,
+                                         const RgPostEffectWipe* params )
+    {
+        constexpr auto subres = VkImageSubresourceLayers{
+            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel       = 0,
+            .baseArrayLayer = 0,
+            .layerCount     = 1,
+        };
+        constexpr auto subresRange = VkImageSubresourceRange{
+            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel   = 0,
+            .levelCount     = 1,
+            .baseArrayLayer = 0,
+            .layerCount     = 1,
+        };
+
+        static auto l_offsetFromExtent = []( const VkExtent2D& e ) {
+            return VkOffset3D{ static_cast< int32_t >( e.width ),
+                               static_cast< int32_t >( e.height ),
+                               1 };
+        };
+
+        if( !params || !params->beginNow )
+        {
+            return;
+        }
+
+        VkImage srcImage = framebuffers.GetImage( previouslyPresented, frameIndex );
+        VkImage dstImage = framebuffers.GetImage( FB_IMAGE_INDEX_WIPE_EFFECT_SOURCE, frameIndex );
+        if( !srcImage )
+        {
+            debug::Warning( "Suppressed wipe effect: Prev image is invalid" );
+            return;
+        }
+        if( !dstImage )
+        {
+            debug::Warning( "Suppressed wipe effect: WIPE_EFFECT_SOURCE is invalid" );
+            return;
+        }
+
+        const auto srcSize = framebuffers.GetFramebufSize( resolution, //
+                                                           previouslyPresented );
+        const auto dstSize = framebuffers.GetFramebufSize( resolution, //
+                                                           FB_IMAGE_INDEX_WIPE_EFFECT_SOURCE );
+
+        {
+            VkImageMemoryBarrier2 bs[] = {
+                {
+                    .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
+                    .srcStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+                    .dstStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                    .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+                    .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                    .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .image               = srcImage,
+                    .subresourceRange    = subresRange,
+                },
+                {
+                    .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
+                    .srcStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
+                    .dstStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                    .dstAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
+                    .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                    .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .image               = dstImage,
+                    .subresourceRange    = subresRange,
+                },
+            };
+
+            auto dep = VkDependencyInfo{
+                .sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                .imageMemoryBarrierCount = std::size( bs ),
+                .pImageMemoryBarriers    = bs,
+            };
+
+            svkCmdPipelineBarrier2KHR( cmd, &dep );
+        }
+
+        if( srcSize.width == dstSize.width && //
+            srcSize.height == dstSize.height &&
+            ShFramebuffers_Formats[ previouslyPresented ] ==
+                ShFramebuffers_Formats[ FB_IMAGE_INDEX_WIPE_EFFECT_SOURCE ] )
+        {
+            auto region = VkImageCopy{
+                .srcSubresource = subres,
+                .srcOffset      = { 0, 0, 0 },
+                .dstSubresource = subres,
+                .dstOffset      = { 0, 0, 0 },
+                .extent         = { srcSize.width, srcSize.height, 1 },
+            };
+
+            vkCmdCopyImage( cmd,
+                            srcImage,
+                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                            dstImage,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            1,
+                            &region );
+        }
+        else
+        {
+            auto region = VkImageBlit{
+                .srcSubresource = subres,
+                .srcOffsets     = { { 0, 0, 0 }, l_offsetFromExtent( srcSize ) },
+                .dstSubresource = subres,
+                .dstOffsets     = { { 0, 0, 0 }, l_offsetFromExtent( dstSize ) },
+            };
+
+            vkCmdBlitImage( cmd,
+                            srcImage,
+                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                            dstImage,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            1,
+                            &region,
+                            VK_FILTER_NEAREST );
+        }
+
+        {
+            VkImageMemoryBarrier2 bs[] = {
+                {
+                    .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
+                    .srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                    .srcAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
+                    .dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
+                    .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .image               = srcImage,
+                    .subresourceRange    = subresRange,
+                },
+                {
+                    .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
+                    .srcStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                    .srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT,
+                    .dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                    .dstAccessMask       = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
+                    .oldLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    .newLayout           = VK_IMAGE_LAYOUT_GENERAL,
+                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                    .image               = dstImage,
+                    .subresourceRange    = subresRange,
+                },
+            };
+
+            auto dep = VkDependencyInfo{
+                .sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                .imageMemoryBarrierCount = std::size( bs ),
+                .pImageMemoryBarriers    = bs,
+            };
+
+            svkCmdPipelineBarrier2KHR( cmd, &dep );
+        }
+    }
+
+    bool Setup( const CommonnlyUsedEffectArguments& args,
+                const RgPostEffectWipe*             params,
+                uint32_t                            currentFrameId )
     {
         if (params == nullptr)
         {
@@ -83,64 +254,18 @@ struct EffectWipe final : public EffectBase
             return false;
         }
 
-        if (params->beginNow)
-        {
-            uint32_t previousSwapchainIndex = Utils::GetPreviousByModulo(swapchain->GetCurrentImageIndex(), swapchain->GetImageCount());
-            VkImage src = swapchain->GetImage(previousSwapchainIndex);
-
-            VkImage dst = args.framebuffers->GetImage(FB_IMAGE_INDEX_WIPE_EFFECT_SOURCE, args.frameIndex);
-
-            VkImageBlit region = {};
-
-            region.srcSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-            region.srcOffsets[ 0 ] = { 0, 0, 0 };
-            region.srcOffsets[ 1 ] = { static_cast< int32_t >( args.width ),
-                                       static_cast< int32_t >( args.height ),
-                                       1 };
-
-            region.dstSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-            region.dstOffsets[ 0 ] = { 0, 0, 0 };
-            region.dstOffsets[ 1 ] = { static_cast< int32_t >( args.width ),
-                                       static_cast< int32_t >( args.height ),
-                                       1 };
-
-            Utils::BarrierImage(
-                args.cmd, src,
-                VK_ACCESS_NONE_KHR, VK_ACCESS_TRANSFER_READ_BIT,
-                VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-
-            Utils::BarrierImage(
-                args.cmd, dst,
-                VK_ACCESS_NONE_KHR, VK_ACCESS_TRANSFER_WRITE_BIT,
-                VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
-            vkCmdBlitImage(args.cmd,
-                           src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                           dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                           1, &region, VK_FILTER_NEAREST);
-
-            Utils::BarrierImage(
-                args.cmd, dst,
-                VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
-
-            Utils::BarrierImage(
-                args.cmd, src,
-                VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_NONE_KHR,
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-
-        }
-
         return true;
     }
 
-    FramebufferImageIndex Apply(const CommonnlyUsedEffectArguments &args, const std::shared_ptr<const BlueNoise> &blueNoise, FramebufferImageIndex inputFramebuf)
+    FramebufferImageIndex Apply( const CommonnlyUsedEffectArguments& args,
+                                 const BlueNoise&                    blueNoise,
+                                 FramebufferImageIndex               inputFramebuf )
     {
         VkDescriptorSet descSets[] =
         {
             args.framebuffers->GetDescSet(args.frameIndex),
             args.uniform->GetDescSet(args.frameIndex),
-            blueNoise->GetDescSet(),
+            blueNoise.GetDescSet(),
         };
 
         return Dispatch(args.cmd, args.frameIndex, args.framebuffers, args.width, args.height, inputFramebuf, descSets);

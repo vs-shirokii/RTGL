@@ -113,6 +113,9 @@ void atrous(sampler2D samplerDiff,
     normalWeightSpec = clamp(normalWeightSpec, 8, 1024);
 	normalWeightSpec *= normalWeightScale;
 
+    const float isPrimary =
+        wasSplit( texelFetch( framebufThroughput_Sampler, pix, 0 ).a ) ? 0.0 : 1.0;
+
     float weightSum = 1.0;
     float weightSumSpec = 1.0;
     float weightSumIndir = 1.0;
@@ -170,12 +173,12 @@ void atrous(sampler2D samplerDiff,
             const vec3  diffColor_q = cv_q.rgb;
             const float variance_q  = cv_q.a;
             const float l_q         = getLuminance(diffColor_q);
-            const float n_n         = max(0.0, dot(normal, normal_q));
+            const float n_n         = max(1.0 - isPrimary, dot(normal, normal_q)); // always 1.0 if non-primary
 
             const vec3 indir_q      = decodeE5B9G9R9(texelFetch(samplerIndir,       pix_q, 0).r);
 
 
-            const float w_z = abs(depth - depth_q) / max(gradDepth * (abs(xx) + abs(yy)), 0.01);
+            const float w_z = abs(depth - depth_q) / max(gradDepth * (abs(xx) + abs(yy)), 0.01) * isPrimary; // 0.0 if non-primary
             const float w_n = pow(n_n, 128.0);
             const float w_l = abs(l - l_q) * wLumMultiplier;
 
@@ -327,17 +330,6 @@ void main()
             illuminated *= getMaterialAmbient(albedo);
         }
         else 
-        {
-            illuminated = albedo * throughput;
-        }
-
-        // even with classic shading, use RT illumination to calc exposure,
-        // otherwise classic pixels will be dark, and avg exposure will be too high
-        imageStore( framebufHistogramInput,
-                    getRegularPixFromCheckerboardPix( pix ),
-                    vec4( max( 0.0, getLuminance( illuminated ) ) ) );
-
-        if( classicShading( getRegularPixFromCheckerboardPix( pix ) ) )
         {
             illuminated = albedo * throughput;
         }

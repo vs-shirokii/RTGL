@@ -54,16 +54,19 @@ public:
                    const Tonemapping&                  tonemapping,
                    const RgDrawFrameTonemappingParams& params );
 
+    [[nodiscard]] auto SetupLpmParams( VkCommandBuffer                     cmd,
+                                       uint32_t                            frameIndex,
+                                       const RgDrawFrameTonemappingParams& params,
+                                       bool hdr )
+        -> VkDescriptorSet;
+    [[nodiscard]] auto GetLpmDescSetLayout() -> VkDescriptorSetLayout;
+
     void OnShaderReload( const ShaderManager* shaderManager ) override;
 
 private:
     void ProcessCheckerboard( VkCommandBuffer      cmd,
                               uint32_t             frameIndex,
                               const GlobalUniform* uniform );
-    void ApplyTonemapping( VkCommandBuffer      cmd,
-                           uint32_t             frameIndex,
-                           const GlobalUniform& uniform,
-                           const Tonemapping&   tonemapping );
 
     static VkPipelineLayout CreatePipelineLayout( VkDevice               device,
                                                   VkDescriptorSetLayout* pSetLayouts,
@@ -75,10 +78,6 @@ private:
     void CreatePipelines( const ShaderManager* shaderManager );
     void DestroyPipelines();
 
-    void SetupLpmParams( VkCommandBuffer                     cmd,
-                         uint32_t                            frameIndex,
-                         const RgDrawFrameTonemappingParams& params );
-
 private:
     VkDevice device;
 
@@ -89,6 +88,9 @@ private:
     {
         RgFloat3D saturation{ FLT_MAX, FLT_MAX, FLT_MAX };
         RgFloat3D crosstalk{ FLT_MAX, FLT_MAX, FLT_MAX };
+        RgFloat3D hdrSaturation{ FLT_MAX, FLT_MAX, FLT_MAX };
+        float     contrast{ FLT_MAX };
+        float     hdrContrast{ FLT_MAX };
     } lpmPrev;
 
     VkPipelineLayout composePipelineLayout;

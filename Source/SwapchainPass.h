@@ -41,29 +41,31 @@ public:
     SwapchainPass& operator=( const SwapchainPass& other ) = delete;
     SwapchainPass& operator=( SwapchainPass&& other ) noexcept = delete;
 
-    void           CreateFramebuffers( uint32_t                               swapchainWidth,
-                                       uint32_t                               swapchainHeight,
-                                       const std::shared_ptr< Framebuffers >& storageFramebuffers );
-    void           DestroyFramebuffers();
+    void CreateFramebuffers( uint32_t      swapchainWidth,
+                             uint32_t      swapchainHeight,
+                             Framebuffers& storageFramebuffers );
+    void DestroyFramebuffers();
 
     void           OnShaderReload( const ShaderManager* shaderManager ) override;
 
-    VkRenderPass   GetSwapchainRenderPass() const;
-    const std::shared_ptr< RasterizerPipelines >& GetSwapchainPipelines() const;
-    VkFramebuffer GetSwapchainFramebuffer( FramebufferImageIndex framebufIndex,
-                                           uint32_t              frameIndex ) const;
+    auto GetSwapchainRenderPass( FramebufferImageIndex framebufIndex ) const -> VkRenderPass;
+    auto GetSwapchainPipelines( FramebufferImageIndex framebufIndex ) const -> RasterizerPipelines*;
+    auto GetSwapchainFramebuffer( FramebufferImageIndex framebufIndex ) const -> VkFramebuffer;
 
 private:
-    [[nodiscard]] VkRenderPass CreateSwapchainRenderPass( VkFormat surfaceFormat ) const;
+    [[nodiscard]] VkRenderPass CreateSwapchainRenderPass( VkFormat format, bool clear ) const;
 
 private:
     VkDevice                               device;
 
     VkRenderPass                           swapchainRenderPass;
+    VkRenderPass                           swapchainRenderPass_hudOnly;
     std::shared_ptr< RasterizerPipelines > swapchainPipelines;
+    std::shared_ptr< RasterizerPipelines > swapchainPipelines_hudOnly;
 
-    VkFramebuffer                          fbPing[ MAX_FRAMES_IN_FLIGHT ];
-    VkFramebuffer                          fbPong[ MAX_FRAMES_IN_FLIGHT ];
+    VkFramebuffer fbPing;
+    VkFramebuffer fbPong;
+    VkFramebuffer hudOnly;
 };
 
 }

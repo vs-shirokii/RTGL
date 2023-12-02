@@ -24,13 +24,20 @@ RTGL1::SwapchainPass::SwapchainPass( VkDevice                    _device,
                                      VkPipelineLayout            _pipelineLayout,
                                      const ShaderManager&        _shaderManager,
                                      const RgInstanceCreateInfo& _instanceInfo )
-    : device( _device ), swapchainRenderPass( VK_NULL_HANDLE ), fbPing{}, fbPong{}
+    : device{ _device }
+    , swapchainRenderPass{ VK_NULL_HANDLE }
+    , swapchainRenderPass_hudOnly{ VK_NULL_HANDLE }
+    , fbPing{}
+    , fbPong{}
+    , hudOnly{}
 {
     assert( ShFramebuffers_Formats[ FB_IMAGE_INDEX_UPSCALED_PING ] ==
             ShFramebuffers_Formats[ FB_IMAGE_INDEX_UPSCALED_PONG ] );
-
     swapchainRenderPass =
-        CreateSwapchainRenderPass( ShFramebuffers_Formats[ FB_IMAGE_INDEX_UPSCALED_PING ] );
+        CreateSwapchainRenderPass( ShFramebuffers_Formats[ FB_IMAGE_INDEX_UPSCALED_PING ], false );
+
+    swapchainRenderPass_hudOnly =
+        CreateSwapchainRenderPass( ShFramebuffers_Formats[ FB_IMAGE_INDEX_HUD_ONLY ], true );
 
     swapchainPipelines =
         std::make_shared< RasterizerPipelines >( device,
@@ -41,125 +48,157 @@ RTGL1::SwapchainPass::SwapchainPass( VkDevice                    _device,
                                                  "FragSwapchain",
                                                  false,
                                                  _instanceInfo.rasterizedVertexColorGamma );
+    swapchainPipelines_hudOnly =
+        std::make_shared< RasterizerPipelines >( device,
+                                                 _pipelineLayout,
+                                                 swapchainRenderPass_hudOnly,
+                                                 _shaderManager,
+                                                 "VertDefault",
+                                                 "FragSwapchain",
+                                                 false,
+                                                 _instanceInfo.rasterizedVertexColorGamma );
 }
 
 RTGL1::SwapchainPass::~SwapchainPass()
 {
     vkDestroyRenderPass( device, swapchainRenderPass, nullptr );
+    vkDestroyRenderPass( device, swapchainRenderPass_hudOnly, nullptr );
     DestroyFramebuffers();
 }
 
-void RTGL1::SwapchainPass::CreateFramebuffers(
-    uint32_t                               newSwapchainWidth,
-    uint32_t                               newSwapchainHeight,
-    const std::shared_ptr< Framebuffers >& storageFramebuffers )
+void RTGL1::SwapchainPass::CreateFramebuffers( uint32_t      newSwapchainWidth,
+                                               uint32_t      newSwapchainHeight,
+                                               Framebuffers& storageFramebuffers )
 {
-    for( uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++ )
-    {
-        assert( fbPing[ i ] == VK_NULL_HANDLE && fbPong[ i ] == VK_NULL_HANDLE );
+    assert( fbPing == VK_NULL_HANDLE && fbPong == VK_NULL_HANDLE && hudOnly == VK_NULL_HANDLE );
 
-        {
-            VkImageView v = storageFramebuffers->GetImageView(
-                FramebufferImageIndex::FB_IMAGE_INDEX_UPSCALED_PING, 0 );
+    // ensure that no FRAMEBUF_FLAGS_STORE_PREV, to not create VkFramebuffer for each frameIndex
+    assert( storageFramebuffers.GetImageView( FB_IMAGE_INDEX_UPSCALED_PING, 0 ) ==
+            storageFramebuffers.GetImageView( FB_IMAGE_INDEX_UPSCALED_PING, 1 ) );
+    assert( storageFramebuffers.GetImageView( FB_IMAGE_INDEX_UPSCALED_PONG, 0 ) ==
+            storageFramebuffers.GetImageView( FB_IMAGE_INDEX_UPSCALED_PONG, 1 ) );
+    assert( storageFramebuffers.GetImageView( FB_IMAGE_INDEX_HUD_ONLY, 0 ) ==
+            storageFramebuffers.GetImageView( FB_IMAGE_INDEX_HUD_ONLY, 1 ) );
 
-            VkFramebufferCreateInfo fbInfo = {
-                .sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-                .renderPass      = swapchainRenderPass,
-                .attachmentCount = 1,
-                .pAttachments    = &v,
-                .width           = newSwapchainWidth,
-                .height          = newSwapchainHeight,
-                .layers          = 1,
-            };
+    auto l_make = []( VkDevice     vkdevice,
+                      VkRenderPass renderPass,
+                      VkImageView  view,
+                      uint32_t     width,
+                      uint32_t     height,
+                      const char*  name ) {
+        auto info = VkFramebufferCreateInfo{
+            .sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+            .renderPass      = renderPass,
+            .attachmentCount = 1,
+            .pAttachments    = &view,
+            .width           = width,
+            .height          = height,
+            .layers          = 1,
+        };
 
-            VkResult r = vkCreateFramebuffer( device, &fbInfo, nullptr, &fbPing[ i ] );
+        VkFramebuffer fb = VK_NULL_HANDLE;
+        VkResult      r  = vkCreateFramebuffer( vkdevice, &info, nullptr, &fb );
+        VK_CHECKERROR( r );
+        SET_DEBUG_NAME( vkdevice, fb, VK_OBJECT_TYPE_FRAMEBUFFER, name );
+        return fb;
+    };
 
-            VK_CHECKERROR( r );
-            SET_DEBUG_NAME( device,
-                            fbPing[ i ],
-                            VK_OBJECT_TYPE_FRAMEBUFFER,
-                            "Rasterizer swapchain ping framebuffer" );
-        }
-        {
-            VkImageView v = storageFramebuffers->GetImageView(
-                FramebufferImageIndex::FB_IMAGE_INDEX_UPSCALED_PONG, 0 );
+    fbPing = l_make( device,
+                     swapchainRenderPass,
+                     storageFramebuffers.GetImageView( FB_IMAGE_INDEX_UPSCALED_PING, 0 ),
+                     newSwapchainWidth,
+                     newSwapchainHeight,
+                     "Rasterizer swapchain ping framebuffer" );
 
-            VkFramebufferCreateInfo fbInfo = {
-                .sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-                .renderPass      = swapchainRenderPass,
-                .attachmentCount = 1,
-                .pAttachments    = &v,
-                .width           = newSwapchainWidth,
-                .height          = newSwapchainHeight,
-                .layers          = 1,
-            };
+    fbPong = l_make( device,
+                     swapchainRenderPass,
+                     storageFramebuffers.GetImageView( FB_IMAGE_INDEX_UPSCALED_PONG, 0 ),
+                     newSwapchainWidth,
+                     newSwapchainHeight,
+                     "Rasterizer swapchain pong framebuffer" );
 
-            VkResult r = vkCreateFramebuffer( device, &fbInfo, nullptr, &fbPong[ i ] );
-
-            VK_CHECKERROR( r );
-            SET_DEBUG_NAME( device,
-                            fbPong[ i ],
-                            VK_OBJECT_TYPE_FRAMEBUFFER,
-                            "Rasterizer swapchain pong framebuffer" );
-        }
-    }
+    // TODO: alloc hud only only when needed (framegen = on
+    hudOnly = l_make( device,
+                      swapchainRenderPass_hudOnly,
+                      storageFramebuffers.GetImageView( FB_IMAGE_INDEX_HUD_ONLY, 0 ),
+                      newSwapchainWidth,
+                      newSwapchainHeight,
+                      "Rasterizer swapchain hud-only framebuffer" );
 }
 
 void RTGL1::SwapchainPass::DestroyFramebuffers()
 {
-    for( VkFramebuffer& fb : fbPing )
+    if( fbPing != VK_NULL_HANDLE )
     {
-        if( fb != VK_NULL_HANDLE )
-        {
-            vkDestroyFramebuffer( device, fb, nullptr );
-            fb = VK_NULL_HANDLE;
-        }
+        vkDestroyFramebuffer( device, fbPing, nullptr );
+        fbPing = VK_NULL_HANDLE;
     }
-    for( VkFramebuffer& fb : fbPong )
+    if( fbPong != VK_NULL_HANDLE )
     {
-        if( fb != VK_NULL_HANDLE )
-        {
-            vkDestroyFramebuffer( device, fb, nullptr );
-            fb = VK_NULL_HANDLE;
-        }
+        vkDestroyFramebuffer( device, fbPong, nullptr );
+        fbPong = VK_NULL_HANDLE;
+    }
+    if( hudOnly != VK_NULL_HANDLE )
+    {
+        vkDestroyFramebuffer( device, hudOnly, nullptr );
+        hudOnly = VK_NULL_HANDLE;
     }
 }
 
 void RTGL1::SwapchainPass::OnShaderReload( const ShaderManager* shaderManager )
 {
     swapchainPipelines->OnShaderReload( shaderManager );
+    swapchainPipelines_hudOnly->OnShaderReload( shaderManager );
 }
 
-VkRenderPass RTGL1::SwapchainPass::GetSwapchainRenderPass() const
+VkRenderPass RTGL1::SwapchainPass::GetSwapchainRenderPass(
+    FramebufferImageIndex framebufIndex ) const
 {
-    return swapchainRenderPass;
-}
-
-const std::shared_ptr< RTGL1::RasterizerPipelines >& RTGL1::SwapchainPass::GetSwapchainPipelines()
-    const
-{
-    return swapchainPipelines;
-}
-
-VkFramebuffer RTGL1::SwapchainPass::GetSwapchainFramebuffer( FramebufferImageIndex framebufIndex,
-                                                             uint32_t frameIndex ) const
-{
-    assert( frameIndex < MAX_FRAMES_IN_FLIGHT );
-
     switch( framebufIndex )
     {
-        case FB_IMAGE_INDEX_UPSCALED_PING: return fbPing[ frameIndex ];
-        case FB_IMAGE_INDEX_UPSCALED_PONG: return fbPong[ frameIndex ];
+        case FB_IMAGE_INDEX_UPSCALED_PING:
+        case FB_IMAGE_INDEX_UPSCALED_PONG:
+            assert( swapchainRenderPass );
+            return swapchainRenderPass;
+        case FB_IMAGE_INDEX_HUD_ONLY:
+            assert( swapchainRenderPass_hudOnly );
+            return swapchainRenderPass_hudOnly;
         default: assert( 0 ); return VK_NULL_HANDLE;
     }
 }
 
-VkRenderPass RTGL1::SwapchainPass::CreateSwapchainRenderPass( VkFormat surfaceFormat ) const
+RTGL1::RasterizerPipelines* RTGL1::SwapchainPass::GetSwapchainPipelines(
+    FramebufferImageIndex framebufIndex ) const
+{
+    switch( framebufIndex )
+    {
+        case FB_IMAGE_INDEX_UPSCALED_PING:
+        case FB_IMAGE_INDEX_UPSCALED_PONG: assert( swapchainPipelines ); return swapchainPipelines.get();
+        case FB_IMAGE_INDEX_HUD_ONLY:
+            assert( swapchainPipelines_hudOnly );
+            return swapchainPipelines_hudOnly.get();
+        default: assert( 0 ); return nullptr;
+    }
+}
+
+VkFramebuffer RTGL1::SwapchainPass::GetSwapchainFramebuffer(
+    FramebufferImageIndex framebufIndex ) const
+{
+    switch( framebufIndex )
+    {
+        case FB_IMAGE_INDEX_UPSCALED_PING: assert( fbPing ); return fbPing;
+        case FB_IMAGE_INDEX_UPSCALED_PONG: assert( fbPong ); return fbPong;
+        case FB_IMAGE_INDEX_HUD_ONLY: assert( hudOnly ); return hudOnly;
+        default: assert( 0 ); return VK_NULL_HANDLE;
+    }
+}
+
+VkRenderPass RTGL1::SwapchainPass::CreateSwapchainRenderPass( VkFormat format, bool clear ) const
 {
     VkAttachmentDescription colorAttch = {
-        .format         = surfaceFormat,
+        .format         = format,
         .samples        = VK_SAMPLE_COUNT_1_BIT,
-        .loadOp         = VK_ATTACHMENT_LOAD_OP_LOAD,
+        .loadOp         = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD,
         .storeOp        = VK_ATTACHMENT_STORE_OP_STORE,
         .stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
         .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,

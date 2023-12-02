@@ -60,7 +60,7 @@ void RTGL1::Tonemapping::CalculateExposure( VkCommandBuffer cmd,
                                             uint32_t        frameIndex,
                                             const std::shared_ptr< const GlobalUniform >& uniform )
 {
-    CmdLabel label( cmd, "Exposure" );
+    auto label = CmdLabel{ cmd, "Exposure" };
 
     // sync access to histogram buffer
     {
@@ -85,7 +85,7 @@ void RTGL1::Tonemapping::CalculateExposure( VkCommandBuffer cmd,
     }
 
     // sync access
-    framebuffers->BarrierOne( cmd, frameIndex, FramebufferImageIndex::FB_IMAGE_INDEX_HISTOGRAM_INPUT );
+    framebuffers->BarrierOne( cmd, frameIndex, FramebufferImageIndex::FB_IMAGE_INDEX_PRE_FINAL );
 
 
     // bind desc sets

@@ -80,8 +80,8 @@ void main()
         vec2 nmap = getTextureSample( decal.normalTextureIndex, vertTexCoord ).xy;
         nmap.xy   = nmap.xy * 2.0 - vec2( 1.0 );
 
-        out_normal =
-            encodeNormal( safeNormalize( basis[ 0 ] * nmap.x + basis[ 1 ] * nmap.y + basis[ 2 ] ) );
+        out_normal = encodeNormal( safeNormalize2(
+            basis[ 0 ] * nmap.x + basis[ 1 ] * nmap.y + basis[ 2 ], underlyingNormal ) );
     }
     else
     {

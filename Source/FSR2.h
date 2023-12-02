@@ -33,6 +33,9 @@ class RenderResolutionHelper;
 class FSR2 : public IFramebuffersDependency
 {
 public:
+    static auto MakeInstance( VkDevice device, VkPhysicalDevice physDevice )
+        -> std::shared_ptr< FSR2 >;
+
     FSR2( VkDevice device, VkPhysicalDevice physDevice );
     ~FSR2() override;
 
@@ -43,24 +46,30 @@ public:
 
     void OnFramebuffersSizeChange( const ResolutionState& resolutionState ) override;
 
-    FramebufferImageIndex Apply( VkCommandBuffer                        cmd,
-                                 uint32_t                               frameIndex,
-                                 const std::shared_ptr< Framebuffers >& framebuffers,
-                                 const RenderResolutionHelper&          renderResolution,
-                                 RgFloat2D                              jitterOffset,
-                                 double                                 timeDelta,
-                                 float                                  nearPlane,
-                                 float                                  farPlane,
-                                 float                                  fovVerticalRad,
-                                 bool                                   resetAccumulation,
-                                 float                                  oneGameUnitInMeters );
+    FramebufferImageIndex Apply( VkCommandBuffer               cmd,
+                                 uint32_t                      frameIndex,
+                                 const Framebuffers&           framebuffers,
+                                 const RenderResolutionHelper& renderResolution,
+                                 RgFloat2D                     jitterOffset,
+                                 double                        timeDelta,
+                                 float                         nearPlane,
+                                 float                         farPlane,
+                                 float                         fovVerticalRad,
+                                 bool                          resetAccumulation,
+                                 float                         oneGameUnitInMeters );
 
-    static RgFloat2D GetJitter( const ResolutionState& resolutionState, uint32_t frameId );
+    RgFloat2D GetJitter( const ResolutionState& resolutionState, uint32_t frameId ) const;
+
+private:
+    bool Valid() const;
 
 private:
     VkDevice         device;
     VkPhysicalDevice physDevice;
 
-    std::unique_ptr< std::optional< FfxFsr2Context > > context;
+    FfxFsr2Context*        m_context{};
+    std::vector< uint8_t > m_scratchBuffer{};
+
+    std::vector< void* > m_loadedDlls{};
 };
 }

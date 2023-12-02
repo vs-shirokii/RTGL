@@ -517,9 +517,16 @@ A_STATIC void CasSetup(
     #else
      AF1 rcpWeight=APrxMedRcpF1(AF1_(1.0)+AF1_(4.0)*wG);
     #endif
+#if CAS_RTGL1_HDRHACK_BEGIN
+    pixR=AMaxF1(0.0,(b.r*wG+d.r*wG+f.r*wG+h.r*wG+e.r)*rcpWeight);
+    pixG=AMaxF1(0.0,(b.g*wG+d.g*wG+f.g*wG+h.g*wG+e.g)*rcpWeight);
+    pixB=AMaxF1(0.0,(b.b*wG+d.b*wG+f.b*wG+h.b*wG+e.b)*rcpWeight);
+    #define CAS_RTGL1_HDRHACK_END 1
+#else
     pixR=ASatF1((b.r*wG+d.r*wG+f.r*wG+h.r*wG+e.r)*rcpWeight);
     pixG=ASatF1((b.g*wG+d.g*wG+f.g*wG+h.g*wG+e.g)*rcpWeight);
     pixB=ASatF1((b.b*wG+d.b*wG+f.b*wG+h.b*wG+e.b)*rcpWeight);
+#endif // CAS_RTGL1_HDRHACK_BEGIN
    #else
     #ifdef CAS_GO_SLOWER
      AF1 rcpWeightR=ARcpF1(AF1_(1.0)+AF1_(4.0)*wR);
@@ -530,9 +537,16 @@ A_STATIC void CasSetup(
      AF1 rcpWeightG=APrxMedRcpF1(AF1_(1.0)+AF1_(4.0)*wG);
      AF1 rcpWeightB=APrxMedRcpF1(AF1_(1.0)+AF1_(4.0)*wB);
     #endif
+#if CAS_RTGL1_HDRHACK_BEGIN
+    pixR=AMaxF1((b.r*wR+d.r*wR+f.r*wR+h.r*wR+e.r)*rcpWeightR);
+    pixG=AMaxF1((b.g*wG+d.g*wG+f.g*wG+h.g*wG+e.g)*rcpWeightG);
+    pixB=AMaxF1((b.b*wB+d.b*wB+f.b*wB+h.b*wB+e.b)*rcpWeightB);
+    #define CAS_RTGL1_HDRHACK_END 1
+#else
     pixR=ASatF1((b.r*wR+d.r*wR+f.r*wR+h.r*wR+e.r)*rcpWeightR);
     pixG=ASatF1((b.g*wG+d.g*wG+f.g*wG+h.g*wG+e.g)*rcpWeightG);
     pixB=ASatF1((b.b*wB+d.b*wB+f.b*wB+h.b*wB+e.b)*rcpWeightB);
+#endif // CAS_RTGL1_HDRHACK_BEGIN
    #endif
    return;}
 //------------------------------------------------------------------------------------------------------------------------------

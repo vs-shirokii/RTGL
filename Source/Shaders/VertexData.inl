@@ -246,18 +246,27 @@ vec3 getPrevDynamicVerticesPositions(uint index)
     return g_dynamicVertices_Prev[index].position.xyz;
 }
 
+void makeTangentBitangent( const mat3   localPos,
+                           const mat3x2 texCoord,
+                           out vec3     tangent,
+                           out vec3     bitangent )
+{
+    const vec3 e1 = localPos[ 1 ] - localPos[ 0 ];
+    const vec3 e2 = localPos[ 2 ] - localPos[ 0 ];
+
+    const vec2 u1 = texCoord[ 1 ] - texCoord[ 0 ];
+    const vec2 u2 = texCoord[ 2 ] - texCoord[ 0 ];
+
+    const float invDet = 1.0 / ( u1.x * u2.y - u2.x * u1.y );
+
+    tangent   = normalize( ( e1 * u2.y - e2 * u1.y ) * invDet );
+    bitangent = normalize( ( e2 * u1.x - e1 * u2.x ) * invDet );
+}
+
 vec4 getTangent(const mat3 localPos, const vec3 normal, const mat3x2 texCoord)
 {
-    const vec3 e1 = localPos[1] - localPos[0];
-    const vec3 e2 = localPos[2] - localPos[0];
-
-    const vec2 u1 = texCoord[1] - texCoord[0];
-    const vec2 u2 = texCoord[2] - texCoord[0];
-
-    const float invDet = 1.0 / (u1.x * u2.y - u2.x * u1.y);
-
-    const vec3 tangent   = normalize((e1 * u2.y - e2 * u1.y) * invDet);
-    const vec3 bitangent = normalize((e2 * u1.x - e1 * u2.x) * invDet);
+    vec3 tangent, bitangent;
+    makeTangentBitangent( localPos, texCoord, tangent, bitangent );
 
     // Don't store bitangent, only store cross(normal, tangent) handedness.
     // If that cross product and bitangent have the same sign,
@@ -288,8 +297,28 @@ ShTriangle makeTriangle(const ShVertex a, const ShVertex b, const ShVertex c)
     tr.vertexColors[1] = b.color;
     tr.vertexColors[2] = c.color;
 
-    // get very coarse normal for triangle to determine bitangent's handedness
-    tr.tangent = getTangent(tr.positions, safeNormalize(tr.normals[0] + tr.normals[1] + tr.normals[2]), tr.layerTexCoord[0]);
+    return tr;
+}
+
+ShTriangle makeTriangleFromCompact(const ShVertexCompact a, const ShVertexCompact b, const ShVertexCompact c)
+{
+    ShTriangle tr;
+
+    tr.positions[ 0 ] = a.position.xyz;
+    tr.positions[ 1 ] = b.position.xyz;
+    tr.positions[ 2 ] = c.position.xyz;
+
+    tr.normals[ 0 ] = decodeNormal( a.normalPacked );
+    tr.normals[ 1 ] = decodeNormal( b.normalPacked );
+    tr.normals[ 2 ] = decodeNormal( c.normalPacked );
+
+    tr.layerTexCoord[ 0 ][ 0 ] = vec2( 0 );
+    tr.layerTexCoord[ 0 ][ 1 ] = vec2( 0 );
+    tr.layerTexCoord[ 0 ][ 2 ] = vec2( 0 );
+
+    tr.vertexColors[ 0 ] = packUintColor( 255, 255, 255, 255 );
+    tr.vertexColors[ 1 ] = packUintColor( 255, 255, 255, 255 );
+    tr.vertexColors[ 2 ] = packUintColor( 255, 255, 255, 255 );
 
     return tr;
 }
@@ -303,9 +332,24 @@ bool getCurrentGeometryIndexByPrev(int prevInstanceID, int prevLocalGeometryInde
     return curFrameGlobalGeomIndex >= 0;
 }
 
-// instanceID  - index in TLAS
-// primitiveId - index of a triangle
-ShTriangle getTriangle(int instanceID, int instanceCustomIndex, int localGeometryIndex, int primitiveId)
+// optimizing .rahit
+#ifdef ONLY_LAYER0_TEXCOLOR
+struct ShTriangleTexInfo
+{
+    mat3x2 layerTexCoord_0;
+    uint   layerColorTextures_0;
+    uint   layerColors_0;
+};
+ShTriangleTexInfo getTriangleTexInfo
+
+#else
+ShTriangle getTriangle
+#endif
+    ( int instanceID,          // index in TLAS
+      int instanceCustomIndex, //
+      int localGeometryIndex,  //
+      int primitiveId          // index of a triangle
+    )
 {
     ShTriangle tr;
 
@@ -313,7 +357,7 @@ ShTriangle getTriangle(int instanceID, int instanceCustomIndex, int localGeometr
 
     const bool isDynamic = ( ( inst.flags & GEOM_INST_FLAG_IS_DYNAMIC ) != 0 );
 
-    if (isDynamic)
+    if( isDynamic )
     {
         {
             const uvec3 vertIndices = getVertIndicesDynamic(inst.baseVertexIndex, inst.baseIndexIndex, primitiveId);
@@ -324,6 +368,9 @@ ShTriangle getTriangle(int instanceID, int instanceCustomIndex, int localGeometr
                 g_dynamicVertices[vertIndices[2]]);
         }
 
+#ifndef ONLY_LAYER0_TEXCOLOR
+
+#if !SUPPRESS_TEXLAYERS
         if( ( inst.flags & GEOM_INST_FLAG_EXISTS_LAYER1 ) != 0 )
         {
             const uvec3 vertIndices =
@@ -348,6 +395,7 @@ ShTriangle getTriangle(int instanceID, int instanceCustomIndex, int localGeometr
             tr.layerTexCoord[ 3 ][ 1 ] = g_dynamicTexCoords_Layer3[ vertIndices[ 1 ] ];
             tr.layerTexCoord[ 3 ][ 2 ] = g_dynamicTexCoords_Layer3[ vertIndices[ 2 ] ];
         }
+#endif // !SUPPRESS_TEXLAYERS
 
         // to world space
         tr.positions[ 0 ] = transformBy( inst, vec4( tr.positions[ 0 ], 1.0 ) );
@@ -372,6 +420,7 @@ ShTriangle getTriangle(int instanceID, int instanceCustomIndex, int localGeometr
             tr.prevPositions[ 1 ] = tr.positions[ 1 ];
             tr.prevPositions[ 2 ] = tr.positions[ 2 ];
         }
+#endif // !ONLY_LAYER0_TEXCOLOR
     }
     else
     {
@@ -384,6 +433,9 @@ ShTriangle getTriangle(int instanceID, int instanceCustomIndex, int localGeometr
                 g_staticVertices[vertIndices[2]]);
         }
 
+#ifndef ONLY_LAYER0_TEXCOLOR
+
+#if !SUPPRESS_TEXLAYERS
         if( ( inst.flags & GEOM_INST_FLAG_EXISTS_LAYER1 ) != 0 )
         {
             const uvec3 vertIndices =
@@ -408,6 +460,7 @@ ShTriangle getTriangle(int instanceID, int instanceCustomIndex, int localGeometr
             tr.layerTexCoord[ 3 ][ 1 ] = g_staticTexCoords_Layer3[ vertIndices[ 1 ] ];
             tr.layerTexCoord[ 3 ][ 2 ] = g_staticTexCoords_Layer3[ vertIndices[ 2 ] ];
         }
+#endif // !SUPPRESS_TEXLAYERS
 
         const vec3 localPos[] = {
             tr.positions[ 0 ],
@@ -437,28 +490,35 @@ ShTriangle getTriangle(int instanceID, int instanceCustomIndex, int localGeometr
             tr.prevPositions[ 1 ] = tr.positions[ 1 ];
             tr.prevPositions[ 2 ] = tr.positions[ 2 ];
         }
+#endif // !ONLY_LAYER0_TEXCOLOR
     }
 
+#ifndef ONLY_LAYER0_TEXCOLOR
 
     tr.layerColorTextures = uint[](
-        inst.texture_base,
-        inst.texture_layer1,
-        inst.texture_layer2,
-        inst.texture_layer3
+        inst.texture_base
+#if !SUPPRESS_TEXLAYERS
+    ,   inst.texture_layer1
+    ,   inst.texture_layer2
+    ,   inst.texture_layer3
+#endif
     );
 
     tr.layerColors = uint[](
-        inst.colorFactor_base,
-        inst.colorFactor_layer1,
-        inst.colorFactor_layer2,
-        inst.colorFactor_layer3
+        inst.colorFactor_base
+#if !SUPPRESS_TEXLAYERS
+    ,   inst.colorFactor_layer1
+    ,   inst.colorFactor_layer2
+    ,   inst.colorFactor_layer3
+#endif
     );
 
-    tr.roughnessDefault = inst.roughnessDefault;
-    tr.metallicDefault = inst.metallicDefault;
+    tr.roughnessDefault = ( ( inst.roughnessDefault_metallicDefault >> 0 ) & 0xFF ) / 255.0;
+    tr.metallicDefault  = ( ( inst.roughnessDefault_metallicDefault >> 8 ) & 0xFF ) / 255.0;
     tr.occlusionRougnessMetallicTexture = inst.texture_base_ORM;
-    
+
     tr.normalTexture = inst.texture_base_N;
+    tr.heightTexture = inst.texture_base_D;
 
     tr.emissiveMult = inst.emissiveMult;
     tr.emissiveTexture = inst.texture_base_E;
@@ -468,13 +528,22 @@ ShTriangle getTriangle(int instanceID, int instanceCustomIndex, int localGeometr
         tr.normals[ 0 ] = transformBy( inst, vec4( tr.normals[ 0 ], 0.0 ) );
         tr.normals[ 1 ] = transformBy( inst, vec4( tr.normals[ 1 ], 0.0 ) );
         tr.normals[ 2 ] = transformBy( inst, vec4( tr.normals[ 2 ], 0.0 ) );
-        tr.tangent.xyz  = transformBy( inst, vec4( tr.tangent.xyz, 0.0 ) );
     }
 
     tr.geometryInstanceFlags = inst.flags;
     tr.portalIndex = 0;
 
     return tr;
+
+#else
+
+    ShTriangleTexInfo trTexInfo;
+    trTexInfo.layerTexCoord_0      = tr.layerTexCoord[ 0 ];
+    trTexInfo.layerColorTextures_0 = inst.texture_base;
+    trTexInfo.layerColors_0        = inst.colorFactor_base;
+    return trTexInfo;
+
+#endif // !ONLY_LAYER0_TEXCOLOR
 }
 
 mat3 getOnlyCurPositions(int globalGeometryIndex, int primitiveId)
@@ -512,6 +581,11 @@ vec4 packVisibilityBuffer(const ShPayload p)
     return vec4(uintBitsToFloat(p.instIdAndIndex), uintBitsToFloat(p.geomAndPrimIndex), p.baryCoords);
 }
 
+vec4 packVisibilityBuffer_Invalid()
+{
+    return vec4( uintBitsToFloat( UINT32_MAX ), uintBitsToFloat( UINT32_MAX ), vec2( 0 ) );
+}
+
 int unpackInstCustomIndexFromVisibilityBuffer(const vec4 v)
 {
     int instanceID, instCustomIndex;
@@ -537,8 +611,17 @@ bool unpackPrevVisibilityBuffer(const vec4 v, out vec3 prevPos)
     int prevInstanceID, instCustomIndex;
     int prevLocalGeomIndex, primIndex;
 
-    unpackInstanceIdAndCustomIndex(floatBitsToUint(v[0]), prevInstanceID, instCustomIndex);
-    unpackGeometryAndPrimitiveIndex(floatBitsToUint(v[1]), prevLocalGeomIndex, primIndex);
+    {
+        const uvec2 ii = uvec2( floatBitsToUint( v[ 0 ] ), floatBitsToUint( v[ 1 ] ) );
+
+        if( ii.x == UINT32_MAX || ii.y == UINT32_MAX )
+        {
+            return false;
+        }
+
+        unpackInstanceIdAndCustomIndex( ii[ 0 ], prevInstanceID, instCustomIndex );
+        unpackGeometryAndPrimitiveIndex( ii[ 1 ], prevLocalGeomIndex, primIndex );
+    }
 
     int curFrameGlobalGeomIndex;
     const bool matched = getCurrentGeometryIndexByPrev(prevInstanceID, prevLocalGeomIndex, curFrameGlobalGeomIndex);

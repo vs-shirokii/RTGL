@@ -22,14 +22,17 @@
 
 #include <algorithm>
 #include <cstring>
-#include <stdexcept>
+#include <regex>
 
 #include "HaltonSequence.h"
 #include "JsonParser.h"
 #include "RenderResolutionHelper.h"
 #include "RgException.h"
+#include "DX12_Interop.h"
 
 #include "Generated/ShaderCommonC.h"
+
+#include <d3d12.h>
 
 namespace
 {
@@ -160,19 +163,51 @@ VkSurfaceKHR GetSurfaceFromUser( VkInstance instance, const RgInstanceCreateInfo
     throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Surface info wasn't specified" );
 }
 
-RTGL1::LibraryConfig ReadConfig( const std::filesystem::path& ovrdFolder  )
+auto ValidateGUID( const char* pAppGuid ) -> std::string
 {
-    using namespace RTGL1;
-    assert( !ovrdFolder.empty() );
-    
-    if( auto c = json_parser::ReadFileAs< LibraryConfig >( ovrdFolder / "RTGL1.json" ) )
+    const auto guidRegex =
+        std::regex{ "^[{]?[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}[}]?$" };
+
+    if( !pAppGuid || pAppGuid[ 0 ] == '\0' )
     {
-        return *c;
+        throw RTGL1::RgException(
+            RG_RESULT_WRONG_FUNCTION_ARGUMENT,
+            "Application GUID wasn't provided. Generate and specify it to use DLSS." );
     }
-    return {};
+
+    if( !std::regex_match( pAppGuid, guidRegex ) )
+    {
+        throw RTGL1::RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT,
+                                  "Provided application GUID is not GUID. Generate and specify "
+                                  "correct  GUID to use DLSS." );
+    }
+
+    return pAppGuid;
 }
 
 } // anonymous namespace
+
+
+namespace RTGL1
+{
+
+auto g_libConfig = std::optional< LibraryConfig >{};
+
+auto LibConfig() -> const LibraryConfig&
+{
+    if( !g_libConfig )
+    {
+        assert( 0 ); // reading before init
+        static auto def = LibraryConfig{};
+        return def;
+    }
+    return *g_libConfig;
+}
+
+auto g_ovrdFolder = std::filesystem::path{}; // hack
+
+}
+
 
 RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
     : instance( VK_NULL_HANDLE )
@@ -181,15 +216,20 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
     , frameId( 1 )
     , waitForOutOfFrameFence( false )
     , ovrdFolder{ Utils::SafeCstr( info->pOverrideFolderPath ) }
-    , libconfig{ ReadConfig( ovrdFolder ) }
     , debugMessenger( VK_NULL_HANDLE )
     , userPrint{ std::make_unique< UserPrint >( info->pfnPrint, info->pUserPrintData ) }
     , rayCullBackFacingTriangles( info->rayCullBackFacingTriangles )
-    , allowGeometryWithSkyFlag( info->allowGeometryWithSkyFlag )
     , previousFrameTime( -1.0 / 60.0 )
     , currentFrameTime( 0 )
+    , appGuid{ ValidateGUID( info->pAppGUID ) }
 {
-    ValidateCreateInfo( info );
+    g_ovrdFolder = ovrdFolder;
+
+    g_libConfig = json_parser::ReadFileAs< LibraryConfig >( ovrdFolder / "RTGL1.json" )
+                      .value_or( LibraryConfig{} );
+
+
+    ValidateAndOverrideCreateInfo( info );
 
 
     // init vulkan instance
@@ -201,6 +241,10 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
 
     // create VkSurfaceKHR using user's function
     surface = GetSurfaceFromUser( instance, *info );
+    if( info->pWin32SurfaceInfo && info->pWin32SurfaceInfo->hwnd )
+    {
+        dxgi::SetHwnd( info->pWin32SurfaceInfo->hwnd );
+    }
 
 
     // create selected physical device
@@ -228,14 +272,26 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
     uniform = std::make_shared< GlobalUniform >( 
         device, 
         memAllocator );
+    
+    framebuffers = std::make_shared< Framebuffers >( 
+        device, 
+        physDevice->Get(), 
+        memAllocator, 
+        cmdManager,
+        *info );
 
     swapchain = std::make_shared< Swapchain >(
         device, 
         surface, 
         physDevice->Get(), 
-        cmdManager );
+        cmdManager,
+        memAllocator,
+        framebuffers,
+        nvDlss3dx12,
+        amdFsr3dx12,
+        physDevice->GetLUID() );
     
-    if( libconfig.developerMode )
+    if( LibConfig().developerMode )
     {
         debugWindows = std::make_shared< DebugWindows >( 
             instance,
@@ -255,12 +311,6 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
     worldSamplerManager = std::make_shared< SamplerManager >( device, 8, info->textureSamplerForceMinificationFilterLinear );
     genericSamplerManager = std::make_shared< SamplerManager >( device, 0, info->textureSamplerForceMinificationFilterLinear );
 
-    framebuffers = std::make_shared< Framebuffers >( 
-        device, 
-        memAllocator, 
-        cmdManager,
-        *info );
-
     restirBuffers = std::make_shared< RestirBuffers >( 
         device, 
         memAllocator );
@@ -278,9 +328,9 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
         cmdManager,
         ovrdFolder / "WaterNormal_n.ktx2",
         ovrdFolder / "DirtMask.ktx2",
+        ovrdFolder / "SceneBuildWarning.ktx2",
         info->pbrTextureSwizzling,
-        !!info->textureSamplerForceNormalMapFilterLinear,
-        libconfig );
+        !!info->textureSamplerForceNormalMapFilterLinear );
 
     textureMetaManager = std::make_shared< TextureMetaManager >(
         ovrdFolder / DATABASE_FOLDER );
@@ -296,7 +346,8 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
 
     shaderManager = std::make_shared< ShaderManager >( 
         device, 
-        ovrdFolder / SHADERS_FOLDER );
+        ovrdFolder / SHADERS_FOLDER,
+        m_supportsRayQueryAndPositionFetch );
 
     scene = std::make_shared< Scene >(
         device, 
@@ -314,9 +365,7 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
     sceneImportExport = std::make_shared< SceneImportExport >(
         ovrdFolder / SCENES_FOLDER,
         ovrdFolder / REPLACEMENTS_FOLDER,
-        info->worldUp,
-        info->worldForward,
-        info->worldScale );
+        *info );
 
     tonemapping = std::make_shared< Tonemapping >(
         device, 
@@ -401,16 +450,17 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
         *textureManager,
         *tonemapping );
 
-    amdFsr2 = std::make_shared< FSR2 >( 
+    amdFsr2 = FSR2::MakeInstance( 
         device, 
         physDevice->Get() );
 
-    nvDlss = std::make_shared< DLSS >(
-        instance, 
-        device, 
-        physDevice->Get(), 
-        info->pAppGUID, 
-        libconfig.dlssValidation );
+#ifdef RG_USE_NATIVE_DLSS2
+    nvDlss2 = DLSS2::MakeInstance(
+        instance,
+        device,
+        physDevice->Get(),
+        appGuid.c_str() );
+#endif
 
     sharpening = std::make_shared< Sharpening >( 
         device, 
@@ -425,10 +475,10 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
 
     effectWipe = std::make_shared< EffectWipe >(
         device, 
-        framebuffers, 
-        uniform, 
-        blueNoise, 
-        shaderManager, 
+        *framebuffers, 
+        *uniform, 
+        *blueNoise, 
+        *shaderManager, 
         info->effectWipeIsUsed );
 
 
@@ -436,11 +486,13 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
 
 
 #define CONSTRUCT_SIMPLE_EFFECT( T ) \
-    std::make_shared< T >( device, framebuffers, uniform, shaderManager )
+    std::make_shared< T >( device, *shaderManager, *framebuffers, *uniform )
+
     effectRadialBlur          = CONSTRUCT_SIMPLE_EFFECT( EffectRadialBlur );
     effectChromaticAberration = CONSTRUCT_SIMPLE_EFFECT( EffectChromaticAberration );
     effectInverseBW           = CONSTRUCT_SIMPLE_EFFECT( EffectInverseBW );
     effectHueShift            = CONSTRUCT_SIMPLE_EFFECT( EffectHueShift );
+    effectNightVision         = CONSTRUCT_SIMPLE_EFFECT( EffectNightVision );
     effectDistortedSides      = CONSTRUCT_SIMPLE_EFFECT( EffectDistortedSides );
     effectWaves               = CONSTRUCT_SIMPLE_EFFECT( EffectWaves );
     effectColorTint           = CONSTRUCT_SIMPLE_EFFECT( EffectColorTint );
@@ -450,6 +502,14 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
     effectVHS                 = CONSTRUCT_SIMPLE_EFFECT( EffectVHS );
     effectDither              = CONSTRUCT_SIMPLE_EFFECT( EffectDither );
 #undef SIMPLE_EFFECT_CONSTRUCTOR_PARAMS
+    {
+        VkDescriptorSetLayout layout[] = {
+            framebuffers->GetDescSetLayout(),
+            uniform->GetDescSetLayout(),
+            imageComposition->GetLpmDescSetLayout(),
+        };
+        effectHDRPrepare = std::make_shared< EffectHDRPrepare >( device, *shaderManager, layout );
+    }
 
 
     shaderManager->Subscribe( denoiser );
@@ -467,6 +527,7 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
     shaderManager->Subscribe( effectChromaticAberration );
     shaderManager->Subscribe( effectInverseBW );
     shaderManager->Subscribe( effectHueShift );
+    shaderManager->Subscribe( effectNightVision );
     shaderManager->Subscribe( effectDistortedSides );
     shaderManager->Subscribe( effectWaves );
     shaderManager->Subscribe( effectColorTint );
@@ -475,10 +536,14 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
     shaderManager->Subscribe( effectCrtDecode );
     shaderManager->Subscribe( effectVHS );
     shaderManager->Subscribe( effectDither );
+    shaderManager->Subscribe( effectHDRPrepare );
 
     framebuffers->Subscribe( rasterizer );
-    framebuffers->Subscribe( amdFsr2 );
     framebuffers->Subscribe( restirBuffers );
+    if( amdFsr2 )
+    {
+        framebuffers->Subscribe( amdFsr2 );
+    }
 
     if( observer )
     {
@@ -501,17 +566,21 @@ RTGL1::VulkanDevice::~VulkanDevice()
     framebuffers.reset();
     restirBuffers.reset();
     volumetric.reset();
+    fluid.reset();
     tonemapping.reset();
     imageComposition.reset();
     bloom.reset();
     amdFsr2.reset();
-    nvDlss.reset();
+    amdFsr3dx12.reset();
+    nvDlss2.reset();
+    nvDlss3dx12.reset();
     sharpening.reset();
     effectWipe.reset();
     effectRadialBlur.reset();
     effectChromaticAberration.reset();
     effectInverseBW.reset();
     effectHueShift.reset();
+    effectNightVision.reset();
     effectDistortedSides.reset();
     effectWaves.reset();
     effectColorTint.reset();
@@ -520,6 +589,7 @@ RTGL1::VulkanDevice::~VulkanDevice()
     effectCrtDecode.reset();
     effectVHS.reset();
     effectDither.reset();
+    effectHDRPrepare.reset();
     denoiser.reset();
     uniform.reset();
     scene.reset();
@@ -545,6 +615,8 @@ RTGL1::VulkanDevice::~VulkanDevice()
     vkDestroySurfaceKHR( instance, surface, nullptr );
     DestroySyncPrimitives();
 
+    dxgi::Destroy();
+
     DestroyDevice();
     DestroyInstance();
 }
@@ -566,6 +638,48 @@ VKAPI_ATTR VkBool32 VKAPI_CALL
     if( pCallbackData->messageIdNumber == 2044605652 )
     {
         return VK_FALSE;
+    }
+    if( pCallbackData->messageIdNumber == 1616057594 )
+    {
+        // VK_KHR_ray_tracing_position_fetch
+        //      ignore error 'VUID-VkShaderModuleCreateInfo-pCode-08739'
+        //      vkCreateShaderModule(): SPIR-V has Capability (RayQueryPositionFetchKHR) declared,
+        //      but this is not supported by Vulkan.
+        // -- but it just works...
+        if( strstr( pCallbackData->pMessage, "RayQueryPositionFetchKHR" ) != nullptr )
+        {
+            static bool once = true;
+            if( once )
+            {
+                once = false;
+                RTGL1::debug::Warning( "Ignoring Vulkan Validation Error: {}",
+                                       pCallbackData->pMessage );
+            }
+
+            return VK_FALSE;
+        }
+    }
+    if( pCallbackData->messageIdNumber == 688222058 )
+    {
+        // Rasterization viewport / scissors in ray tracing
+        //      ignore error 'VUID-vkCmdTraceRaysKHR-None-08608'
+        //      vkCmdTraceRaysKHR(): VkPipeline [Ray tracing pipeline] doesn't set up
+        //      VK_DYNAMIC_STATE_VIEWPORT|VK_DYNAMIC_STATE_SCISSOR, but it calls the related dynamic
+        //      state setting commands
+        // -- after updating Vulkan SDK, it now reports this in primary rays, after applying
+        //    rasterization to a fluid image
+        if( strstr( pCallbackData->pMessage, "vkCmdTraceRaysKHR" ) )
+        {
+            static bool once = true;
+            if( once )
+            {
+                once = false;
+                RTGL1::debug::Warning( "Ignoring Vulkan Validation Error: {}",
+                                       pCallbackData->pMessage );
+            }
+
+            return VK_FALSE;
+        }
     }
 
 
@@ -616,17 +730,17 @@ void RTGL1::VulkanDevice::CreateInstance( const RgInstanceCreateInfo& info )
 {
     std::vector< const char* > layerNames;
 
-    if( libconfig.vulkanValidation )
+    if( LibConfig().vulkanValidation )
     {
         layerNames.push_back( "VK_LAYER_KHRONOS_validation" );
     }
 
-    if( libconfig.fpsMonitor )
+    if( LibConfig().fpsMonitor )
     {
         layerNames.push_back( "VK_LAYER_LUNARG_monitor" );
     }
 
-    std::vector< VkExtensionProperties > supportedInstanceExtensions;
+    auto supportedInstanceExtensions = std::vector< VkExtensionProperties >{};
     {
         uint32_t count = 0;
         if( vkEnumerateInstanceExtensionProperties( nullptr, &count, nullptr ) == VK_SUCCESS )
@@ -636,10 +750,17 @@ void RTGL1::VulkanDevice::CreateInstance( const RgInstanceCreateInfo& info )
                 nullptr, &count, supportedInstanceExtensions.data() );
         }
     }
+    auto l_supported = [ &supportedInstanceExtensions ]( const char* target ) {
+        return std::ranges::any_of( supportedInstanceExtensions,
+                                    [ & ]( const VkExtensionProperties& s ) {
+                                        return std::strcmp( s.extensionName, target ) == 0;
+                                    } );
+    };
 
-    std::vector extensions = {
+    auto extensions = std::vector{
         VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
         VK_KHR_SURFACE_EXTENSION_NAME,
+        VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME,
 
 #ifdef RG_USE_SURFACE_WIN32
         VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
@@ -660,39 +781,44 @@ void RTGL1::VulkanDevice::CreateInstance( const RgInstanceCreateInfo& info )
 #ifdef RG_USE_SURFACE_XLIB
         VK_KHR_XLIB_SURFACE_EXTENSION_NAME,
 #endif // RG_USE_SURFACE_XLIB
+
+#ifdef RG_USE_DX12
+        VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME,
+#endif
     };
 
-    if( libconfig.vulkanValidation )
+    if( auto d = DLSS2::RequiredVulkanExtensions_Instance() )
+    {
+        for( const char* dlssExt : d.value() )
+        {
+            extensions.push_back( dlssExt );
+        }
+    }
+
+    if( LibConfig().vulkanValidation )
     {
         extensions.push_back( VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
         extensions.push_back( VK_EXT_DEBUG_REPORT_EXTENSION_NAME );
     }
 
-    for( const char* n : DLSS::GetDlssVulkanInstanceExtensions() )
+    for( const char* ext : extensions )
     {
-        const bool isSupported =
-            std::ranges::any_of( std::as_const( supportedInstanceExtensions ),
-                                 [ n ]( const VkExtensionProperties& ext ) {
-                                     return std::strcmp( ext.extensionName, n ) == 0;
-                                 } );
-
-        if( !isSupported )
+        if( !l_supported( ext ) )
         {
-            continue;
+            throw RgException{ RG_RESULT_ERROR_NO_VULKAN_EXTENSION,
+                               "VkInstance extension is not supported: " + std::string{ ext } };
         }
-
-        extensions.push_back( n );
     }
 
 
-    VkApplicationInfo appInfo = {
+    auto appInfo = VkApplicationInfo{
         .sType            = VK_STRUCTURE_TYPE_APPLICATION_INFO,
         .pApplicationName = info.pAppName,
         .pEngineName      = "RTGL1",
         .apiVersion       = VK_API_VERSION_1_2,
     };
 
-    VkInstanceCreateInfo instanceInfo = {
+    auto instanceInfo = VkInstanceCreateInfo{
         .sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
         .pApplicationInfo        = &appInfo,
         .enabledLayerCount       = static_cast< uint32_t >( layerNames.size() ),
@@ -705,7 +831,7 @@ void RTGL1::VulkanDevice::CreateInstance( const RgInstanceCreateInfo& info )
     VK_CHECKERROR( r );
 
 
-    if( libconfig.vulkanValidation )
+    if( LibConfig().vulkanValidation )
     {
         InitInstanceExtensionFunctions_DebugUtils( instance );
 
@@ -727,8 +853,53 @@ void RTGL1::VulkanDevice::CreateInstance( const RgInstanceCreateInfo& info )
     }
 }
 
+// to avoid verbose static_cast
+static void* selectPtr( bool condition, void* a, void* b )
+{
+    return condition ? a : b;
+}
+
+// TODO: remove global var
+namespace RTGL1
+{
+bool g_supportsPositionFetch = false;
+}
+
 void RTGL1::VulkanDevice::CreateDevice()
 {
+    auto supportedDeviceExtensions = std::vector< VkExtensionProperties >{};
+    {
+        uint32_t count = 0;
+        if( vkEnumerateDeviceExtensionProperties( physDevice->Get(), nullptr, &count, nullptr ) ==
+            VK_SUCCESS )
+        {
+            supportedDeviceExtensions.resize( count );
+            vkEnumerateDeviceExtensionProperties(
+                physDevice->Get(), nullptr, &count, supportedDeviceExtensions.data() );
+        }
+    }
+    auto l_supported = [ &supportedDeviceExtensions ]( const char* target ) {
+        return std::ranges::any_of( supportedDeviceExtensions,
+                                    [ & ]( const VkExtensionProperties& s ) {
+                                        return std::strcmp( s.extensionName, target ) == 0;
+                                    } );
+    };
+
+
+    m_supportsRayQueryAndPositionFetch = false;
+    {
+        if( physDevice->SupportsRayQuery() && physDevice->SupportsPositionFetch() )
+        {
+            if( l_supported( VK_KHR_RAY_QUERY_EXTENSION_NAME ) &&
+                l_supported( VK_KHR_RAY_TRACING_POSITION_FETCH_EXTENSION_NAME ) )
+            {
+                m_supportsRayQueryAndPositionFetch = true;
+            }
+        }
+    }
+    g_supportsPositionFetch = m_supportsRayQueryAndPositionFetch;
+
+
     VkPhysicalDeviceFeatures features = {
         .robustBufferAccess                      = 1,
         .fullDrawIndexUint32                     = 1,
@@ -800,10 +971,13 @@ void RTGL1::VulkanDevice::CreateDevice()
         .pNext                    = &robustness,
         .samplerMirrorClampToEdge = 1,
         .drawIndirectCount        = 1,
+        .storageBuffer8BitAccess  = 1,
         .shaderFloat16            = 1,
+        .shaderInt8               = 1,
         .shaderSampledImageArrayNonUniformIndexing  = 1,
         .shaderStorageBufferArrayNonUniformIndexing = 1,
         .runtimeDescriptorArray                     = 1,
+        .timelineSemaphore                          = 1,
         .bufferDeviceAddress                        = 1,
     };
 
@@ -831,60 +1005,97 @@ void RTGL1::VulkanDevice::CreateDevice()
         .rayTracingPipeline = 1,
     };
 
-    VkPhysicalDeviceAccelerationStructureFeaturesKHR asFeatures = {
+    auto asFeatures = VkPhysicalDeviceAccelerationStructureFeaturesKHR{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
         .pNext = &rtPipelineFeatures,
         .accelerationStructure = 1,
     };
 
-    VkPhysicalDeviceFeatures2 physicalDeviceFeatures2 = {
+    auto positionFetchFeatures = VkPhysicalDeviceRayTracingPositionFetchFeaturesKHR{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_POSITION_FETCH_FEATURES_KHR,
+        .pNext = &asFeatures,
+        .rayTracingPositionFetch = 1,
+    };
+
+    auto rtQueryFeatures = VkPhysicalDeviceRayQueryFeaturesKHR{
+        .sType    = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
+        .pNext    = &positionFetchFeatures,
+        .rayQuery = 1,
+    };
+
+    auto physicalDeviceFeatures2 = VkPhysicalDeviceFeatures2{
         .sType    = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext    = &asFeatures,
+        .pNext    = selectPtr( m_supportsRayQueryAndPositionFetch, &rtQueryFeatures, &asFeatures ),
         .features = features,
     };
 
-
-    std::vector< VkExtensionProperties > supportedDeviceExtensions;
-    {
-        uint32_t count = 0;
-        if( vkEnumerateDeviceExtensionProperties( physDevice->Get(), nullptr, &count, nullptr ) ==
-            VK_SUCCESS )
-        {
-            supportedDeviceExtensions.resize( count );
-            vkEnumerateDeviceExtensionProperties(
-                physDevice->Get(), nullptr, &count, supportedDeviceExtensions.data() );
-        }
-    }
-
-    std::vector deviceExtensions = {
+    auto deviceExtensions = std::vector{
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
         VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
         VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
         VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+        VK_EXT_ROBUSTNESS_2_EXTENSION_NAME,
         VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
-        VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME,
+        VK_EXT_MEMORY_BUDGET_EXTENSION_NAME,
+        VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
+#ifdef RG_USE_DX12
+        VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
+        VK_KHR_EXTERNAL_FENCE_WIN32_EXTENSION_NAME,
+        VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
+#endif // RG_USE_DX12
     };
 
-    for( const char* n : DLSS::GetDlssVulkanDeviceExtensions() )
+    if( m_supportsRayQueryAndPositionFetch )
     {
-        const bool isSupported = std::any_of( supportedDeviceExtensions.cbegin(),
-                                              supportedDeviceExtensions.cend(),
-                                              [ & ]( const VkExtensionProperties& ext ) {
-                                                  return !std::strcmp( ext.extensionName, n );
-                                              } );
+        deviceExtensions.push_back( VK_KHR_RAY_QUERY_EXTENSION_NAME );
+        deviceExtensions.push_back( VK_KHR_RAY_TRACING_POSITION_FETCH_EXTENSION_NAME );
+    }
 
-        if( !isSupported )
+    if( auto d = DLSS2::RequiredVulkanExtensions_Device( physDevice->Get() ) )
+    {
+        for( const char* dlssExt : d.value() )
         {
-            continue;
+            // because 'bufferDeviceAddress' already set
+            if( strcmp( dlssExt, VK_EXT_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME ) == 0 )
+            {
+                continue;
+            }
+
+            deviceExtensions.push_back( dlssExt );
+        }
+    }
+
+    {
+        auto unsupported = std::vector< const char* >{};
+        for( const char* ext : deviceExtensions )
+        {
+            if( !l_supported( ext ) )
+            {
+                unsupported.push_back( ext );
+            }
         }
 
-        deviceExtensions.push_back( n );
+        if( !unsupported.empty() )
+        {
+            std::string msg = "VkDevice extensions are NOT supported:\n";
+            for( const char* u : unsupported )
+            {
+                msg += '\n';
+                msg += u;
+            }
+
+#ifdef RG_USE_SURFACE_WIN32
+            MessageBoxA( nullptr, msg.c_str(), "Unsupported GPU!", MB_OK | MB_ICONERROR );
+#endif
+
+            throw RgException{ RG_RESULT_ERROR_NO_VULKAN_EXTENSION, msg };
+        }
     }
 
     const auto queueCreateInfos = queues->GetDeviceQueueCreateInfos();
 
-    VkDeviceCreateInfo deviceCreateInfo = {
+    auto deviceCreateInfo = VkDeviceCreateInfo{
         .sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .pNext                   = &physicalDeviceFeatures2,
         .queueCreateInfoCount    = static_cast< uint32_t >( queueCreateInfos.size() ),
@@ -899,78 +1110,71 @@ void RTGL1::VulkanDevice::CreateDevice()
 
     InitDeviceExtensionFunctions( device );
 
-    if( libconfig.vulkanValidation )
+    if( LibConfig().vulkanValidation )
     {
         InitDeviceExtensionFunctions_DebugUtils( device );
     }
+
+#ifdef RG_USE_DX12
+    auto dx12prepare = [ & ] {
+        if( !InitDeviceExtensionFunctions_Win32( device ) )
+        {
+            debug::Error( "Failed to fetch Win32-specific VkDevice extensions, "
+                          "DX12 features are disabled." );
+            return;
+        }
+
+        auto luid = physDevice->GetLUID();
+        if( !luid )
+        {
+            debug::Error( "Failed to fetch GPU LUID, DX12 features are disabled." );
+            return;
+        }
+
+        dxgi::SetVk( device, physDevice->Get() );
+
+        DLSS3_DX12::LoadSDK( appGuid.c_str() );
+        FSR3_DX12::LoadSDK();
+    };
+    dx12prepare();
+#endif
 }
 
 void RTGL1::VulkanDevice::CreateSyncPrimitives()
 {
+    auto l_binarySemaphore = [ d = this->device ]( const char* name ) {
+        auto info = VkSemaphoreCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+        };
+        VkSemaphore semaphore{};
+        VkResult    r = vkCreateSemaphore( d, &info, nullptr, &semaphore );
+        VK_CHECKERROR( r );
+        SET_DEBUG_NAME( d, semaphore, VK_OBJECT_TYPE_SEMAPHORE, name );
+        return semaphore;
+    };
+
+    auto l_fence = [ d = this->device ]( VkFenceCreateFlags flags, const char* name ) {
+        auto signaledFenceInfo = VkFenceCreateInfo{
+            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+            .flags = flags,
+        };
+        VkFence  fence{};
+        VkResult r = vkCreateFence( d, &signaledFenceInfo, nullptr, &fence );
+        VK_CHECKERROR( r );
+        SET_DEBUG_NAME( d, fence, VK_OBJECT_TYPE_FENCE, name );
+        return fence;
+    };
+
     for( uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++ )
     {
-        {
-            VkSemaphoreCreateInfo semaphoreInfo = {
-                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-            };
-            VkResult r = vkCreateSemaphore(
-                device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[ i ] );
+        vkswapchainAvailableSemaphores[ i ] =
+            l_binarySemaphore( "Vulkan Swapchain Image available semaphore" );
+        emulatedSemaphores[ i ]       = l_binarySemaphore( "Emulated semaphore" );
+        debugFinishedSemaphores[ i ]  = l_binarySemaphore( "Debug render finished semaphore" );
+        inFrameSemaphores[ i ]        = l_binarySemaphore( "In-frame semaphore" );
 
-            VK_CHECKERROR( r );
-            SET_DEBUG_NAME( device,
-                            imageAvailableSemaphores[ i ],
-                            VK_OBJECT_TYPE_SEMAPHORE,
-                            "Image available semaphore" );
-        }
-
-        {
-            VkSemaphoreCreateInfo semaphoreInfo = {
-                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-            };
-            VkResult r = vkCreateSemaphore(
-                device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[ i ] );
-
-            VK_CHECKERROR( r );
-            SET_DEBUG_NAME( device,
-                            renderFinishedSemaphores[ i ],
-                            VK_OBJECT_TYPE_SEMAPHORE,
-                            "Render finished semaphore" );
-        }
-
-        {
-            VkSemaphoreCreateInfo semaphoreInfo = {
-                .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-            };
-            VkResult r =
-                vkCreateSemaphore( device, &semaphoreInfo, nullptr, &inFrameSemaphores[ i ] );
-
-            VK_CHECKERROR( r );
-            SET_DEBUG_NAME(
-                device, inFrameSemaphores[ i ], VK_OBJECT_TYPE_SEMAPHORE, "In-frame semaphore" );
-        }
-
-        {
-            VkFenceCreateInfo signaledFenceInfo = {
-                .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-                .flags = VK_FENCE_CREATE_SIGNALED_BIT,
-            };
-            VkResult r = vkCreateFence( device, &signaledFenceInfo, nullptr, &frameFences[ i ] );
-
-            VK_CHECKERROR( r );
-            SET_DEBUG_NAME( device, frameFences[ i ], VK_OBJECT_TYPE_FENCE, "Frame fence" );
-        }
-
-        {
-            VkFenceCreateInfo nonSignaledFenceInfo = {
-                .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-            };
-            VkResult r =
-                vkCreateFence( device, &nonSignaledFenceInfo, nullptr, &outOfFrameFences[ i ] );
-
-            VK_CHECKERROR( r );
-            SET_DEBUG_NAME(
-                device, outOfFrameFences[ i ], VK_OBJECT_TYPE_FENCE, "Out of frame fence" );
-        }
+        frameFences[ i ]      = l_fence( VK_FENCE_CREATE_SIGNALED_BIT, "Frame fence" );
+        outOfFrameFences[ i ] = l_fence( 0, "Out of frame fence" );
     }
 }
 
@@ -993,16 +1197,16 @@ void RTGL1::VulkanDevice::DestroySyncPrimitives()
 {
     for( uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++ )
     {
-        vkDestroySemaphore( device, imageAvailableSemaphores[ i ], nullptr );
-        vkDestroySemaphore( device, renderFinishedSemaphores[ i ], nullptr );
+        vkDestroySemaphore( device, vkswapchainAvailableSemaphores[ i ], nullptr );
+        vkDestroySemaphore( device, debugFinishedSemaphores[ i ], nullptr );
         vkDestroySemaphore( device, inFrameSemaphores[ i ], nullptr );
-
+        vkDestroySemaphore( device, emulatedSemaphores[ i ], nullptr );
         vkDestroyFence( device, frameFences[ i ], nullptr );
         vkDestroyFence( device, outOfFrameFences[ i ], nullptr );
     }
 }
 
-void RTGL1::VulkanDevice::ValidateCreateInfo( const RgInstanceCreateInfo* pInfo ) const
+void RTGL1::VulkanDevice::ValidateAndOverrideCreateInfo( const RgInstanceCreateInfo* pInfo ) const
 {
     using namespace std::string_literals;
 
@@ -1042,6 +1246,31 @@ void RTGL1::VulkanDevice::ValidateCreateInfo( const RgInstanceCreateInfo* pInfo 
                            "indirectIlluminationMaxAlbedoLayers must be <="s +
                                std::to_string( MATERIALS_MAX_LAYER_COUNT ) );
     }
+
+#if SUPPRESS_TEXLAYERS
+    {
+        if( pInfo->primaryRaysMaxAlbedoLayers > 1 ||
+            pInfo->indirectIlluminationMaxAlbedoLayers > 1 || pInfo->allowTexCoordLayer1 ||
+            pInfo->allowTexCoordLayer2 || pInfo->allowTexCoordLayer3 )
+        {
+            debug::Error( "SUPPRESS_TEXLAYERS shader macro is active, "
+                          "texture layers are not supported in this build. Enforcing:\n"
+                          "primaryRaysMaxAlbedoLayers = 1\n"
+                          "indirectIlluminationMaxAlbedoLayers = 1\n"
+                          "allowTexCoordLayer1 = false\n"
+                          "allowTexCoordLayer2 = false\n"
+                          "allowTexCoordLayer3 = false" );
+        }
+
+        auto ovrd = const_cast< RgInstanceCreateInfo* >( pInfo );
+
+        ovrd->primaryRaysMaxAlbedoLayers          = 1;
+        ovrd->indirectIlluminationMaxAlbedoLayers = 1;
+        ovrd->allowTexCoordLayer1                 = false;
+        ovrd->allowTexCoordLayer2                 = false;
+        ovrd->allowTexCoordLayer3                 = false;
+    }
+#endif
 
     if( pInfo->worldScale <= 0.00001f )
     {

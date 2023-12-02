@@ -21,7 +21,7 @@
 #include "MemoryAllocator.h"
 
 #include "Const.h"
-
+#include "RgException.h"
 #include "Utils.h"
 
 RTGL1::MemoryAllocator::MemoryAllocator( VkInstance                        _instance,
@@ -89,7 +89,8 @@ VkBuffer RTGL1::MemoryAllocator::CreateStagingSrcTextureBuffer( const VkBufferCr
         return VK_NULL_HANDLE;
     }
 
-    bufAllocs[ buffer ] = resultAlloc;
+    auto [ iter, isNew ] = bufAllocs.emplace( buffer, resultAlloc );
+    assert( isNew );
 
     if( outMemory != nullptr )
     {
@@ -128,8 +129,9 @@ VkImage RTGL1::MemoryAllocator::CreateDstTextureImage( const VkImageCreateInfo* 
     {
         return VK_NULL_HANDLE;
     }
-
-    imgAllocs[ image ] = resultAlloc;
+    
+    auto [ iter, isNew ] = imgAllocs.emplace( image, resultAlloc );
+    assert( isNew );
 
     if( outMemory != nullptr )
     {
@@ -141,26 +143,35 @@ VkImage RTGL1::MemoryAllocator::CreateDstTextureImage( const VkImageCreateInfo* 
 
 void RTGL1::MemoryAllocator::DestroyStagingSrcTextureBuffer( VkBuffer buffer )
 {
-    if( bufAllocs.find( buffer ) == bufAllocs.end() )
+    auto vmaAllocation = bufAllocs.find( buffer );
+    if( vmaAllocation == bufAllocs.end() )
     {
         assert( 0 );
         return;
     }
 
-    vmaDestroyBuffer( allocator, buffer, bufAllocs[ buffer ] );
+    vmaDestroyBuffer( allocator, buffer, vmaAllocation->second );
     bufAllocs.erase( buffer );
 }
 
 void RTGL1::MemoryAllocator::DestroyTextureImage( VkImage image )
 {
-    if( imgAllocs.find( image ) == imgAllocs.end() )
+    auto vmaAllocation = imgAllocs.find( image );
+    if( vmaAllocation == imgAllocs.end() )
     {
         assert( 0 );
         return;
     }
 
-    vmaDestroyImage( allocator, image, imgAllocs[ image ] );
+    vmaDestroyImage( allocator, image, vmaAllocation->second );
     imgAllocs.erase( image );
+}
+
+auto RTGL1::MemoryAllocator::GetMemoryTypeIndex( uint32_t              memoryTypeBits,
+                                                 VkMemoryPropertyFlags requirementsMask ) const
+    -> std::optional< uint32_t >
+{
+    return physDevice->GetMemoryTypeIndex( memoryTypeBits, requirementsMask );
 }
 
 void RTGL1::MemoryAllocator::CreateTexturesStagingPool()
@@ -247,12 +258,16 @@ VkDeviceMemory RTGL1::MemoryAllocator::AllocDedicated( const VkMemoryRequirement
                                                        AllocType                   allocType,
                                                        const char* pDebugName ) const
 {
-    VkDeviceMemory memory;
+    auto memoryTypeIndex = GetMemoryTypeIndex( memReqs.memoryTypeBits, properties );
+    if( !memoryTypeIndex )
+    {
+        throw RgException{ RG_RESULT_GRAPHICS_API_ERROR, "GetMemoryTypeIndex failure" };
+    }
 
     VkMemoryAllocateInfo memAllocInfo = {
         .sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
         .allocationSize  = memReqs.size,
-        .memoryTypeIndex = physDevice->GetMemoryTypeIndex( memReqs.memoryTypeBits, properties ),
+        .memoryTypeIndex = *memoryTypeIndex,
     };
 
     VkMemoryAllocateFlagsInfo allocFlagInfo = {};
@@ -265,17 +280,18 @@ VkDeviceMemory RTGL1::MemoryAllocator::AllocDedicated( const VkMemoryRequirement
         memAllocInfo.pNext = &allocFlagInfo;
     }
 
-    VkResult r = vkAllocateMemory( device, &memAllocInfo, nullptr, &memory );
+    VkDeviceMemory memory{};
+    VkResult       r = vkAllocateMemory( device, &memAllocInfo, nullptr, &memory );
 
     {
         if( Utils::IsCstrEmpty( pDebugName ) )
         {
-            debug::Verbose( "Videomem alloc: {:.3f} MB",
+            debug::Verbose( "Videomem alloc: {:.2f} MB",
                             float( memAllocInfo.allocationSize ) / 1024.f / 1024.f );
         }
         else
         {
-            debug::Verbose( "Videomem alloc: {:.3f} MB ({})",
+            debug::Verbose( "Videomem alloc: {:.2f} MB ({})",
                             float( memAllocInfo.allocationSize ) / 1024.f / 1024.f,
                             pDebugName );
         }

@@ -22,7 +22,38 @@
 
 #include <cmath>
 
+#ifdef __linux__
+    #include <dlfcn.h>
+    #include <unistd.h>
+    #include <linux/limits.h>
+#endif
+
 using namespace RTGL1;
+
+auto Utils::FindBinFolder() -> std::filesystem::path
+{
+#if defined( _WIN32 )
+    wchar_t rtglDllPath[ MAX_PATH ]{};
+    GetModuleFileNameW( GetModuleHandle( RG_LIBRARY_NAME ), rtglDllPath, MAX_PATH );
+#elif defined( __linux__ )
+    wchar_t rtglDllPath[ PATH_MAX ]{};
+    Dl_info dl_info{};
+    if( dladdr( ( void* )GetFolderPath, &dl_info ) )
+    {
+        if( dl_info.dli_fname )
+        {
+            std::mbstowcs( rtglDllPath, dl_info.dli_fname, PATH_MAX );
+        }
+    }
+#endif
+    auto binFolder = std::filesystem::path{ rtglDllPath }.parent_path();
+    if( binFolder.filename() == "debug" )
+    {
+        binFolder = binFolder.parent_path();
+    }
+    assert( binFolder.filename() == "bin" );
+    return binFolder;
+}
 
 void Utils::BarrierImage( VkCommandBuffer                cmd,
                           VkImage                        image,
@@ -271,26 +302,6 @@ bool Utils::IsAlmostZero( const RgMatrix3D& m )
     return s < ALMOST_ZERO_THRESHOLD;
 }
 
-float Utils::Dot( const float a[ 3 ], const float b[ 3 ] )
-{
-    return a[ 0 ] * b[ 0 ] + a[ 1 ] * b[ 1 ] + a[ 2 ] * b[ 2 ];
-}
-
-float Utils::Dot( const RgFloat3D& a, const RgFloat3D& b )
-{
-    return Dot( a.data, b.data );
-}
-
-float Utils::Length( const float v[ 3 ] )
-{
-    return sqrtf( Dot( v, v ) );
-}
-
-float Utils::SqrLength( const float v[ 3 ] )
-{
-    return Dot( v, v );
-}
-
 bool Utils::TryNormalize( float inout[ 3 ] )
 {
     float len = Length( inout );
@@ -326,7 +337,7 @@ void Utils::SafeNormalize( float ( &v )[ 3 ], const RgFloat3D& fallback )
     {
         return;
     }
-    
+
     v[ 0 ] = fallback.data[ 0 ];
     v[ 1 ] = fallback.data[ 1 ];
     v[ 2 ] = fallback.data[ 2 ];
@@ -476,26 +487,4 @@ RgTransform Utils::MakeTransform( const RgFloat3D& position, const RgFloat3D& fo
         { rot[ 1 ][ 0 ], rot[ 1 ][ 1 ], rot[ 1 ][ 2 ], position.data[ 1 ] },
         { rot[ 2 ][ 0 ], rot[ 2 ][ 1 ], rot[ 2 ][ 2 ], position.data[ 2 ] },
     } };
-}
-
-uint32_t Utils::GetPreviousByModulo( uint32_t value, uint32_t count )
-{
-    assert( count > 0 );
-    return ( value + ( count - 1 ) ) % count;
-}
-
-uint32_t Utils::GetWorkGroupCount( float size, uint32_t groupSize )
-{
-    return GetWorkGroupCount( ( uint32_t )std::ceil( size ), groupSize );
-}
-
-uint32_t Utils::GetWorkGroupCount( uint32_t size, uint32_t groupSize )
-{
-    if( groupSize == 0 )
-    {
-        assert( 0 );
-        return 0;
-    }
-
-    return 1 + ( size + ( groupSize - 1 ) ) / groupSize;
 }

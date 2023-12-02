@@ -314,10 +314,7 @@ TextureUploader::~TextureUploader()
 {
     for( uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++ )
     {
-        for( VkBuffer staging : stagingToFree[ i ] )
-        {
-            memAllocator->DestroyStagingSrcTextureBuffer( staging );
-        }
+        ClearStaging( i );
     }
 
     for( auto& p : updateableImageInfos )
@@ -329,9 +326,9 @@ TextureUploader::~TextureUploader()
 void TextureUploader::ClearStaging( uint32_t frameIndex )
 {
     // clear unused staging
-    for( VkBuffer staging : stagingToFree[ frameIndex ] )
+    for( VkBuffer stagingBuffer : stagingToFree[ frameIndex ] )
     {
-        memAllocator->DestroyStagingSrcTextureBuffer( staging );
+        memAllocator->DestroyStagingSrcTextureBuffer( stagingBuffer );
     }
 
     stagingToFree[ frameIndex ].clear();

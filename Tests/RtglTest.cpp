@@ -5,12 +5,18 @@
 #include <random>
 
 
+#ifndef ASSET_DIRECTORY
+#define ASSET_DIRECTORY ""
+#endif
+
 #ifdef _WIN32
     #define RG_USE_SURFACE_WIN32
 #else
     #define RG_USE_SURFACE_XLIB
 #endif
+
 #include <RTGL1/RTGL1.h>
+RG_D3D12CORE_HELPER( ASSET_DIRECTORY )
 
 #define RG_CHECK( x )                                                              \
     assert( ( x ) == RG_RESULT_SUCCESS || ( x ) == RG_RESULT_SUCCESS_FOUND_MESH || \
@@ -41,18 +47,16 @@
 #include "Libs/tinygltf/tiny_gltf.h"
 
 
-#ifndef ASSET_DIRECTORY
-    #define ASSET_DIRECTORY ""
-#endif
-
-
 namespace
 {
 GLFWwindow* g_GlfwHandle;
 
-glm::vec3 ctl_CameraPosition  = glm::vec3( 0, 0, -5 );
-glm::vec3 ctl_CameraDirection = glm::vec3( 0, 0, -1 );
-glm::vec3 ctl_LightPosition   = glm::vec3( 0, 0, 1 );
+glm::vec3 ctl_CameraPosition  = glm::vec3{ 4, 1, 0 };
+glm::vec3 ctl_CameraDirection = glm::vec3{ 0, 0, 1 };
+glm::vec3 ctl_CameraUp        = glm::vec3{ 0, 1, 0 };
+glm::vec3 ctl_CameraRight     = glm::vec3{ 1, 0, 0 };
+glm::vec2 ctl_CameraPitchYaw  = { 0, glm::pi< float >() };
+glm::vec3 ctl_LightPosition   = glm::vec3{ 0, 0, 1 };
 float     ctl_LightIntensity  = 1.0f;
 float     ctl_LightCount      = 0.0f;
 float     ctl_SunIntensity    = 7000.0f;
@@ -62,13 +66,57 @@ float     ctl_Roughness       = 0.05f;
 float     ctl_Metallicity     = 1.0f;
 RgBool32  ctl_MoveBoxes       = 0;
 
-// clang-format off
 bool ProcessWindow()
 {
-    if( glfwWindowShouldClose( g_GlfwHandle ) ) return false;
-    glfwPollEvents(); return true;
+    if( glfwWindowShouldClose( g_GlfwHandle ) )
+    {
+        return false;
+    }
+
+    glfwPollEvents();
+
+    if( glfwGetKey( g_GlfwHandle, GLFW_KEY_P ) == GLFW_PRESS )
+    {
+        const GLFWvidmode* mode = glfwGetVideoMode( glfwGetPrimaryMonitor() );
+
+        if( glfwGetWindowMonitor( g_GlfwHandle ) )
+        {
+            constexpr int width  = 1600;
+            constexpr int height = 900;
+
+            int xPos = ( mode->width - width ) / 2;
+            int yPos = ( mode->height - height ) / 2;
+            glfwSetWindowMonitor( g_GlfwHandle, NULL, xPos, yPos, width, height, GLFW_DONT_CARE );
+        }
+        else
+        {
+            glfwSetWindowMonitor( g_GlfwHandle,
+                                  glfwGetPrimaryMonitor(),
+                                  0,
+                                  0,
+                                  mode->width,
+                                  mode->height,
+                                  GLFW_DONT_CARE );
+        }
+    }
+    return true;
 }
 
+float GetWindowAspect()
+{
+    if( g_GlfwHandle )
+    {
+        int width = 0, height = 0;
+        glfwGetWindowSize( g_GlfwHandle, &width, &height );
+        if( width > 0 && height > 0 )
+        {
+            return float( width ) / float( height );
+        }
+    }
+    return 16.f / 9.f;
+}
+
+// clang-format off
 void ProcessInput()
 {
     static auto IsPressed    = []( int key ) { return glfwGetKey( g_GlfwHandle, ( key ) ) == GLFW_PRESS; };
@@ -85,21 +133,26 @@ void ProcessInput()
             value           = ( value + 1 ) % stateCount;
             lastTimePressed = std::chrono::system_clock::now(); } };
 
-    float           cameraSpeed = 5.0f;
-    float           delta       = 1.0 / 60.0f;
-    const glm::vec3 d           = ctl_CameraDirection;
-    const glm::vec3 u           = glm::vec3( 0, 1, 0 );
-    const glm::vec3 r           = glm::cross( d, u );
+    const auto cameraSpeed = 2.0f;
+    const auto delta       = 1.0f / 60.0f;
 
-    if( IsPressed( GLFW_KEY_W ) )       ctl_CameraPosition += d * delta * cameraSpeed;
-    if( IsPressed( GLFW_KEY_S ) )       ctl_CameraPosition -= d * delta * cameraSpeed;
-    if( IsPressed( GLFW_KEY_D ) )       ctl_CameraPosition += r * delta * cameraSpeed;
-    if( IsPressed( GLFW_KEY_A ) )       ctl_CameraPosition -= r * delta * cameraSpeed;
-    if( IsPressed( GLFW_KEY_E ) )       ctl_CameraPosition += u * delta * cameraSpeed;
-    if( IsPressed( GLFW_KEY_Q ) )       ctl_CameraPosition -= u * delta * cameraSpeed;
+    if( IsPressed( GLFW_KEY_UP ) )      ctl_CameraPitchYaw[ 0 ] += delta;
+    if( IsPressed( GLFW_KEY_DOWN ) )    ctl_CameraPitchYaw[ 0 ] -= delta;
+    if( IsPressed( GLFW_KEY_RIGHT ) )   ctl_CameraPitchYaw[ 1 ] -= delta;
+    if( IsPressed( GLFW_KEY_LEFT ) )    ctl_CameraPitchYaw[ 1 ] += delta;
+    const auto mat = glm::rotate( ctl_CameraPitchYaw[ 1 ], glm::vec3{ 0, 1, 0 } ) *
+                     glm::rotate( ctl_CameraPitchYaw[ 0 ], glm::vec3{ 1, 0, 0 } );
+    ctl_CameraDirection = glm::vec3{ mat * glm::vec4{ 0, 0, -1, 0 } };
+    ctl_CameraUp        = glm::vec3{ mat * glm::vec4{ 0, 1, 0, 0 } };
+    ctl_CameraRight     = glm::vec3{ mat * glm::vec4{ 1, 0, 0, 0 } };
 
-    if( IsPressed( GLFW_KEY_LEFT ) )    ctl_CameraDirection = glm::rotate( ctl_CameraDirection, delta * 2, glm::vec3( 0, 1, 0 ) );
-    if( IsPressed( GLFW_KEY_RIGHT ) )   ctl_CameraDirection = glm::rotate( ctl_CameraDirection, -delta * 2, glm::vec3( 0, 1, 0 ) );
+    if( IsPressed( GLFW_KEY_W ) )       ctl_CameraPosition += delta * cameraSpeed * ctl_CameraDirection;
+    if( IsPressed( GLFW_KEY_S ) )       ctl_CameraPosition -= delta * cameraSpeed * ctl_CameraDirection;
+    if( IsPressed( GLFW_KEY_D ) )       ctl_CameraPosition += delta * cameraSpeed * ctl_CameraRight;
+    if( IsPressed( GLFW_KEY_A ) )       ctl_CameraPosition -= delta * cameraSpeed * ctl_CameraRight;
+    if( IsPressed( GLFW_KEY_E ) )       ctl_CameraPosition += delta * cameraSpeed * ctl_CameraUp;
+    if( IsPressed( GLFW_KEY_Q ) )       ctl_CameraPosition -= delta * cameraSpeed * ctl_CameraUp;
+    
 
     if( IsPressed( GLFW_KEY_KP_8 ) )    ctl_LightPosition[ 2 ] += delta * 5;
     if( IsPressed( GLFW_KEY_KP_5 ) )    ctl_LightPosition[ 2 ] -= delta * 5;
@@ -503,9 +556,16 @@ void MainLoop( RgInterface& rt, std::string_view gltfPath )
         ProcessInput();
 
         {
+            auto resolution = RgStartFrameRenderResolutionParams{
+                .sType            = RG_STRUCTURE_TYPE_START_FRAME_RENDER_RESOLUTION_PARAMS,
+                .pNext            = nullptr,
+                .upscaleTechnique = RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2,
+                .resolutionMode   = RG_RENDER_RESOLUTION_MODE_BALANCED,
+            };
+
             auto startInfo = RgStartFrameInfo{
                 .sType    = RG_STRUCTURE_TYPE_START_FRAME_INFO,
-                .pNext    = NULL,
+                .pNext    = &resolution,
                 .pMapName = "untitled",
                 .vsync    = true,
             };
@@ -516,16 +576,14 @@ void MainLoop( RgInterface& rt, std::string_view gltfPath )
 
 
         {
-            auto right = glm::normalize( glm::cross( ctl_CameraDirection, { 0, 1, 0 } ) );
-
             auto camera = RgCameraInfo{
                 .sType       = RG_STRUCTURE_TYPE_CAMERA_INFO,
                 .pNext       = nullptr,
                 .position    = { ctl_CameraPosition.x, ctl_CameraPosition.y, ctl_CameraPosition.z },
-                .up          = { 0, 1, 0 },
-                .right       = { right.x, right.y, right.z },
+                .up          = { ctl_CameraUp.x, ctl_CameraUp.y, ctl_CameraUp.z },
+                .right       = { ctl_CameraRight.x, ctl_CameraRight.y, ctl_CameraRight.z },
                 .fovYRadians = glm::radians( 75.0f ),
-                .aspect      = 16.0f / 9.0f,
+                .aspect      = GetWindowAspect(),
                 .cameraNear  = 0.1f,
                 .cameraFar   = 10000.0f,
             };
@@ -567,6 +625,7 @@ void MainLoop( RgInterface& rt, std::string_view gltfPath )
                     .pTextureName         = srcPrim.texture.c_str(),
                     .textureFrame         = 0,
                     .color                = 0xFFFFFFFF,
+                    .classicLight         = 1.0f,
                 };
 
                 r = rt.rgUploadMeshPrimitive( &mesh, &prim );
@@ -602,6 +661,7 @@ void MainLoop( RgInterface& rt, std::string_view gltfPath )
                 .pTextureName = nullptr,
                 .textureFrame = 0,
                 .color        = rt.rgUtilPackColorByte4D( 128, 255, 128, 128 ),
+                .classicLight = 1.0f,
             };
 
             r = rt.rgUploadMeshPrimitive( &mesh, &prim );
@@ -635,6 +695,7 @@ void MainLoop( RgInterface& rt, std::string_view gltfPath )
                 .textureFrame         = 0,
                 // alpha is not 1.0
                 .color = rt.rgUtilPackColorByte4D( 255, 128, 128, 128 ),
+                .classicLight = 1.0f,
             };
 
             r = rt.rgUploadMeshPrimitive( &mesh, &prim );
@@ -726,18 +787,10 @@ void MainLoop( RgInterface& rt, std::string_view gltfPath )
                 .pSkyCubemapTextureName = "_external_/cubemap/0",
 #endif
 
-            auto resolution = RgDrawFrameRenderResolutionParams{
-                .sType            = RG_STRUCTURE_TYPE_DRAW_FRAME_RENDER_RESOLUTION_PARAMS,
-                .pNext            = &sky,
-                .upscaleTechnique = RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2,
-                .resolutionMode   = RG_RENDER_RESOLUTION_MODE_BALANCED,
-            };
-
             auto frameInfo = RgDrawFrameInfo{
                 .sType            = RG_STRUCTURE_TYPE_DRAW_FRAME_INFO,
-                .pNext            = &resolution,
+                .pNext            = &sky,
                 .rayLength        = 10000.0f,
-                .rayCullMaskWorld = RG_DRAW_FRAME_RAY_CULL_WORLD_0_BIT,
                 .currentTime      = GetCurrentTimeInSeconds(),
             };
 
@@ -777,14 +830,8 @@ int main( int argc, char* argv[] )
     auto info = RgInstanceCreateInfo{
         .sType = RG_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 
-#ifdef _WIN32
-    #ifndef NDEBUG
-        .pRtglDynamicLibraryPath = ASSET_DIRECTORY "bin/debug/RTGL1.dll",
-    #else
-        .pRtglDynamicLibraryPath = ASSET_DIRECTORY "bin/RTGL1.dll",
-    #endif
-#else
-#endif
+        .version           = RG_RTGL_VERSION_API,
+        .sizeOfRgInterface = sizeof( RgInterface ),
 
         .pAppName = "RTGL1 Test",
         .pAppGUID = "459d6734-62a6-4d47-927a-bedcdb0445c5",
@@ -813,8 +860,8 @@ int main( int argc, char* argv[] )
         .allowTexCoordLayer3        = true,
         .lightmapTexCoordLayerIndex = 1,
 
-        .rasterizedMaxVertexCount = 4096,
-        .rasterizedMaxIndexCount  = 2048,
+        .rasterizedMaxVertexCount = 1 << 24,
+        .rasterizedMaxIndexCount  = 1 << 25,
 
         .rasterizedSkyCubemapSize = 256,
 
@@ -826,13 +873,19 @@ int main( int argc, char* argv[] )
         .worldScale   = 1.0f,
     };
 
+#ifndef NDEBUG
+    constexpr bool isdebug = true;
+#else
+    constexpr bool isdebug = false;
+#endif
+
 #ifdef _WIN32
     HMODULE rtDll = nullptr;
 #else
     void* rtDll = nullptr;
 #endif
 
-    r = rgLoadLibraryAndCreate( &info, &rt, &rtDll );
+    r = rgLoadLibraryAndCreate( &info, isdebug, & rt, &rtDll );
     RG_CHECK( r );
 
     {

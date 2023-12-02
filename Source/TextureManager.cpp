@@ -22,6 +22,7 @@
 
 #include "Const.h"
 #include "DrawFrameInfo.h"
+#include "JsonParser.h"
 #include "RgException.h"
 #include "TextureExporter.h"
 #include "TextureOverrides.h"
@@ -43,8 +44,9 @@ constexpr MaterialTextures EmptyMaterialTextures = {
     EMPTY_TEXTURE_INDEX,
     EMPTY_TEXTURE_INDEX,
     EMPTY_TEXTURE_INDEX,
+    EMPTY_TEXTURE_INDEX,
 };
-static_assert( TEXTURES_PER_MATERIAL_COUNT == 4 );
+static_assert( TEXTURES_PER_MATERIAL_COUNT == 5 );
 
 constexpr bool PreferExistingMaterials = true;
 
@@ -106,28 +108,30 @@ TextureManager::TextureManager( VkDevice                                _device,
                                 std::shared_ptr< CommandBufferManager > _cmdManager,
                                 const std::filesystem::path&            _waterNormalTexturePath,
                                 const std::filesystem::path&            _dirtMaskTexturePath,
+                                const std::filesystem::path&            _sceneBuildingTexturePath,
                                 RgTextureSwizzling                      _pbrSwizzling,
-                                bool                                    _forceNormalMapFilterLinear,
-                                const LibraryConfig&                    _config )
-    : device( _device )
-    , pbrSwizzling( _pbrSwizzling )
-    , imageLoaderKtx( std::make_shared< ImageLoader >() )
-    , imageLoaderRaw( std::make_shared< ImageLoaderDev >() )
-    , isdevmode( _config.developerMode )
-    , memAllocator( std::move( _memAllocator ) )
-    , cmdManager( std::move( _cmdManager ) )
-    , samplerMgr( std::move( _samplerMgr ) )
-    , waterNormalTextureIndex( EMPTY_TEXTURE_INDEX )
-    , dirtMaskTextureIndex( EMPTY_TEXTURE_INDEX )
-    , currentDynamicSamplerFilter( RG_SAMPLER_FILTER_LINEAR )
+                                bool                                    _forceNormalMapFilterLinear )
+    : device{ _device }
+    , pbrSwizzling{ _pbrSwizzling }
+    , imageLoaderKtx{ std::make_shared< ImageLoader >() }
+    , imageLoaderRaw{ std::make_shared< ImageLoaderDev >() }
+    , isdevmode{ LibConfig().developerMode }
+    , memAllocator{ std::move( _memAllocator ) }
+    , cmdManager{ std::move( _cmdManager ) }
+    , samplerMgr{ std::move( _samplerMgr ) }
+    , waterNormalTextureIndex{ EMPTY_TEXTURE_INDEX }
+    , dirtMaskTextureIndex{ EMPTY_TEXTURE_INDEX }
+    , sceneBuildingTextureIndex{ EMPTY_TEXTURE_INDEX }
+    , currentDynamicSamplerFilter{ RG_SAMPLER_FILTER_LINEAR }
     , postfixes
         {
             TEXTURE_ALBEDO_ALPHA_POSTFIX,
             TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_POSTFIX,
             TEXTURE_NORMAL_POSTFIX,
             TEXTURE_EMISSIVE_POSTFIX,
+            TEXTURE_HEIGHT_POSTFIX,
         }
-    , forceNormalMapFilterLinear(_forceNormalMapFilterLinear  )
+    , forceNormalMapFilterLinear{ _forceNormalMapFilterLinear }
 {
     textureDesc = std::make_shared< TextureDescriptors >(
         device, samplerMgr, TEXTURE_COUNT_MAX, BINDING_TEXTURES );
@@ -143,6 +147,8 @@ TextureManager::TextureManager( VkDevice                                _device,
 
             waterNormalTextureIndex = CreateWaterNormalTexture( cmd, 0, _waterNormalTexturePath );
             dirtMaskTextureIndex    = CreateDirtMaskTexture( cmd, 0, _dirtMaskTexturePath );
+            sceneBuildingTextureIndex =
+                CreateSceneBuildingTexture( cmd, 0, _sceneBuildingTexturePath );
         }
         cmdManager->Submit( cmd );
         cmdManager->WaitGraphicsIdle();
@@ -202,7 +208,7 @@ uint32_t TextureManager::CreateWaterNormalTexture( VkCommandBuffer              
     constexpr RgExtent2D defaultSize   = { 1, 1 };
 
     // try to load image file
-    TextureOverrides ovrd( filepath, false, AnyImageLoader() );
+    auto ovrd = TextureOverrides{ filepath, false, AnyImageLoader() };
 
     if( !ovrd.result )
     {
@@ -219,15 +225,15 @@ uint32_t TextureManager::CreateWaterNormalTexture( VkCommandBuffer              
             .format         = VK_FORMAT_R8G8B8A8_UNORM,
         };
         ovrd.path = filepath;
-        Utils::SafeCstrCopy( ovrd.debugname, "WaterNormal" );
+        Utils::SafeCstrCopy( ovrd.debugname, "Water normal" );
     }
 
     return PrepareTexture( cmd,
                            frameIndex,
                            ovrd.result,
-                           SamplerManager::Handle( RG_SAMPLER_FILTER_LINEAR,
+                           SamplerManager::Handle{ RG_SAMPLER_FILTER_LINEAR,
                                                    RG_SAMPLER_ADDRESS_MODE_REPEAT,
-                                                   RG_SAMPLER_ADDRESS_MODE_REPEAT ),
+                                                   RG_SAMPLER_ADDRESS_MODE_REPEAT },
                            true,
                            "Water normal",
                            false,
@@ -244,7 +250,7 @@ uint32_t TextureManager::CreateDirtMaskTexture( VkCommandBuffer              cmd
     constexpr RgExtent2D defaultSize   = { 1, 1 };
 
     // try to load image file
-    TextureOverrides ovrd( filepath, true, AnyImageLoader() );
+    auto ovrd = TextureOverrides{ filepath, true, AnyImageLoader() };
 
     if( !ovrd.result )
     {
@@ -261,21 +267,72 @@ uint32_t TextureManager::CreateDirtMaskTexture( VkCommandBuffer              cmd
             .format         = VK_FORMAT_R8G8B8A8_SRGB,
         };
         ovrd.path = filepath;
-        Utils::SafeCstrCopy( ovrd.debugname, "WaterNormal" );
+        Utils::SafeCstrCopy( ovrd.debugname, "Dirt mask" );
     }
 
     return PrepareTexture( cmd,
                            frameIndex,
                            ovrd.result,
-                           SamplerManager::Handle( RG_SAMPLER_FILTER_LINEAR,
+                           SamplerManager::Handle{ RG_SAMPLER_FILTER_LINEAR,
                                                    RG_SAMPLER_ADDRESS_MODE_REPEAT,
-                                                   RG_SAMPLER_ADDRESS_MODE_REPEAT ),
+                                                   RG_SAMPLER_ADDRESS_MODE_REPEAT },
                            true,
                            "Dirt mask",
                            false,
                            std::nullopt,
                            std::move( ovrd.path ),
                            FindEmptySlot( textures ) );
+}
+
+uint32_t TextureManager::CreateSceneBuildingTexture( VkCommandBuffer              cmd,
+                                                     uint32_t                     frameIndex,
+                                                     const std::filesystem::path& filepath )
+{
+    constexpr uint32_t   defaultData[] = { Utils::PackColor( 0, 0, 0, 0 ) };
+    constexpr RgExtent2D defaultSize   = { 1, 1 };
+
+    // try to load image file
+    auto ovrd = TextureOverrides{ filepath, true, AnyImageLoader() };
+
+    if( !ovrd.result )
+    {
+        debug::Info( "Couldn't find scene building warning texture at: {}", filepath.string() );
+
+        ovrd.result = ImageLoader::ResultInfo{
+            .levelOffsets   = { 0 },
+            .levelSizes     = { sizeof( defaultData ) },
+            .levelCount     = 1,
+            .isPregenerated = false,
+            .pData          = reinterpret_cast< const uint8_t* >( defaultData ),
+            .dataSize       = sizeof( defaultData ),
+            .baseSize       = defaultSize,
+            .format         = VK_FORMAT_R8G8B8A8_SRGB,
+        };
+        ovrd.path = filepath;
+        Utils::SafeCstrCopy( ovrd.debugname, "Scene build warning" );
+    }
+
+    auto idx = PrepareTexture( cmd,
+                               frameIndex,
+                               ovrd.result,
+                               SamplerManager::Handle{ RG_SAMPLER_FILTER_LINEAR,
+                                                       RG_SAMPLER_ADDRESS_MODE_CLAMP,
+                                                       RG_SAMPLER_ADDRESS_MODE_CLAMP },
+                               true,
+                               "Scene build warning",
+                               false,
+                               std::nullopt,
+                               std::move( ovrd.path ),
+                               FindEmptySlot( textures ) );
+
+    InsertMaterial( frameIndex,
+                    MATERIAL_NAME_SCENEBUILDINGWARNING,
+                    Material{
+                        .textures     = { idx },
+                        .isUpdateable = false,
+                    } );
+
+    return idx;
 }
 
 TextureManager::~TextureManager()
@@ -460,6 +517,7 @@ bool TextureManager::TryCreateMaterial( VkCommandBuffer              cmd,
         TextureOverrides{ ovrdFolder, info.pTextureName, postfixes[ 1 ], nullptr, {}, VK_FORMAT_R8G8B8A8_UNORM, OnlyKTX2LoaderIfNonDevMode() },
         TextureOverrides{ ovrdFolder, info.pTextureName, postfixes[ 2 ], nullptr, {}, VK_FORMAT_R8G8B8A8_UNORM, OnlyKTX2LoaderIfNonDevMode() },
         TextureOverrides{ ovrdFolder, info.pTextureName, postfixes[ 3 ], nullptr, {}, VK_FORMAT_R8G8B8A8_SRGB, OnlyKTX2LoaderIfNonDevMode() },
+        TextureOverrides{ ovrdFolder, info.pTextureName, postfixes[ 4 ], nullptr, {}, VK_FORMAT_R8_UNORM, OnlyKTX2LoaderIfNonDevMode() },
     };
     static_assert( std::size( ovrd ) == TEXTURES_PER_MATERIAL_COUNT );
     // clang-format on
@@ -472,6 +530,7 @@ bool TextureManager::TryCreateMaterial( VkCommandBuffer              cmd,
                                 info.addressModeU,
                                 info.addressModeV },
         SamplerManager::Handle{ info.filter, info.addressModeU, info.addressModeV },
+        SamplerManager::Handle{ RG_SAMPLER_FILTER_LINEAR, info.addressModeU, info.addressModeV },
     };
     static_assert( std::size( samplers ) == TEXTURES_PER_MATERIAL_COUNT );
     static_assert( TEXTURE_NORMAL_INDEX == 2 );
@@ -479,7 +538,8 @@ bool TextureManager::TryCreateMaterial( VkCommandBuffer              cmd,
 
     std::optional< RgTextureSwizzling > swizzlings[] = {
         std::nullopt,
-        std::optional( pbrSwizzling ),
+        std::optional{ pbrSwizzling },
+        std::nullopt,
         std::nullopt,
         std::nullopt,
     };
@@ -505,7 +565,7 @@ void TextureManager::MakeMaterial( VkCommandBuffer                              
                                    uint32_t                                         frameIndex,
                                    std::string_view                                 materialName,
                                    std::span< TextureOverrides >                    ovrd,
-                                   std::span< SamplerManager::Handle >              samplers,
+                                   std::span< const SamplerManager::Handle >        samplers,
                                    std::span< std::optional< RgTextureSwizzling > > swizzlings )
 {
     assert( ovrd.size() == TEXTURES_PER_MATERIAL_COUNT );
@@ -537,11 +597,11 @@ void TextureManager::MakeMaterial( VkCommandBuffer                              
                     } );
 }
 
-bool TextureManager::TryCreateImportedMaterial( VkCommandBuffer                     cmd,
-                                                uint32_t                            frameIndex,
-                                                const std::string&                  materialName,
-                                                std::span< std::filesystem::path >  fullPaths,
-                                                std::span< SamplerManager::Handle > samplers,
+bool TextureManager::TryCreateImportedMaterial( VkCommandBuffer    cmd,
+                                                uint32_t           frameIndex,
+                                                const std::string& materialName,
+                                                std::span< const std::filesystem::path >  fullPaths,
+                                                std::span< const SamplerManager::Handle > samplers,
                                                 RgTextureSwizzling customPbrSwizzling,
                                                 bool               isReplacement )
 {
@@ -550,7 +610,6 @@ bool TextureManager::TryCreateImportedMaterial( VkCommandBuffer                 
 
     if( materialName.empty() )
     {
-        assert( 0 );
         return false;
     }
 
@@ -589,20 +648,22 @@ bool TextureManager::TryCreateImportedMaterial( VkCommandBuffer                 
                               []( auto&& p ) { return std::filesystem::is_regular_file( p ); } ) )
     {
         debug::Warning( "Fail to create imported material: none of the paths lead to a file:"
-                        "\n  A: {}\n  B: {}\n  C: {}\n  D: {}",
+                        "\n  A: {}\n  B: {}\n  C: {}\n  D: {}\n  E: {}\n",
                         fullPaths[ 0 ].string(),
                         fullPaths[ 1 ].string(),
                         fullPaths[ 2 ].string(),
-                        fullPaths[ 3 ].string() );
+                        fullPaths[ 3 ].string(),
+                        fullPaths[ 4 ].string() );
         return false;
     }
 
     // clang-format off
     TextureOverrides ovrd[] = {
-        TextureOverrides( fullPaths[ 0 ], true, AnyImageLoader() ),
-        TextureOverrides( fullPaths[ 1 ], false, AnyImageLoader() ),
-        TextureOverrides( fullPaths[ 2 ], false, AnyImageLoader() ),
-        TextureOverrides( fullPaths[ 3 ], true, AnyImageLoader() ),
+        TextureOverrides{ fullPaths[ 0 ], true, AnyImageLoader() },
+        TextureOverrides{ fullPaths[ 1 ], false, AnyImageLoader() },
+        TextureOverrides{ fullPaths[ 2 ], false, AnyImageLoader() },
+        TextureOverrides{ fullPaths[ 3 ], true, AnyImageLoader() },
+        TextureOverrides{ fullPaths[ 4 ], true, AnyImageLoader() },
     };
     static_assert( std::size( ovrd ) == TEXTURES_PER_MATERIAL_COUNT );
     // clang-format on
@@ -610,7 +671,8 @@ bool TextureManager::TryCreateImportedMaterial( VkCommandBuffer                 
 
     std::optional< RgTextureSwizzling > swizzlings[] = {
         std::nullopt,
-        std::optional( customPbrSwizzling ),
+        std::optional{ customPbrSwizzling },
+        std::nullopt,
         std::nullopt,
         std::nullopt,
     };
@@ -690,6 +752,16 @@ uint32_t TextureManager::PrepareTexture( VkCommandBuffer                        
 
     assert( info->dataSize > 0 );
     assert( info->levelCount > 0 && info->levelSizes[ 0 ] > 0 );
+
+    // SHIPPING_HACK begin: dont make mipmaps for voxel models 
+    {
+        const auto& fs = filepath.native();
+        if( fs.length() >= 3 && fs.contains( L"vx_" ) )
+        {
+            useMipmaps = false;
+        }
+    }
+    // SHIPPING_HACK end
 
     auto uploadInfo = TextureUploader::UploadInfo{
         .cmd                    = cmd,
@@ -854,9 +926,15 @@ uint32_t TextureManager::GetDirtMaskTextureIndex() const
     return dirtMaskTextureIndex;
 }
 
+uint32_t TextureManager::GetSceneBuildingTextureIndex() const
+{
+    return sceneBuildingTextureIndex;
+}
+
 std::array< MaterialTextures, 4 > TextureManager::GetTexturesForLayers(
     const RgMeshPrimitiveInfo& primitive ) const
 {
+#if !SUPPRESS_TEXLAYERS
     auto layers = pnext::find< RgMeshPrimitiveTextureLayersEXT >( &primitive );
 
     return {
@@ -865,11 +943,20 @@ std::array< MaterialTextures, 4 > TextureManager::GetTexturesForLayers(
         GetMaterialTextures( layers && layers->pLayer2 ? layers->pLayer2->pTextureName : nullptr ),
         GetMaterialTextures( layers && layers->pLayer3 ? layers->pLayer3->pTextureName : nullptr ),
     };
+#else
+    return {
+        GetMaterialTextures( primitive.pTextureName ),
+        {},
+        {},
+        {},
+    };
+#endif
 }
 
 std::array< RgColor4DPacked32, 4 > TextureManager::GetColorForLayers(
     const RgMeshPrimitiveInfo& primitive ) const
 {
+#if !SUPPRESS_TEXLAYERS
     auto layers = pnext::find< RgMeshPrimitiveTextureLayersEXT >( &primitive );
 
     return {
@@ -878,6 +965,14 @@ std::array< RgColor4DPacked32, 4 > TextureManager::GetColorForLayers(
         layers && layers->pLayer2 ? layers->pLayer2->color : 0xFFFFFFFF,
         layers && layers->pLayer3 ? layers->pLayer3->color : 0xFFFFFFFF,
     };
+#else
+    return {
+        primitive.color,
+        0xFFFFFFFF,
+        0xFFFFFFFF,
+        0xFFFFFFFF,
+    };
+#endif
 }
 
 namespace
@@ -982,7 +1077,7 @@ auto TextureManager::ExportMaterialTextures( const char*                  materi
         }
         else
         {
-            exported = TextureExporter().ExportAsTGA( *memAllocator,
+            exported = TextureExporter{}.ExportAsTGA( *memAllocator,
                                                       *cmdManager,
                                                       info.image,
                                                       info.size,
@@ -994,10 +1089,14 @@ auto TextureManager::ExportMaterialTextures( const char*                  materi
 
         if( exported )
         {
-            arr[ i ].relativePath = relativeFilePath.string();
+            auto [ u, v, f ] = samplerMgr->Deconstruct( info.samplerHandle );
 
-            std::tie( arr[ i ].addressModeU, arr[ i ].addressModeV ) =
-                SamplerManager::AccessAddressModes( info.samplerHandle );
+            arr[ i ] = ExportResult{
+                .relativePath = relativeFilePath.string(),
+                .addressModeU = u,
+                .addressModeV = v,
+                .filter       = f,
+            };
         }
     }
 

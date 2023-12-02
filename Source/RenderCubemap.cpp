@@ -119,8 +119,7 @@ void RTGL1::RenderCubemap::Draw( VkCommandBuffer                cmd,
                                  const TextureManager&          textureManager,
                                  const GlobalUniform&           uniform )
 {
-    const auto& drawInfos = skyDataCollector.GetSkyDrawInfos();
-
+    const auto& drawInfos = skyDataCollector.GetDrawInfos( GeometryRasterType::SKY );
     if( drawInfos.empty() )
     {
         return;

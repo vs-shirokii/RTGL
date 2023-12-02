@@ -8,13 +8,7 @@ string(TOUPPER "${CMAKE_BUILD_TYPE}" BUILD_TYPE )
 include(CheckIPOSupported)
 check_ipo_supported()
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
-
-# Vulkan
-message(STATUS "Adding Vulkan. VulkanSDK: $ENV{VULKAN_SDK}")
-find_package(Vulkan REQUIRED)
-add_library(Vulkan INTERFACE)
-target_include_directories(Vulkan INTERFACE ${Vulkan_INCLUDE_DIRS})
-target_link_libraries(Vulkan INTERFACE ${Vulkan_LIBRARIES})
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_DEBUG OFF)
 
 set(PublicHeaders 
     Include/RTGL1/RTGL1.h
@@ -75,13 +69,15 @@ set(Sources
     "Source/RgException.cpp"
     "Source/Bloom.cpp"
     "Source/Sharpening.cpp"
-    "Source/DLSS.cpp"
+    "Source/DLSS2.cpp"
+    "Source/DLSS3_DX12.cpp"
     "Source/HaltonSequence.cpp"
     "Source/LensFlares.cpp"
     "Source/DecalManager.cpp"
     "Source/EffectBase.cpp"
     "Source/LightGrid.cpp"
     "Source/FSR2.cpp"
+    "Source/FSR3_DX12.cpp"
     "Source/Stb/stb_image.cpp"
     "Source/Stb/stb_image_write.cpp"
     "Source/ImageLoaderDev.cpp"
@@ -96,8 +92,10 @@ set(Sources
     "Source/TextureExporter.cpp"
     "Source/TextureMeta.cpp"
     "Source/VulkanDevice_Dev.cpp"
-    "Source/JsonParser.cpp"
     "Source/SceneMeta.cpp"
+    "Source/Fluid.cpp"
+    "Source/DX12_Swapchain.cpp"
+    "Source/DX12_Vulkan.cpp"
 )
 
 
@@ -130,8 +128,8 @@ option(RG_WITH_SURFACE_WAYLAND  "Build with Wayland VkSurfaceKHR support"   OFF)
 option(RG_WITH_SURFACE_XCB      "Build with Xcb VkSurfaceKHR support"       OFF)
 option(RG_WITH_SURFACE_XLIB     "Build with Xlib VkSurfaceKHR support"      OFF)
 
-option(RG_WITH_NVIDIA_DLSS      "Build RTGL1 with Nvidia DLSS"              OFF)
 option(RG_WITH_IMGUI            "Build RTGL1 with ImGui debug windows"      ON)
+option(RG_WITH_DX12             "Build RTGL1 with DX12 features"            ON)
 
 option(RG_WITH_EXAMPLES         "Build with examples executable"            ON)
 
@@ -174,6 +172,26 @@ if (RG_WITH_SURFACE_XLIB)
 endif()
 
 
+# Vulkan
+message(STATUS "Adding Vulkan. VulkanSDK: $ENV{VULKAN_SDK}")
+find_package(Vulkan REQUIRED)
+add_library(Vulkan INTERFACE)
+target_include_directories(Vulkan INTERFACE ${Vulkan_INCLUDE_DIRS})
+target_link_libraries(Vulkan INTERFACE ${Vulkan_LIBRARIES})
+
+
+# DirectX 12
+if (RG_WITH_DX12)
+    message(STATUS "RG_WITH_DX12 enabled")
+    add_definitions(-DRG_USE_DX12)
+    set(D3D12_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    find_package(D3D12 REQUIRED)
+    add_library(D3D12 INTERFACE)
+    target_include_directories(D3D12 INTERFACE "Source/DX12/include/directx")
+    target_link_libraries(D3D12 INTERFACE ${D3D12_LIBRARIES})
+endif()
+
+
 # Imgui
 if (RG_WITH_IMGUI)
     message(STATUS "RG_WITH_IMGUI enabled")
@@ -207,13 +225,24 @@ add_library(RayTracedGL1 SHARED
     ${KTXSources}
     ${PublicHeaders}
 )
+set(LibraryName "RTGL1")
+add_definitions(-DRG_LIBRARY_NAME="${LibraryName}")
 set_target_properties(RayTracedGL1 PROPERTIES
-    OUTPUT_NAME RTGL1
+    OUTPUT_NAME ${LibraryName}
 )
 set_target_properties(RayTracedGL1 PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY $<IF:$<CONFIG:Debug>,${CMAKE_SOURCE_DIR}/Build/bin/debug,${CMAKE_SOURCE_DIR}/Build/bin>
 )
+target_include_directories(RayTracedGL1 PUBLIC "Include")
 
+
+# Vulkan
+target_link_libraries(RayTracedGL1 PUBLIC Vulkan)
+
+# DirectX
+if (RG_WITH_DX12)
+    target_link_libraries(RayTracedGL1 PRIVATE D3D12)
+endif()
 
 # GLM
 target_include_directories(RayTracedGL1 PRIVATE Source/glm)
@@ -223,48 +252,25 @@ target_include_directories(RayTracedGL1 PRIVATE "Source/KTX/include")
 target_include_directories(RayTracedGL1 PRIVATE "Source/KTX/include" "Source/KTX/other_include" "Source/KTX/lib/basisu/zstd")
 
 # DLSS
-if (RG_WITH_NVIDIA_DLSS)
-    message(STATUS "RG_WITH_NVIDIA_DLSS enabled")
-    add_definitions(-DRG_USE_NVIDIA_DLSS)
-
-    if (DEFINED ENV{DLSS_SDK_PATH})
-        message(STATUS "Found DLSS SDK: $ENV{DLSS_SDK_PATH}")
-        target_include_directories(RayTracedGL1 PRIVATE "$ENV{DLSS_SDK_PATH}/include")
-        if (WIN32)
-            add_definitions(-DNV_WINDOWS)
-            if (BUILD_TYPE STREQUAL "DEBUG")
-                target_link_libraries(RayTracedGL1 PRIVATE "$ENV{DLSS_SDK_PATH}/lib/Windows_x86_64/x86_64/nvsdk_ngx_d_dbg.lib")
-            else()
-                target_link_libraries(RayTracedGL1 PRIVATE "$ENV{DLSS_SDK_PATH}/lib/Windows_x86_64/x86_64/nvsdk_ngx_d.lib")
-            endif()
+target_include_directories(RayTracedGL1 PRIVATE "Source/Streamline/include")
+if (DEFINED ENV{DLSS_SDK_PATH})
+    message(STATUS "Found Native DLSS SDK: $ENV{DLSS_SDK_PATH}")
+    target_include_directories(RayTracedGL1 PRIVATE "$ENV{DLSS_SDK_PATH}/include")
+    add_definitions(-DRG_USE_NATIVE_DLSS2)
+    if (WIN32)
+        if (BUILD_TYPE STREQUAL "DEBUG")
+            target_link_libraries(RayTracedGL1 PRIVATE "$ENV{DLSS_SDK_PATH}/lib/Windows_x86_64/x86_64/nvsdk_ngx_d_dbg.lib")
         else()
-            target_link_libraries(RayTracedGL1 PRIVATE "$ENV{DLSS_SDK_PATH}/lib/Linux_x86_64/libnvsdk_ngx.a")
-            target_link_libraries(RayTracedGL1 PRIVATE ${CMAKE_DL_LIBS})
+            target_link_libraries(RayTracedGL1 PRIVATE "$ENV{DLSS_SDK_PATH}/lib/Windows_x86_64/x86_64/nvsdk_ngx_d.lib")
         endif()
     else()
-        message(FATAL_ERROR 
-            "Can't find DLSS_SDK_PATH environment variable. "
-            "Please, provide the path to https://github.com/NVIDIA/DLSS, to configure the library")
+        target_link_libraries(RayTracedGL1 PRIVATE "$ENV{DLSS_SDK_PATH}/lib/Linux_x86_64/libnvsdk_ngx.a")
+        target_link_libraries(RayTracedGL1 PRIVATE ${CMAKE_DL_LIBS})
     endif()
 endif()
-
-# Vulkan
-target_link_libraries(RayTracedGL1 PUBLIC Vulkan)
-target_include_directories(RayTracedGL1 PUBLIC "Include")
 
 # FSR2
 target_include_directories(RayTracedGL1 PRIVATE "Source/FSR2/include" )
-if (WIN32)
-    if (BUILD_TYPE STREQUAL "DEBUG")
-        target_link_libraries(RayTracedGL1 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source/FSR2/win32/ffx_fsr2_api_x64d.lib" )
-        target_link_libraries(RayTracedGL1 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source/FSR2/win32/ffx_fsr2_api_vk_x64d.lib" )
-    else()
-        target_link_libraries(RayTracedGL1 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source/FSR2/win32/ffx_fsr2_api_x64.lib" )
-        target_link_libraries(RayTracedGL1 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source/FSR2/win32/ffx_fsr2_api_vk_x64.lib" )
-    endif()
-else()
-    message(FATAL_ERROR "On non-WIN32, please, provide static libraries of FSR2 or disable FSR2")
-endif()
 
 # Debug windows - ImGui
 if (RG_WITH_IMGUI)
@@ -275,8 +281,11 @@ if (RG_WITH_IMGUI)
 endif()
 
 # Json parser - glaze
+add_library(GlazeWrapper STATIC "Source/JsonParser.cpp")
 add_subdirectory(Source/glaze)
-target_link_libraries(RayTracedGL1 PRIVATE glaze::glaze)
+target_include_directories(GlazeWrapper PRIVATE "Include")
+target_link_libraries(GlazeWrapper PRIVATE glaze::glaze)
+target_link_libraries(RayTracedGL1 PRIVATE GlazeWrapper)
 
 if (RG_WITH_EXAMPLES)
     message(STATUS "RG_WITH_EXAMPLES enabled")
@@ -292,12 +301,10 @@ if (RG_WITH_EXAMPLES)
 endif()
 
 # VS hot-reload - disabled because of glaze
-if (false)
 if (MSVC AND WIN32 AND NOT MSVC_VERSION VERSION_LESS 142)
     target_link_options(RayTracedGL1 PRIVATE $<$<CONFIG:Debug>:/INCREMENTAL>)
     target_compile_options(RayTracedGL1 PRIVATE $<$<CONFIG:Debug>:/ZI>)
 
     target_link_options(RtglExample PRIVATE $<$<CONFIG:Debug>:/INCREMENTAL>)
     target_compile_options(RtglExample PRIVATE $<$<CONFIG:Debug>:/ZI>)
-endif()
 endif()

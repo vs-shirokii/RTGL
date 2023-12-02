@@ -51,6 +51,8 @@ public:
 
     void CreateFramebuffers( uint32_t              renderWidth,
                              uint32_t              renderHeight,
+                             uint32_t              upscaledWidth,
+                             uint32_t              upscaledHeight,
                              const Framebuffers&   storageFramebuffers,
                              MemoryAllocator&      allocator,
                              CommandBufferManager& cmdManager );
@@ -58,45 +60,62 @@ public:
 
     void OnShaderReload( const ShaderManager* shaderManager ) override;
 
-    VkRenderPass                                  GetWorldRenderPass() const;
-    VkRenderPass                                  GetSkyRenderPass() const;
+    VkRenderPass GetWorldRenderPass() const;
+    VkRenderPass GetClassicRenderPass() const;
+    VkRenderPass GetSkyRenderPass() const;
+
     const std::shared_ptr< RasterizerPipelines >& GetRasterPipelines() const;
+    const std::shared_ptr< RasterizerPipelines >& GetClassicRasterPipelines() const;
     const std::shared_ptr< RasterizerPipelines >& GetSkyRasterPipelines() const;
 
-    VkFramebuffer GetWorldFramebuffer( uint32_t frameIndex ) const;
-    VkFramebuffer GetSkyFramebuffer( uint32_t frameIndex ) const;
+    VkFramebuffer GetWorldFramebuffer() const;
+    VkFramebuffer GetClassicFramebuffer( FramebufferImageIndex img ) const;
+    VkFramebuffer GetSkyFramebuffer() const;
 
 private:
     VkRenderPass CreateWorldRenderPass( VkFormat finalImageFormat,
                                         VkFormat screenEmisionFormat,
                                         VkFormat reactivityFormat,
                                         VkFormat depthImageFormat ) const;
+    static VkRenderPass CreateClassicRenderPass( VkDevice device,
+                                                 VkFormat colorImageFormat,
+                                                 VkFormat depthImageFormat );
     VkRenderPass CreateSkyRenderPass( VkFormat skyFinalImageFormat,
                                       VkFormat depthImageFormat ) const;
 
-    void CreateDepthBuffers( uint32_t              width,
-                             uint32_t              height,
-                             MemoryAllocator&      allocator,
-                             CommandBufferManager& cmdManager );
-    void DestroyDepthBuffers();
+    struct DepthBuffer
+    {
+        VkImage        image{ VK_NULL_HANDLE };
+        VkImageView    view{ VK_NULL_HANDLE };
+        VkDeviceMemory memory{ VK_NULL_HANDLE };
+    };
+    [[nodiscard]] static auto CreateDepthBuffers( uint32_t              width,
+                                                  uint32_t              height,
+                                                  MemoryAllocator&      allocator,
+                                                  CommandBufferManager& cmdManager ) -> DepthBuffer;
+    static void DestroyDepthBuffers( VkDevice device, DepthBuffer& buf );
 
 private:
-    VkDevice device = VK_NULL_HANDLE;
+    VkDevice device{ VK_NULL_HANDLE };
 
-    VkRenderPass worldRenderPass = VK_NULL_HANDLE;
-    VkRenderPass skyRenderPass   = VK_NULL_HANDLE;
+    VkRenderPass worldRenderPass{ VK_NULL_HANDLE };
+    VkRenderPass classicRenderPass{ VK_NULL_HANDLE };
+    VkRenderPass skyRenderPass{ VK_NULL_HANDLE };
 
-    std::shared_ptr< RasterizerPipelines > worldPipelines;
-    std::shared_ptr< RasterizerPipelines > skyPipelines;
+    std::shared_ptr< RasterizerPipelines > worldPipelines{};
+    std::shared_ptr< RasterizerPipelines > classicPipelines{};
+    std::shared_ptr< RasterizerPipelines > skyPipelines{};
 
-    VkFramebuffer worldFramebuffers[ MAX_FRAMES_IN_FLIGHT ] = {};
-    VkFramebuffer skyFramebuffers[ MAX_FRAMES_IN_FLIGHT ]   = {};
+    VkFramebuffer worldFramebuffer{ VK_NULL_HANDLE };
+    VkFramebuffer classicFramebuffer_UpscaledPing{ VK_NULL_HANDLE };
+    VkFramebuffer classicFramebuffer_UpscaledPong{ VK_NULL_HANDLE };
+    VkFramebuffer classicFramebuffer_Final{ VK_NULL_HANDLE };
+    VkFramebuffer skyFramebuffer{ VK_NULL_HANDLE };
 
-    std::shared_ptr< DepthCopying > depthCopying;
+    std::shared_ptr< DepthCopying > depthCopying{};
 
-    VkImage        depthImages[ MAX_FRAMES_IN_FLIGHT ] = {};
-    VkImageView    depthViews[ MAX_FRAMES_IN_FLIGHT ]  = {};
-    VkDeviceMemory depthMemory[ MAX_FRAMES_IN_FLIGHT ] = {};
+    DepthBuffer renderDepth{};
+    DepthBuffer upscaledDepth{};
 };
 
 }

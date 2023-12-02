@@ -60,7 +60,8 @@ public:
     RayTracingPipeline& operator=( const RayTracingPipeline& other ) = delete;
     RayTracingPipeline& operator=( RayTracingPipeline&& other ) noexcept = delete;
 
-    void                Bind( VkCommandBuffer cmd );
+    auto GetShaderTableSafely_RayTracing( VkCommandBuffer cmd ) -> VkPipeline;
+    auto GetPipelineIndirectFinal_Compute() -> VkPipeline;
 
     void                GetEntries( uint32_t                         sbtRayGenIndex,
                                     VkStridedDeviceAddressRegionKHR& raygenEntry,
@@ -73,6 +74,7 @@ public:
 
 private:
     void CreatePipeline( const ShaderManager* shaderManager );
+    void CreateComputePipelines( const ShaderManager* shaderManager );
     void DestroyPipeline();
     void CreateSBT();
     void DestroySBT();
@@ -112,6 +114,7 @@ private:
     std::vector< VkRayTracingShaderGroupCreateInfoKHR > shaderGroups;
     VkPipelineLayout                                    rtPipelineLayout;
     VkPipeline                                          rtPipeline;
+    VkPipeline                                          compPipelineIndirectFinal{};
 
     std::shared_ptr< AutoBuffer >                       shaderBindingTable;
     bool                                                copySBTFromStaging;

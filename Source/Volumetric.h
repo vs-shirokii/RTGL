@@ -27,6 +27,8 @@
 #include "IShaderDependency.h"
 #include "MemoryAllocator.h"
 
+#define ILLUMINATION_VOLUME_ 0
+
 namespace RTGL1
 {
 class Volumetric : public IShaderDependency
@@ -83,7 +85,9 @@ private:
     };
 
     VolumeDef scattering[ MAX_FRAMES_IN_FLIGHT ]{};
+#if ILLUMINATION_VOLUME_
     VolumeDef illumination{};
+#endif
 
     VkSampler volumeSampler{ VK_NULL_HANDLE };
 

@@ -1,0 +1,250 @@
+// Copyright (c) 2024 V.Shirokii
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+#version 460
+
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_EXT_ray_query : require
+#extension GL_EXT_ray_tracing_position_fetch : require
+
+#include "ShaderCommonGLSLFunc.h"
+#include "Random.h"
+
+#define FLUID_DEF_SPEC_CONST 1
+#include "Fluid_Def.h"
+#include "Fluid_Hydro.inl"
+
+
+#define DESC_SET_FLUID 0
+#define DESC_SET_TLAS  1
+
+layout( local_size_x = COMPUTE_FLUID_PARTICLES_GROUP_SIZE_X,
+        local_size_y = 1,
+        local_size_z = 1 ) in;
+
+layout( push_constant ) uniform PARTICLESPUSH_T push;
+
+layout( set = DESC_SET_FLUID, binding = BINDING_FLUID_PARTICLES_ARRAY ) buffer ParticlesArray_T
+{
+    ShParticleDef g_particlesArray[];
+};
+
+layout( set = DESC_SET_TLAS, binding = BINDING_ACCELERATION_STRUCTURE_MAIN ) uniform
+    accelerationStructureEXT g_topLevelAS;
+
+
+bool traceCollisionRay( vec3 origin, vec3 direction, float tmax, out vec3 hit, out vec3 normal )
+{
+    rayQueryEXT rayQuery;
+
+    // must not use gl_RayFlagsTerminateOnFirstHitEXT, because
+    // with it, back faces are culled
+    rayQueryInitializeEXT( rayQuery,
+                           g_topLevelAS,
+                           gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT,
+                           INSTANCE_MASK_WORLD_0 | INSTANCE_MASK_WORLD_1 |
+                               INSTANCE_MASK_FIRST_PERSON_VIEWER,
+                           origin,
+                           0,
+                           direction,
+                           tmax );
+
+#if 0
+    rayQueryProceedEXT( rayQuery );
+
+    if( rayQueryGetIntersectionTypeEXT( rayQuery, false ) ==
+        gl_RayQueryCandidateIntersectionTriangleEXT )
+    {
+        hit = origin + direction * rayQueryGetIntersectionTEXT( rayQuery, false );
+        return true;
+    }
+#else
+    rayQueryProceedEXT( rayQuery );
+
+    if( rayQueryGetIntersectionTypeEXT( rayQuery, true ) ==
+        gl_RayQueryCommittedIntersectionTriangleEXT )
+    {
+        hit = origin + direction * rayQueryGetIntersectionTEXT( rayQuery, true );
+
+        mat4x3 objectToWorld = rayQueryGetIntersectionObjectToWorldEXT( rayQuery, true );
+
+        vec3 positions[ 3 ];
+        rayQueryGetIntersectionTriangleVertexPositionsEXT( rayQuery, true, positions );
+
+        positions[ 0 ] = objectToWorld * vec4( positions[ 0 ], 1.0 );
+        positions[ 1 ] = objectToWorld * vec4( positions[ 1 ], 1.0 );
+        positions[ 2 ] = objectToWorld * vec4( positions[ 2 ], 1.0 );
+
+        normal = normalize( cross( positions[ 1 ] - positions[ 0 ], //
+                                   positions[ 2 ] - positions[ 0 ] ) );
+
+        normal *= dot( normal, direction ) < 0 ? 1 : -1;
+
+        return true;
+    }
+#endif
+
+    return false;
+}
+
+
+const FLT  ViscosityStrength = FLT( 0.005 );
+const FLT  CollisionDamping  = FLT( 0.2 );
+const FLT  DeltaTimeLimit    = FLT( 1.0 / 30.0 );
+
+FLT deltaTime()
+{
+    return min( FLT( push.deltaTime ), DeltaTimeLimit );
+}
+
+FLT3 velocityFromExternalForces()
+{
+    return push.gravity * deltaTime();
+}
+
+FLT4 makePlane( vec3 normal, vec3 point )
+{
+    return FLT4( normal,
+                 -( normal.x * point.x + //
+                    normal.y * point.y + //
+                    normal.z * point.z ) );
+}
+
+FLT3 projectOntoPlane( const FLT4 plane, //
+                       const FLT3 plane_refPoint,
+                       const FLT3 point )
+{
+    FLT distToPlane = dot( point - plane_refPoint, plane.xyz );
+    return point - distToPlane * plane.xyz;
+}
+
+// Equals to ( projectOntoPlane - point )
+FLT3 pointToItsProjectionOnPlane( const FLT4 plane,
+                                  const FLT3 plane_refPoint,
+                                  const FLT3 point )
+{
+    FLT distToPlane = dot( point - plane_refPoint, plane.xyz );
+    return -distToPlane * plane.xyz;
+}
+
+void resolveCollisions( inout ShParticleDef particle )
+{
+    const float DistanceError = 0.1;
+
+    vec3  dir = vec3( particle.velocity );
+    float len = length( dir );
+
+    // if fast, check a ray in the velocity direction
+    if( len > 0.0001 )
+    {
+        dir /= len;
+    }
+    else
+    {
+        vec2 rnd = rnd16_2( gl_GlobalInvocationID.x + uint(push.deltaTime * 148645318), 0 );
+
+        float ignored;
+        dir = sampleOrientedHemisphere(
+            safeNormalize2( push.gravity, vec3( 0, 0, -1 ) ), rnd.x, rnd.y, ignored );
+    }
+
+    vec3 hit;
+    vec3 normal;
+    if( traceCollisionRay( particle.position - dir * DistanceError, //
+                            dir,
+                            max( SmoothingRadius * 2, len ),
+                            hit,
+                            normal ) )
+    {
+        FLT4 plane = makePlane( normal, hit );
+
+        if( dot( plane, FLT4( particle.position, 1.0 ) ) <= FLT( 0 ) )
+        {
+            particle.position += pointToItsProjectionOnPlane( plane, //
+                                                              hit,
+                                                              particle.position );
+            // particle.position += plane.xyz * FLT(0.05);
+
+            // reflect
+            particle.velocity += -FLT( 2.0 ) * dot( particle.velocity, plane.xyz ) * plane.xyz;
+
+            particle.velocity *= CollisionDamping;
+        }
+    }
+}
+
+void main()
+{
+    if( gl_GlobalInvocationID.x >= push.activeRingLength )
+    {
+        return;
+    }
+    const uint id = ( push.activeRingBegin + gl_GlobalInvocationID.x ) % g_maxParticleCount;
+
+    const ShParticleDef prev = g_particlesArray[ id ];
+
+    if( particle_isinvalid_unpacked( prev ) )
+    {
+        g_particlesArray[ id ] = prev;
+        return;
+    }
+
+    const FLT3 cur_position = FLT3( prev.position );
+    FLT3       cur_velocity = FLT3( prev.velocity ) + velocityFromExternalForces();
+
+#if FLUID_SPH
+    FLT cur_density, cur_nearDensity;
+    SPH_calcVelocityAndDensityFromOtherParticles( id, cur_position, cur_velocity, cur );
+#endif
+
+    {
+        if( any( isnan( cur_velocity ) ) || any( isinf( cur_velocity ) ) )
+        {
+            cur_velocity = vec3( 0 );
+        }
+#if FLUID_SPH
+        if( isnan( cur_density ) || isinf( cur_density ) )
+        {
+            cur_density = TargetDensity;
+        }
+        if( isnan( cur_nearDensity ) || isinf( cur_nearDensity ) )
+        {
+            cur_nearDensity = TargetDensity * 0.1;
+        }
+#endif
+    }
+
+    // write
+    {
+        ShParticleDef p;
+        p.position = cur_position + cur_velocity * deltaTime();
+        p.velocity = cur_velocity;
+
+#if FLUID_SPH
+        p.density     = float16_t( cur_density );
+        p.nearDensity = float16_t( cur_nearDensity );
+#endif
+
+        resolveCollisions( p );
+
+        g_particlesArray[ id ] = p;
+    }
+}

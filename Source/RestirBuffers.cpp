@@ -37,33 +37,6 @@ RTGL1::RestirBuffers::~RestirBuffers()
     vkDestroyDescriptorPool( device, descPool, nullptr );
 }
 
-void RTGL1::RestirBuffers::BarrierInitial( VkCommandBuffer cmd )
-{
-    VkBufferMemoryBarrier2 b = {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-        .srcStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
-        .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
-        .dstStageMask =
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR,
-        .dstAccessMask       = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT,
-        .srcQueueFamilyIndex = 0,
-        .dstQueueFamilyIndex = 0,
-        .buffer              = initialSamples.buffer,
-        .offset              = 0,
-        .size                = VK_WHOLE_SIZE,
-    };
-
-    VkDependencyInfo dep = {
-        .sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-        .dependencyFlags          = 0,
-        .bufferMemoryBarrierCount = 1,
-        .pBufferMemoryBarriers    = &b,
-    };
-
-    svkCmdPipelineBarrier2KHR( cmd, &dep );
-}
-
 VkDescriptorSet RTGL1::RestirBuffers::GetDescSet( uint32_t frameIndex ) const
 {
     return descSets[ frameIndex ];
@@ -116,11 +89,6 @@ auto MakeBuffer( const std::shared_ptr< RTGL1::MemoryAllocator >& allocator,
 
 void RTGL1::RestirBuffers::CreateBuffers( uint32_t renderWidth, uint32_t renderHeight )
 {
-    initialSamples = MakeBuffer( allocator,
-                                 sizeof( uint32_t ) * PACKED_INDIRECT_SAMPLE_SIZE_IN_WORDS *
-                                     renderWidth * renderHeight,
-                                 "Restir Indirect - Initial" );
-
     for( auto& r : reservoirs )
     {
         r = MakeBuffer( allocator,
@@ -135,7 +103,6 @@ void RTGL1::RestirBuffers::CreateBuffers( uint32_t renderWidth, uint32_t renderH
 void RTGL1::RestirBuffers::DestroyBuffers()
 {
     BufferDef* allBufs[] = {
-        &initialSamples,
         &reservoirs[ 0 ],
         &reservoirs[ 1 ],
     };
@@ -162,12 +129,6 @@ void RTGL1::RestirBuffers::CreateDescriptors()
     VkResult                     r;
 
     VkDescriptorSetLayoutBinding bindings[] = {
-        {
-            .binding         = BINDING_RESTIR_INDIRECT_INITIAL_SAMPLES,
-            .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .descriptorCount = 1,
-            .stageFlags      = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT,
-        },
         {
             .binding         = BINDING_RESTIR_INDIRECT_RESERVOIRS,
             .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -236,12 +197,10 @@ void RTGL1::RestirBuffers::UpdateDescriptors()
     for( uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++ )
     {
         VkBuffer bufs[] = {
-            initialSamples.buffer,
             reservoirs[ i ].buffer,
             reservoirs[ Utils::GetPreviousByModulo( i, MAX_FRAMES_IN_FLIGHT ) ].buffer,
         };
         uint32_t bnds[] = {
-            BINDING_RESTIR_INDIRECT_INITIAL_SAMPLES,
             BINDING_RESTIR_INDIRECT_RESERVOIRS,
             BINDING_RESTIR_INDIRECT_RESERVOIRS_PREV,
         };

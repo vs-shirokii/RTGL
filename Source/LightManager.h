@@ -29,6 +29,8 @@
 #include <optional>
 #include <span>
 
+#define LIGHT_GRID_ENABLED_ 0
+
 namespace RTGL1
 {
 
@@ -52,7 +54,7 @@ public:
     uint32_t GetLightCountPrev() const;
     uint32_t DoesDirectionalLightExist() const;
 
-    uint32_t GetLightIndexForShaders( uint32_t frameIndex, uint64_t* pLightUniqueId ) const;
+    uint32_t GetLightIndexForShaders( uint32_t frameIndex, const uint64_t* pLightUniqueId ) const;
 
     void Add( uint32_t frameIndex, const LightCopy& light, const RgTransform* transform = nullptr );
 
@@ -62,14 +64,12 @@ public:
     VkDescriptorSetLayout GetDescSetLayout() const;
     VkDescriptorSet       GetDescSet( uint32_t frameIndex ) const;
 
-    void SetLightstyles( const RgDrawFrameIlluminationParams& params )
-    {
-        auto values = std::span( params.pLightstyleValues, params.lightstyleValuesCount );
-        lightstyles.assign( values.begin(), values.end() );
-    }
+    void SetLightstyles( const RgStartFrameInfo& params );
 
-    static std::optional< uint64_t > TryGetVolumetricLight(
-        const std::vector< LightCopy >& from, std::span< const float > fromLightstyles );
+    auto TryGetVolumetricLight( const RgFloat3D&                 cameraPos,
+                                const std::vector< LightCopy >&  from,
+                                const std::optional< uint64_t >& fallback ) const
+        -> std::optional< uint64_t >;
 
 private:
     LightArrayIndex GetIndex( const ShLightEncoded& encodedLight ) const;
@@ -89,7 +89,9 @@ private:
 
     std::shared_ptr< AutoBuffer > lightsBuffer;
     Buffer                        lightsBuffer_Prev;
+#if LIGHT_GRID_ENABLED_
     Buffer                        initialLightsGrid[ MAX_FRAMES_IN_FLIGHT ];
+#endif
 
     // Match light indices between current and previous frames
     std::shared_ptr< AutoBuffer > prevToCurIndex;
@@ -109,7 +111,7 @@ private:
 
     bool needDescSetUpdate[ MAX_FRAMES_IN_FLIGHT ];
 
-    std::vector< float > lightstyles;
+    std::vector< uint8_t > lightstyles;
 };
 
 }

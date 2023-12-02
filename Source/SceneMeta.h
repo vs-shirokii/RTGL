@@ -44,6 +44,7 @@ public:
     void Modify( std::string_view             sceneName,
                  RgDrawFrameVolumetricParams& volumetric,
                  RgDrawFrameSkyParams&        sky ) const;
+    bool IsReplacementIgnored( std::string_view sceneName, std::string_view meshName ) const;
 
     void OnFileChanged( FileType type, const std::filesystem::path& filepath ) override;
     

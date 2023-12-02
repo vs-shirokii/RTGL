@@ -21,6 +21,7 @@
 #pragma once
 
 #include "ASManager.h"
+#include "Camera.h"
 #include "GltfExporter.h"
 #include "GltfImporter.h"
 #include "LightManager.h"
@@ -39,6 +40,15 @@ enum class UploadResult
     ExportableDynamic,
     ExportableStatic,
 };
+
+inline auto MakeCameraPosition( const Camera& c )
+{
+    return RgFloat3D{
+        c.viewInverse[ 12 ],
+        c.viewInverse[ 13 ],
+        c.viewInverse[ 14 ],
+    };
+}
 
 class Scene
 {
@@ -61,12 +71,14 @@ public:
     Scene& operator=( const Scene& other )     = delete;
     Scene& operator=( Scene&& other ) noexcept = delete;
 
-    void PrepareForFrame( VkCommandBuffer cmd, uint32_t frameIndex, bool ignoreExternalGeometry );
+    void PrepareForFrame( VkCommandBuffer cmd,
+                          uint32_t        frameIndex,
+                          bool            ignoreExternalGeometry,
+                          float           staticSceneAnimationTime );
     void SubmitForFrame( VkCommandBuffer                         cmd,
                          uint32_t                                frameIndex,
                          const std::shared_ptr< GlobalUniform >& uniform,
                          uint32_t                                uniformData_rayCullMaskWorld,
-                         bool                                    allowGeometryWithSkyFlag,
                          bool                                    disableRTGeometry );
 
     UploadResult UploadPrimitive( uint32_t                   frameIndex,
@@ -89,8 +101,7 @@ public:
 
     void NewScene( VkCommandBuffer              cmd,
                    uint32_t                     frameIndex,
-                   const RgTransform&           worldTransform,
-                   float                        worldScale,
+                   const ImportExportParams&    params,
                    const std::filesystem::path& staticSceneGltfPath,
                    const std::filesystem::path* replacementsFolder,
                    TextureManager&              textureManager,
@@ -100,10 +111,15 @@ public:
     const std::shared_ptr< ASManager >&           GetASManager();
     const std::shared_ptr< VertexPreprocessing >& GetVertexPreprocessing();
 
-    std::optional< uint64_t > TryGetVolumetricLight(
-        const RgDrawFrameIlluminationParams& params ) const;
+    auto TryGetVolumetricLight( const LightManager& lightManager, const RgFloat3D& cameraPos ) const
+        -> std::optional< uint64_t >;
 
     bool ReplacementExists( const RgMeshInfo& mesh ) const;
+
+    void          AddDefaultCamera( const RgCameraInfo& info );
+    const Camera& GetCamera( float fallbackAspect );
+
+    [[nodiscard]] bool StaticSceneExists() const { return !staticMeshNames.empty(); }
 
 private:
     [[nodiscard]] bool StaticMeshExists( const RgMeshInfo& mesh ) const;
@@ -128,6 +144,11 @@ private:
     rgl::unordered_set< PrimitiveUniqueID > staticUniqueIDs;
     rgl::string_set                         staticMeshNames;
     std::vector< LightCopy >                staticLights;
+    std::optional< uint64_t >               lastDynamicSun_uniqueId{};
+
+    std::optional< Camera >       curFrameCamera{};
+    std::optional< RgCameraInfo > cameraInfo_Default{};
+    std::optional< RgCameraInfo > cameraInfo_Imported{};
 
     rgl::string_map< WholeModelFile::RawModelData > replacements;
 
@@ -135,17 +156,24 @@ private:
     DynamicGeometryToken makingDynamic{};
 
     bool ignoreExternalGeometry{};
+
+    std::vector< std::tuple< PrimitiveUniqueID, RgTransform, AnimationData > > m_obj_ImportedAnim{};
+    AnimationData m_cameraInfo_ImportedAnim{};
+    float         m_staticSceneAnimationTime{ 0 };
+
+public:
+    // SHIPPING_HACK begin
+    rgl::string_map< std::vector< PrimitiveUniqueID > > m_primitivesToUpdateTextures{};
+    // SHIPPING_HACK end
 };
 
 
 class SceneImportExport : public IFileDependency
 {
 public:
-    SceneImportExport( std::filesystem::path _scenesFolder,
-                       std::filesystem::path _replacementsFolder,
-                       const RgFloat3D&      _worldUp,
-                       const RgFloat3D&      _worldForward,
-                       const float&          _worldScale );
+    SceneImportExport( std::filesystem::path       _scenesFolder,
+                       std::filesystem::path       _replacementsFolder,
+                       const RgInstanceCreateInfo& _info );
     ~SceneImportExport() override = default;
 
     SceneImportExport( const SceneImportExport& other )                = delete;
@@ -153,14 +181,14 @@ public:
     SceneImportExport& operator=( const SceneImportExport& other )     = delete;
     SceneImportExport& operator=( SceneImportExport&& other ) noexcept = delete;
 
-    void PrepareForFrame();
-    void CheckForNewScene( std::string_view    mapName,
-                           VkCommandBuffer     cmd,
-                           uint32_t            frameIndex,
-                           Scene&              scene,
-                           TextureManager&     textureManager,
-                           TextureMetaManager& textureMetaManager,
-                           LightManager&       lightManager );
+    void PrepareForFrame( std::string_view mapName, bool allowSceneAutoExport );
+    void TryImportIfNew( VkCommandBuffer           cmd,
+                         uint32_t                  frameIndex,
+                         Scene&                    scene,
+                         TextureManager&           textureManager,
+                         TextureMetaManager&       textureMetaManager,
+                         LightManager&             lightManager,
+                         RgStaticSceneStatusFlags* out_staticSceneStatus );
     void TryExport( const TextureManager& textureManager, const std::filesystem::path& ovrdFolder );
 
     void RequestReimport();
@@ -182,13 +210,16 @@ public:
     float            GetWorldScale() const;
 
     auto MakeWorldTransform() const -> RgTransform;
+    auto MakeImportExportParams() const -> ImportExportParams;
 
 private:
     std::filesystem::path scenesFolder;
     std::filesystem::path replacementsFolder;
 
-    bool reimportRequested;
-    bool reimportReplacementsRequested;
+    bool reimportStatic;
+    bool reimportReplacements;
+
+    bool reimportStaticInNextFrame;
 
     enum class ExportState
     {
@@ -207,6 +238,9 @@ private:
     RgFloat3D   worldUp;
     RgFloat3D   worldForward;
     float       worldScale;
+    float       importedLightIntensityScaleDirectional;
+    float       importedLightIntensityScaleSphere;
+    float       importedLightIntensityScaleSpot;
 
 public:
     mutable struct

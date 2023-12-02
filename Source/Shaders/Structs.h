@@ -21,6 +21,12 @@
 #ifndef STRUCTS_H_
 #define STRUCTS_H_
 
+#if !SUPPRESS_TEXLAYERS
+#define TEXLAYER_MAX 4
+#else
+#define TEXLAYER_MAX 1
+#endif
+
 struct ShTriangle
 {
     mat3    positions;
@@ -28,19 +34,19 @@ struct ShTriangle
     
     mat3    normals;
     
-    mat3x2  layerTexCoord[ 4 ];
-    uint    layerColorTextures[ 4 ];
-    uint    layerColors[ 4];
+    mat3x2  layerTexCoord[ TEXLAYER_MAX ];
+    uint    layerColorTextures[ TEXLAYER_MAX ];
+    uint    layerColors[ TEXLAYER_MAX ];
     
     uint    vertexColors[ 3 ];
     uint    geometryInstanceFlags;
-    vec4    tangent;
 
     float   roughnessDefault;
     float   metallicDefault;
     uint    occlusionRougnessMetallicTexture;   // layerTexCoord[ 0 ]
     
     uint    normalTexture;                      // layerTexCoord[ 0 ]
+    uint    heightTexture;                      // layerTexCoord[ 0 ]
     
     float   emissiveMult;
     uint    emissiveTexture;                    // layerTexCoord[ 0 ]

@@ -23,7 +23,6 @@
 #define DESC_SET_FRAMEBUFFERS 0
 #define DESC_SET_GLOBAL_UNIFORM 1
 #define DESC_SET_TONEMAPPING 2
-#define DESC_SET_LPM_PARAMS 3
 #include "ShaderCommonGLSLFunc.h"
 #include "LightGrid.h"
 #include "Random.h"
@@ -31,115 +30,7 @@
 
 layout(local_size_x = COMPUTE_COMPOSE_GROUP_SIZE_X, local_size_y = COMPUTE_COMPOSE_GROUP_SIZE_Y, local_size_z = 1) in;
 
-#define DEBUG_LPM 0
-
-#define A_GLSL 1
-#define A_GPU 1
-#include "LPM/ffx_a.h"
-layout(set = DESC_SET_LPM_PARAMS, binding = BINDING_LPM_PARAMS) readonly uniform LpmParams_BT
-{
-    AU4 g_lpmParams[24];
-};
-#if DEBUG_LPM
-    AU4 debug_lpmParams[24];
-    void LpmSetupOut(AU1 i, inAU4 v) { debug_lpmParams[i] = v; }
-    AU4  LpmFilterCtl(AU1 i)         { return debug_lpmParams[i]; }
-#else
-    #define LPM_NO_SETUP 1
-    AU4  LpmFilterCtl(AU1 i)         { return g_lpmParams[i]; }
-#endif
-#include "LPM/ffx_lpm.h"
-#define LPM_RG_CONTEXT  /* used on CPU side */
-
-vec3 lpmTonemap(vec3 c)
-{
-#if DEBUG_LPM
-    varAF3( saturation ) = initAF3( -0.1f, -0.1f, -0.1f );
-    varAF3( crosstalk )  = initAF3( 1.0f, 1.0f / 8.0f, 1.0f / 16.0f );
-    LpmSetup( LPM_RG_CONTEXT false,
-              LPM_CONFIG_709_709,
-              LPM_COLORS_709_709,
-              0.0f,   // softGap
-              256.0f, // hdrMax
-              8.0f,   // exposure
-              0.1f,   // contrast
-              1.0f,   // shoulder contrast
-              saturation,
-              crosstalk );
-#endif
-
-    LpmFilter(c.r, c.g, c.b, false, LPM_CONFIG_709_709);
-    return c;
-}
-
-
-vec3 uncharted2TonemapOp(const vec3 x)
-{
-    float A = 0.15;
-    float B = 0.50;
-    float C = 0.10;
-    float D = 0.20;
-    float E = 0.02;
-    float F = 0.30;
-
-    return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
-}
-
-vec3 uncharted2Tonemap( const vec3 color )
-{
-    return uncharted2TonemapOp( 2.0 * color ) /
-           uncharted2TonemapOp( vec3( globalUniform.luminanceWhitePoint ) );
-}
-
-
-vec3 reinhard(const vec3 c)
-{
-    const vec3 c1 = clamp(c, exp2(globalUniform.minLogLuminance), exp2(globalUniform.maxLogLuminance));
-    const float w2 = globalUniform.luminanceWhitePoint * globalUniform.luminanceWhitePoint;
-    return c * (1.0 + c1 / w2) / (1.0 + c1);
-}
-
-
-vec3 tonemapRT( vec3 c )
-{
-    return lpmTonemap( c );
-}
-
-
-vec3 finalizeColor( const vec3 hdr, const vec3 screenEmis, const ivec2 regularPix )
-{
-    if( classicShading( regularPix ) )
-    {
-        return uncharted2Tonemap( hdr );
-    }
-
-    vec3 c = hdr * ev100ToLuminousExposure( getCurrentEV100() ) +
-             screenEmis * globalUniform.emissionMaxScreenColor;
-
-    return tonemapRT( c );
-}
-
-
-vec3 getBloomInput( const vec3 hdr, const vec3 screenEmis )
-{
-    float evBloom = getCurrentEV100() + globalUniform.bloomEmissionMultiplier;
-
-    vec3 bloom = ( hdr + screenEmis * ev100ToLuminance( evBloom ) ) *
-                 ev100ToLuminousExposure( getCurrentEV100() );
-
-    if( any( isnan( bloom ) ) || any( isinf( bloom ) ) )
-    {
-        bloom = vec3( 0 );
-    }
-
-    return bloom * smoothstep( 0,
-                               globalUniform.bloomThreshold,
-                               getLuminance( bloom ) );
-}
-
-
 vec3 processDebug( const ivec2 pix, const vec3 fallback );
-
 
 void main()
 {
@@ -149,29 +40,31 @@ void main()
         return;
     }
 
-    vec3       hdr        = texelFetch( framebufFinal_Sampler, pix, 0 ).rgb;
-    const vec3 screenEmis = texelFetch( framebufScreenEmission_Sampler, pix, 0 ).rgb;
-
+    vec3 hdr = texelFetch( framebufFinal_Sampler, pix, 0 ).rgb;
+    if( !classicShading( pix ) )
     {
-        vec4 volumetric = texelFetch( framebufScattering_Sampler, pix, 0 );
-        hdr             = hdr * volumetric.a + volumetric.rgb;
+        // apply volumetrics
+        {
+            vec4 volumetric = texelFetch( framebufScattering_Sampler, pix, 0 );
+            hdr             = hdr * volumetric.a + volumetric.rgb;
+        }
+        // auto exposure
+        {
+            hdr = hdr * ev100ToLuminousExposure( getCurrentEV100() );
+        }
     }
-
-    vec3 color = finalizeColor( hdr, screenEmis, pix );
-    vec3 bloom = getBloomInput( hdr, screenEmis );
-
-#if SHIPPING_HACK
-    color += texelFetch( framebufAcidFog_Sampler, pix, 0 ).rgb;
-#endif
-
+    // screen emissive
+    {
+        vec3 screenEmis = texelFetch( framebufScreenEmission_Sampler, pix, 0 ).rgb;
+        hdr = hdr + screenEmis * globalUniform.emissionMaxScreenColor;
+    }
 
     if( globalUniform.debugShowFlags != 0 )
     {
-        color = processDebug( pix, color );
+        hdr = processDebug( pix, hdr );
     }
 
-    imageStore( framebufFinal, pix, vec4( color, 0 ) );
-    imageStore( framebufBloomInput, pix, vec4( bloom, 0.0 ) );
+    imageStore( framebufFinal, pix, vec4( hdr, 0 ) );
 }
 
 
@@ -194,6 +87,7 @@ vec3 processDebug(const ivec2 pix, const vec3 fallback)
     {
         return texelFetchUnfilteredIndir(getCheckerboardPix(pix));
     }
+#if LIGHT_GRID_ENABLED
     else if ((globalUniform.debugShowFlags & DEBUG_SHOW_FLAG_LIGHT_GRID) != 0)
     {
         vec3 surfPos = texelFetch(framebufSurfacePosition_Sampler, getCheckerboardPix(pix), 0).xyz;
@@ -210,6 +104,7 @@ vec3 processDebug(const ivec2 pix, const vec3 fallback)
 
         return c;
     }
+#endif
 #if GRADIENT_ESTIMATION_ENABLED
     else if ((globalUniform.debugShowFlags & DEBUG_SHOW_FLAG_GRADIENTS) != 0)
     {

@@ -71,14 +71,8 @@ bool IsSizeNull( GLFWwindow* wnd )
 
 void UploadFonts( RTGL1::CommandBufferManager& cmdManager )
 {
-    VkCommandBuffer cmd = cmdManager.StartGraphicsCmd();
-    {
-        ImGui_ImplVulkan_CreateFontsTexture( cmd );
-    }
-    cmdManager.Submit( cmd );
-    cmdManager.WaitGraphicsIdle();
-
-    ImGui_ImplVulkan_DestroyFontUploadObjects();
+    ImGui_ImplVulkan_CreateFontsTexture();
+    ImGui_ImplVulkan_DestroyFontsTexture();
 }
 
 uint32_t QueryImageCount( VkPhysicalDevice physDevice, VkSurfaceKHR surface )
@@ -185,7 +179,7 @@ VkRenderPass CreateRenderPass( VkDevice device, VkFormat swapchainSurfaceFormat 
     return renderPass;
 }
 
-VkSemaphore CreateSwapchainSemaphore(VkDevice device)
+VkSemaphore CreateSwapchainSemaphore( VkDevice device )
 {
     VkSemaphoreCreateInfo semaphoreInfo = {
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
@@ -195,7 +189,10 @@ VkSemaphore CreateSwapchainSemaphore(VkDevice device)
     VkResult    r         = vkCreateSemaphore( device, &semaphoreInfo, nullptr, &semaphore );
 
     RTGL1::VK_CHECKERROR( r );
-    SET_DEBUG_NAME( device, semaphore, VK_OBJECT_TYPE_SEMAPHORE, "ImGui Swapchain image available semaphore" );
+    SET_DEBUG_NAME( device, //
+                    semaphore,
+                    VK_OBJECT_TYPE_SEMAPHORE,
+                    "ImGui Swapchain image available semaphore" );
 
     return semaphore;
 }
@@ -225,10 +222,12 @@ RTGL1::DebugWindows::DebugWindows( VkInstance                               _ins
     VkResult r = glfwCreateWindowSurface( _instance, customWindow, nullptr, &customSurface );
     VK_CHECKERROR( r );
 
-    customSwapchain = std::make_unique< Swapchain >(
-        device, customSurface, _physDevice, _cmdManager );
+    customSwapchain = std::make_unique< DebugWindows_Swapchain >( device, //
+                                                                  customSurface,
+                                                                  _physDevice,
+                                                                  _cmdManager );
 
-    renderPass = CreateRenderPass( device, customSwapchain->GetSurfaceFormat() );
+    renderPass = CreateRenderPass( device, customSwapchain->GetSurfaceFormatLDR() );
 
     for( auto& sm : swapchainImageAvailable )
     {
@@ -239,19 +238,19 @@ RTGL1::DebugWindows::DebugWindows( VkInstance                               _ins
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    #if 0 
+#if 0 
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-    #endif
+#endif
 
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
-    #if 0
+#if 0
     if( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
     {
         style.WindowRounding                = 0.0f;
         style.Colors[ ImGuiCol_WindowBg ].w = 1.0f;
     }
-    #endif
+#endif
     style.WindowRounding    = 4.f;
     style.ChildRounding     = 4.f;
     style.PopupRounding     = 4.f;
@@ -267,26 +266,31 @@ RTGL1::DebugWindows::DebugWindows( VkInstance                               _ins
             io.Fonts->AddFontFromFileTTF( f, 15.f );
         }
     }
-    
+
     ImGui_ImplGlfw_InitForVulkan( customWindow, true );
 
-    uint32_t                  swapchainImageCount = QueryImageCount( _physDevice, customSurface );
+    uint32_t swapchainImageCount = QueryImageCount( _physDevice, customSurface );
+
     ImGui_ImplVulkan_InitInfo init_info = {
-        .Instance        = _instance,
-        .PhysicalDevice  = _physDevice,
-        .Device          = _device,
-        .QueueFamily     = _queueFamiy,
-        .Queue           = _queue,
-        .PipelineCache   = nullptr,
-        .DescriptorPool  = descPool,
-        .Subpass         = 0,
-        .MinImageCount   = swapchainImageCount,
-        .ImageCount      = swapchainImageCount,
-        .MSAASamples     = VK_SAMPLE_COUNT_1_BIT,
-        .Allocator       = nullptr,
-        .CheckVkResultFn = VK_CHECKERROR,
+        .Instance                    = _instance,
+        .PhysicalDevice              = _physDevice,
+        .Device                      = _device,
+        .QueueFamily                 = _queueFamiy,
+        .Queue                       = _queue,
+        .DescriptorPool              = descPool,
+        .RenderPass                  = renderPass,
+        .MinImageCount               = swapchainImageCount,
+        .ImageCount                  = swapchainImageCount,
+        .MSAASamples                 = VK_SAMPLE_COUNT_1_BIT,
+        .PipelineCache               = nullptr,
+        .Subpass                     = 0,
+        .UseDynamicRendering         = false,
+        .PipelineRenderingCreateInfo = {},
+        .Allocator                   = nullptr,
+        .CheckVkResultFn             = VK_CHECKERROR,
+        .MinAllocationSize           = 1024 * 1024,
     };
-    ImGui_ImplVulkan_Init( &init_info, renderPass );
+    ImGui_ImplVulkan_Init( &init_info );
 
     UploadFonts( *_cmdManager );
 }
@@ -294,6 +298,10 @@ RTGL1::DebugWindows::DebugWindows( VkInstance                               _ins
 RTGL1::DebugWindows::~DebugWindows()
 {
     vkDeviceWaitIdle( device );
+
+    ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
 
     for( auto& sm : swapchainImageAvailable )
     {
@@ -306,21 +314,17 @@ RTGL1::DebugWindows::~DebugWindows()
         vkDestroyFramebuffer( device, f, nullptr );
     }
 
-    ImGui_ImplVulkan_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
-
     glfwDestroyWindow( customWindow );
     glfwTerminate();
 }
 
-void RTGL1::DebugWindows::Init( std::shared_ptr< DebugWindows > self )
+void RTGL1::DebugWindows::Init( const std::shared_ptr< DebugWindows >& self )
 {
     // kludge: need a shared_ptr of the current instance
-    customSwapchain->Subscribe( std::move( self ) );
+    customSwapchain->Subscribe( self );
 }
 
-bool RTGL1::DebugWindows::PrepareForFrame( uint32_t frameIndex )
+bool RTGL1::DebugWindows::PrepareForFrame( uint32_t frameIndex, bool vsync )
 {
     if( glfwWindowShouldClose( customWindow ) )
     {
@@ -351,7 +355,7 @@ void RTGL1::DebugWindows::SubmitForFrame( VkCommandBuffer cmd, uint32_t frameInd
         return;
     }
 
-    CmdLabel label( cmd, "ImGui" );
+    auto label = CmdLabel{ cmd, "ImGui" };
     assert( framebuffers.size() == customSwapchain->GetImageCount() );
 
     ImGui::Render();
@@ -361,16 +365,15 @@ void RTGL1::DebugWindows::SubmitForFrame( VkCommandBuffer cmd, uint32_t frameInd
 
     if( mainDrawData->DisplaySize.x > 0.0f && mainDrawData->DisplaySize.y > 0.0f )
     {
-        VkClearValue clearValue = {
+        auto clearValue = VkClearValue{
             .color = { .float32 = { 0.0f, 0.0f, 0.0f, 1.0f } },
         };
 
-        VkRenderPassBeginInfo info = {
+        auto info = VkRenderPassBeginInfo{
             .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
             .renderPass      = renderPass,
             .framebuffer     = framebuffers[ customSwapchain->GetCurrentImageIndex() ],
-            .renderArea      = { .extent = { customSwapchain->GetWidth(),
-                                        customSwapchain->GetHeight() } },
+            .renderArea      = { .extent = customSwapchain->GetExtent() },
             .clearValueCount = 1,
             .pClearValues    = &clearValue,
         };
@@ -395,7 +398,8 @@ void RTGL1::DebugWindows::OnQueuePresent( VkResult queuePresentResult )
     }
 }
 
-VkSemaphore RTGL1::DebugWindows::GetSwapchainImageAvailableSemaphore( uint32_t frameIndex ) const
+VkSemaphore RTGL1::DebugWindows::GetSwapchainImageAvailableSemaphore_Binary(
+    uint32_t frameIndex ) const
 {
     assert( frameIndex < std::size( swapchainImageAvailable ) );
     return swapchainImageAvailable[ frameIndex ];
@@ -406,12 +410,12 @@ void RTGL1::DebugWindows::SetAlwaysOnTop( bool onTop )
     if( alwaysOnTop != onTop )
     {
         alwaysOnTop = onTop;
-        
+
         glfwSetWindowAttrib( customWindow, GLFW_FLOATING, alwaysOnTop ? GLFW_TRUE : GLFW_FALSE );
     }
 }
 
-void RTGL1::DebugWindows::OnSwapchainCreate( const Swapchain* pSwapchain )
+void RTGL1::DebugWindows::OnSwapchainCreate( const DebugWindows_Swapchain* pSwapchain )
 {
     assert( customSwapchain.get() == pSwapchain );
 
@@ -420,15 +424,16 @@ void RTGL1::DebugWindows::OnSwapchainCreate( const Swapchain* pSwapchain )
 
     for( uint32_t i = 0; i < pSwapchain->GetImageCount(); i++ )
     {
-        VkImageView             view = pSwapchain->GetImageView( i );
+        VkImageView view = pSwapchain->GetImageView( i );
+        VkExtent2D  ext  = pSwapchain->GetExtent();
 
         VkFramebufferCreateInfo info = {
             .sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
             .renderPass      = renderPass,
             .attachmentCount = 1,
             .pAttachments    = &view,
-            .width           = pSwapchain->GetWidth(),
-            .height          = pSwapchain->GetHeight(),
+            .width           = ext.width,
+            .height          = ext.height,
             .layers          = 1,
         };
 
@@ -454,7 +459,7 @@ void RTGL1::DebugWindows::OnSwapchainDestroy()
 
 VkSwapchainKHR RTGL1::DebugWindows::GetSwapchainHandle() const
 {
-    return customSwapchain->GetHandle();
+    return customSwapchain->GetVkSwapchain();
 }
 
 uint32_t RTGL1::DebugWindows::GetSwapchainCurrentImageIndex() const

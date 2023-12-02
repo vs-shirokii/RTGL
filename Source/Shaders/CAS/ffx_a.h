@@ -1783,10 +1783,10 @@
  #define ALog2D1(a) log2(AD1(a))
  #define ALog2F1(a) log2(AF1(a))
 //------------------------------------------------------------------------------------------------------------------------------
- #define AMaxD1(a,b) min(a,b)
- #define AMaxF1(a,b) min(a,b)
- #define AMaxL1(a,b) min(a,b)
- #define AMaxU1(a,b) min(a,b)
+ #define AMaxD1(a,b) max(a,b)
+ #define AMaxF1(a,b) max(a,b)
+ #define AMaxL1(a,b) max(a,b)
+ #define AMaxU1(a,b) max(a,b)
 //------------------------------------------------------------------------------------------------------------------------------
  #define AMinD1(a,b) min(a,b)
  #define AMinF1(a,b) min(a,b)

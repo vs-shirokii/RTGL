@@ -56,6 +56,8 @@ jobs:
           copy Include/RTGL1/RTGL1.h final/include/RTGL1/RTGL1.h
           mkdir final/ovrd
           copy Tools/BlueNoise_LDR_RGBA_128.ktx2 final/ovrd/BlueNoise_LDR_RGBA_128.ktx2
+          copy Tools/DirtMask.ktx2 final/ovrd/DirtMask.ktx2
+          copy Tools/SceneBuildWarning.ktx2 final/ovrd/SceneBuildWarning.ktx2
           copy Tools/CreateKTX2.py final/ovrd/CreateKTX2.py
           mkdir final/ovrd/shaders
           copy Build/shaders/*.spv final/ovrd/shaders

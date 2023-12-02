@@ -34,19 +34,22 @@ namespace RTGL1
 enum class GeometryRasterType
 {
     WORLD,
+    WORLD_CLASSIC,
     SKY,
     SWAPCHAIN,
     DECAL,
 };
+constexpr size_t GeometryRasterType_Count = 5;
 
 enum class PipelineStateFlagBits
 {
-    ALPHA_TEST    = 0b000001,
-    TRANSLUCENT   = 0b000010,
-    ADDITIVE      = 0b000100,
-    DEPTH_TEST    = 0b001000,
-    DEPTH_WRITE   = 0b010000,
-    DRAW_AS_LINES = 0b100000,
+    ALPHA_TEST     = 1 << 0,
+    TRANSLUCENT    = 1 << 1,
+    ADDITIVE       = 1 << 2,
+    DEPTH_TEST     = 1 << 3,
+    DEPTH_WRITE    = 1 << 4,
+    DRAW_AS_LINES  = 1 << 5,
+    SKY_VISIBILITY = 1 << 6,
 };
 using PipelineStateFlags = uint32_t;
 
@@ -99,9 +102,9 @@ public:
         float                       emissive = 0.0f;
 
         // Raster-specific
-        std::optional< Float16D >   viewProj      = std::nullopt;
-        std::optional< VkViewport > viewport      = std::nullopt;
-        PipelineStateFlags          pipelineState = 0;
+        std::optional< Float16D >   viewProj        = std::nullopt;
+        std::optional< VkViewport > viewport        = std::nullopt;
+        PipelineStateFlags          pipelineState   = 0;
     };
 
 public:
@@ -134,13 +137,10 @@ public:
     static uint32_t          GetVertexStride();
     static std::array< VkVertexInputAttributeDescription, 3 > GetVertexLayout();
 
-    std::span< const DrawInfo > GetRasterDrawInfos() const { return rasterDrawInfos; }
-    std::span< const DrawInfo > GetSwapchainDrawInfos() const { return swapchainDrawInfos; }
-    std::span< const DrawInfo > GetSkyDrawInfos() const { return skyDrawInfos; }
-    std::span< const DrawInfo > GetDecalDrawInfos() const { return decalDrawInfos; }
-
-protected:
-    DrawInfo& PushInfo( GeometryRasterType rasterType );
+    std::span< const DrawInfo > GetDrawInfos( GeometryRasterType t ) const
+    {
+        return rasterDrawInfos[ static_cast< int >( t ) ];
+    }
 
 private:
     VkDevice                          device;
@@ -152,10 +152,7 @@ private:
     uint32_t                          curVertexCount;
     uint32_t                          curIndexCount;
 
-    std::vector< DrawInfo >           rasterDrawInfos;
-    std::vector< DrawInfo >           swapchainDrawInfos;
-    std::vector< DrawInfo >           skyDrawInfos;
-    std::vector< DrawInfo >           decalDrawInfos;
+    std::vector< DrawInfo > rasterDrawInfos[ GeometryRasterType_Count ];
 };
 
 }

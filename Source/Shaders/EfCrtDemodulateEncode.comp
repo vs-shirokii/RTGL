@@ -78,5 +78,7 @@ void main()
     }
 
     vec3 yiq = demodulateAndEncode(pix);
-    effect_storeToTarget(encodeYiqForStorage(yiq), pix);
+
+    // NOTE: yiq can can be negative, underlying format should allow that
+    effect_storeToTarget(yiq, pix);
 }

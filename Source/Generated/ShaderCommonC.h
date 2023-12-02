@@ -41,14 +41,14 @@ namespace RTGL1
 #define BINDING_DRAW_LENS_FLARES_INSTANCES (0)
 #define BINDING_PORTAL_INSTANCES (0)
 #define BINDING_LPM_PARAMS (0)
-#define BINDING_RESTIR_INDIRECT_INITIAL_SAMPLES (0)
-#define BINDING_RESTIR_INDIRECT_RESERVOIRS (1)
-#define BINDING_RESTIR_INDIRECT_RESERVOIRS_PREV (2)
+#define BINDING_RESTIR_INDIRECT_RESERVOIRS (2)
+#define BINDING_RESTIR_INDIRECT_RESERVOIRS_PREV (1)
 #define BINDING_VOLUMETRIC_STORAGE (0)
 #define BINDING_VOLUMETRIC_SAMPLER (1)
 #define BINDING_VOLUMETRIC_SAMPLER_PREV (2)
-#define BINDING_VOLUMETRIC_ILLUMINATION (3)
-#define BINDING_VOLUMETRIC_ILLUMINATION_SAMPLER (4)
+#define BINDING_FLUID_PARTICLES_ARRAY (0)
+#define BINDING_FLUID_GENERATE_ID_TO_SOURCE (1)
+#define BINDING_FLUID_SOURCES (2)
 #define INSTANCE_CUSTOM_INDEX_FLAG_FIRST_PERSON (1 << 0)
 #define INSTANCE_CUSTOM_INDEX_FLAG_FIRST_PERSON_VIEWER (1 << 1)
 #define INSTANCE_CUSTOM_INDEX_FLAG_SKY (1 << 2)
@@ -66,10 +66,9 @@ namespace RTGL1
 #define SBT_INDEX_RAYGEN_REFL_REFR (1)
 #define SBT_INDEX_RAYGEN_DIRECT (2)
 #define SBT_INDEX_RAYGEN_INDIRECT_INIT (3)
-#define SBT_INDEX_RAYGEN_INDIRECT_FINAL (4)
-#define SBT_INDEX_RAYGEN_GRADIENTS (5)
-#define SBT_INDEX_RAYGEN_INITIAL_RESERVOIRS (6)
-#define SBT_INDEX_RAYGEN_VOLUMETRIC (7)
+#define SBT_INDEX_RAYGEN_GRADIENTS (4)
+#define SBT_INDEX_RAYGEN_INITIAL_RESERVOIRS (5)
+#define SBT_INDEX_RAYGEN_VOLUMETRIC (6)
 #define SBT_INDEX_MISS_DEFAULT (0)
 #define SBT_INDEX_MISS_SHADOW (1)
 #define SBT_INDEX_HITGROUP_FULLY_OPAQUE (0)
@@ -109,6 +108,7 @@ namespace RTGL1
 #define SKY_TYPE_COLOR (0)
 #define SKY_TYPE_CUBEMAP (1)
 #define SKY_TYPE_RASTERIZED_GEOMETRY (2)
+#define SUPPRESS_TEXLAYERS (1)
 #define BLUE_NOISE_TEXTURE_COUNT (128)
 #define BLUE_NOISE_TEXTURE_SIZE (128)
 #define BLUE_NOISE_TEXTURE_SIZE_POW (7)
@@ -121,7 +121,7 @@ namespace RTGL1
 #define COMPUTE_BLOOM_DOWNSAMPLE_GROUP_SIZE_Y (16)
 #define COMPUTE_BLOOM_APPLY_GROUP_SIZE_X (16)
 #define COMPUTE_BLOOM_APPLY_GROUP_SIZE_Y (16)
-#define COMPUTE_BLOOM_STEP_COUNT (8)
+#define COMPUTE_BLOOM_STEP_COUNT (7)
 #define COMPUTE_EFFECT_GROUP_SIZE_X (16)
 #define COMPUTE_EFFECT_GROUP_SIZE_Y (16)
 #define COMPUTE_LUM_HISTOGRAM_GROUP_SIZE_X (16)
@@ -142,6 +142,8 @@ namespace RTGL1
 #define COMPUTE_ASVGF_GRADIENT_ATROUS_ITERATION_COUNT (4)
 #define COMPUTE_INDIRECT_DRAW_FLARES_GROUP_SIZE_X (256)
 #define LENS_FLARES_MAX_DRAW_CMD_COUNT (512)
+#define COMPUTE_FLUID_PARTICLES_GROUP_SIZE_X (256)
+#define COMPUTE_FLUID_PARTICLES_GENERATE_GROUP_SIZE_X (256)
 #define DEBUG_SHOW_FLAG_MOTION_VECTORS (1 << 0)
 #define DEBUG_SHOW_FLAG_GRADIENTS (1 << 1)
 #define DEBUG_SHOW_FLAG_UNFILTERED_DIFFUSE (1 << 2)
@@ -153,6 +155,7 @@ namespace RTGL1
 #define DEBUG_SHOW_FLAG_LIGHT_GRID (1 << 8)
 #define DEBUG_SHOW_FLAG_ALBEDO_WHITE (1 << 9)
 #define DEBUG_SHOW_FLAG_NORMALS (1 << 10)
+#define DEBUG_SHOW_FLAG_BLOOM (1 << 11)
 #define MAX_RAY_LENGTH (10000.0)
 #define MEDIA_TYPE_VACUUM (0)
 #define MEDIA_TYPE_WATER (1)
@@ -163,20 +166,16 @@ namespace RTGL1
 #define LIGHT_TYPE_NONE (0)
 #define LIGHT_TYPE_DIRECTIONAL (1)
 #define LIGHT_TYPE_SPHERE (2)
-#define LIGHT_TYPE_TRIANGLE (3)
-#define LIGHT_TYPE_SPOT (4)
+#define LIGHT_TYPE_SPOT (3)
+#define LIGHT_TYPE_TRIANGLE (4)
+#define TRIANGLE_LIGHTS (0)
 #define LIGHT_ARRAY_DIRECTIONAL_LIGHT_OFFSET (0)
 #define LIGHT_ARRAY_REGULAR_LIGHTS_OFFSET (1)
 #define LIGHT_INDEX_NONE (32767)
-#define LIGHT_GRID_SIZE_X (16)
-#define LIGHT_GRID_SIZE_Y (16)
-#define LIGHT_GRID_SIZE_Z (16)
-#define LIGHT_GRID_CELL_SIZE (128)
-#define COMPUTE_LIGHT_GRID_GROUP_SIZE_X (256)
+#define LIGHT_GRID_ENABLED (0)
 #define PORTAL_INDEX_NONE (63)
 #define PORTAL_MAX_COUNT (63)
-#define PACKED_INDIRECT_SAMPLE_SIZE_IN_WORDS (6)
-#define PACKED_INDIRECT_RESERVOIR_SIZE_IN_WORDS (8)
+#define PACKED_INDIRECT_RESERVOIR_SIZE_IN_WORDS (5)
 #define VOLUMETRIC_SIZE_X (160)
 #define VOLUMETRIC_SIZE_Y (88)
 #define VOLUMETRIC_SIZE_Z (64)
@@ -186,6 +185,12 @@ namespace RTGL1
 #define VOLUME_ENABLE_NONE (0)
 #define VOLUME_ENABLE_SIMPLE (1)
 #define VOLUME_ENABLE_VOLUMETRIC (2)
+#define HDR_DISPLAY_NONE (0)
+#define HDR_DISPLAY_LINEAR (1)
+#define HDR_DISPLAY_ST2084 (2)
+#define ILLUMINATION_VOLUME (0)
+#define COMPUTE_INDIRECT_FINAL_GROUP_SIZE_X (16)
+#define COMPUTE_INDIRECT_FINAL_GROUP_SIZE_Y (16)
 
 struct ShVertex
 {
@@ -194,6 +199,12 @@ struct ShVertex
     float texCoord[2];
     uint32_t color;
     uint32_t _pad0;
+};
+
+struct ShVertexCompact
+{
+    float position[3];
+    uint32_t normalPacked;
 };
 
 struct ShGlobalUniform
@@ -241,7 +252,7 @@ struct ShGlobalUniform
     uint32_t rayCullMaskWorld;
     float bloomIntensity;
     float bloomThreshold;
-    float bloomEmissionMultiplier;
+    float bloomEV;
     uint32_t reflectRefractMaxDepth;
     uint32_t cameraMediaType;
     float indexOfRefractionWater;
@@ -286,6 +297,11 @@ struct ShGlobalUniform
     uint32_t volumeLightSourceIndex;
     float volumeFallbackSrcExists;
     float volumeLightMult;
+    uint32_t hdrDisplay;
+    float parallaxMaxDepth;
+    uint32_t fluidEnabled;
+    float _pad3;
+    float fluidColor[4];
     float viewProjCubemap[96];
     float skyCubemapRotationTransform[16];
 };
@@ -316,8 +332,8 @@ struct ShGeometryInstance
     uint32_t prevBaseIndexIndex;
     uint32_t vertexCount;
     uint32_t indexCount;
-    float roughnessDefault;
-    float metallicDefault;
+    uint32_t texture_base_D;
+    uint32_t roughnessDefault_metallicDefault;
     float emissiveMult;
     uint32_t firstVertex_Layer1;
     uint32_t firstVertex_Layer2;
@@ -332,11 +348,12 @@ struct ShTonemapping
 
 struct ShLightEncoded
 {
-    float color[3];
     uint32_t lightType;
-    float data_0[4];
-    float data_1[4];
-    float data_2[4];
+    uint32_t colorE5;
+    float ldata0;
+    float ldata1;
+    float ldata2;
+    float ldata3;
 };
 
 struct ShLightInCell

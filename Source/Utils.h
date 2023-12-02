@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <array>
 #include <optional>
+#include <filesystem>
 
 #include "Common.h"
 #include "RTGL1/RTGL1.h"
@@ -118,6 +119,9 @@ using Float4D  = FloatStorage< 4 >;
 
 namespace Utils
 {
+    // Path to the folder containing .dll / .so
+    auto FindBinFolder() -> std::filesystem::path;
+
     void BarrierImage( VkCommandBuffer                cmd,
                        VkImage                        image,
                        VkAccessFlags                  srcAccessMask,
@@ -174,13 +178,30 @@ namespace Utils
     bool IsAlmostZero( const RgFloat3D& v );
     bool IsAlmostZero( const RgMatrix3D& m );
 
-    constexpr bool AreAlmostSame( const RgFloat3D& a, const RgFloat3D& b, float threshold = 0.001f )
+    inline bool AreAlmostSameF( float a, float b, float threshold = 0.001f )
+    {
+        return std::abs( a - b ) <= threshold;
+    }
+
+    inline bool AreAlmostSame( const RgFloat3D& a, const RgFloat3D& b, float threshold = 0.001f )
+    {
+        return AreAlmostSameF( a.data[ 0 ], b.data[ 0 ], threshold ) &&
+               AreAlmostSameF( a.data[ 1 ], b.data[ 1 ], threshold ) &&
+               AreAlmostSameF( a.data[ 2 ], b.data[ 2 ], threshold );
+    }
+
+    inline bool AreAlmostSameTr( const RgTransform& a,
+                                 const RgTransform& b,
+                                 float              threshold = 0.001f )
     {
         for( int i = 0; i < 3; i++ )
         {
-            if( std::abs( a.data[ i ] - b.data[ i ] ) > threshold )
+            for( int j = 0; j < 4; j++ )
             {
-                return false;
+                if( !AreAlmostSameF( a.matrix[ i ][ j ], b.matrix[ i ][ j ], threshold ) )
+                {
+                    return false;
+                }
             }
         }
         return true;
@@ -189,6 +210,7 @@ namespace Utils
     float       Dot( const float a[ 3 ], const float b[ 3 ] );
     float       Dot( const RgFloat3D& a, const RgFloat3D& b );
     float       Length( const float v[ 3 ] );
+    float       Length( const RgFloat3D& v );
     float       SqrLength( const float v[ 3 ] );
     bool        TryNormalize( float inout[ 3 ] );
     void        Normalize( float inout[ 3 ] );
@@ -218,14 +240,37 @@ namespace Utils
         return radians * 180.0f / float( M_PI );
     }
 
-    uint32_t        GetPreviousByModulo( uint32_t value, uint32_t count );
-    inline uint32_t PrevFrame( uint32_t frameIndex )
+    constexpr uint32_t GetPreviousByModulo( uint32_t value, uint32_t count )
+    {
+        assert( count > 0 );
+        return ( value + ( count - 1 ) ) % count;
+    }
+    constexpr uint32_t PrevFrame( uint32_t frameIndex )
     {
         return GetPreviousByModulo( frameIndex, MAX_FRAMES_IN_FLIGHT );
     }
 
-    uint32_t GetWorkGroupCount( float size, uint32_t groupSize );
-    uint32_t GetWorkGroupCount( uint32_t size, uint32_t groupSize );
+    template< uint32_t GroupSize >
+        requires( GroupSize > 0 )
+    constexpr uint32_t WorkGroupCountStrict( uint32_t size )
+    {
+        return ( size + ( GroupSize - 1 ) ) / GroupSize;
+    }
+
+    constexpr uint32_t GetWorkGroupCount( uint32_t size, uint32_t groupSize )
+    {
+        if( groupSize == 0 )
+        {
+            assert( 0 );
+            return 0;
+        }
+
+        return 1 + ( size + ( groupSize - 1 ) ) / groupSize;
+    }
+    constexpr uint32_t GetWorkGroupCount( float size, uint32_t groupSize )
+    {
+        return GetWorkGroupCount( static_cast< uint32_t >( std::ceil( size ) ), groupSize );
+    }
 
     template< typename T1, typename T2 >
         requires( std::is_integral_v< T1 > && std::is_integral_v< T2 > )
@@ -274,14 +319,69 @@ namespace Utils
         } };
     }
 
+    constexpr uint8_t UnpackAlphaFromPacked32AsUint8( RgColor4DPacked32 c )
+    {
+        return uint8_t( ( c >> 24 ) & 255u );
+    }
+
     constexpr float UnpackAlphaFromPacked32( RgColor4DPacked32 c )
     {
-        return float( ( c >> 24 ) & 255u ) / 255.0f;
+        return float( UnpackAlphaFromPacked32AsUint8( c ) ) / 255.0f;
+    }
+
+    constexpr RgColor4DPacked32 ReplaceAlphaInPacked32( RgColor4DPacked32 c, uint8_t newalpha )
+    {
+        return ( c & 0x00FFFFFF ) | ( uint32_t{ newalpha } << 24 );
     }
 
     constexpr float Luminance( const float ( &c )[ 3 ] )
     {
         return 0.2125f * c[ 0 ] + 0.7154f * c[ 1 ] + 0.0721f * c[ 2 ];
+    }
+
+    inline float Dot( const float a[ 3 ], const float b[ 3 ] )
+    {
+        return a[ 0 ] * b[ 0 ] + a[ 1 ] * b[ 1 ] + a[ 2 ] * b[ 2 ];
+    }
+
+    inline float Dot( const RgFloat3D& a, const RgFloat3D& b )
+    {
+        return Dot( a.data, b.data );
+    }
+
+    inline float Length( const float v[ 3 ] )
+    {
+        return sqrtf( Dot( v, v ) );
+    }
+
+    inline float Length( const RgFloat3D& v )
+    {
+        return Length( v.data );
+    }
+
+    inline float SqrLength( const float v[ 3 ] )
+    {
+        return Dot( v, v );
+    }
+
+    template< size_t N >
+        requires( N == 3 )
+    float SqrDistance( const float ( &a )[ N ], const float ( &b )[ N ] )
+    {
+        float diff[ 3 ] = { b[ 0 ] - a[ 0 ], b[ 1 ] - a[ 1 ], b[ 2 ] - a[ 2 ] };
+        return SqrLength( diff );
+    }
+
+    inline float SqrDistanceR( const RgFloat3D& a, const RgFloat3D& b )
+    {
+        return SqrDistance( a.data, b.data );
+    }
+
+    template< size_t N >
+        requires( N == 3 )
+    float Distance( const float ( &a )[ N ], const float ( &b )[ N ] )
+    {
+        return sqrtf( SqrDistance( a, b ) );
     }
 
     inline bool IsCstrEmpty( const char* cstr )
@@ -310,13 +410,24 @@ namespace Utils
                ( uint32_t( r ) );
     }
 
+    constexpr uint8_t ToUint8Safe( float c )
+    {
+        return uint8_t( std::clamp( int32_t( c * 255.0f ), 0, 255 ) );
+    };
+
     constexpr RgColor4DPacked32 PackColorFromFloat( float r, float g, float b, float a )
     {
-        constexpr auto toUint8 = []( float c ) {
-            return uint8_t( std::clamp( int32_t( c * 255.0f ), 0, 255 ) );
-        };
+        return PackColor( ToUint8Safe( r ), ToUint8Safe( g ), ToUint8Safe( b ), ToUint8Safe( a ) );
+    }
 
-        return PackColor( toUint8( r ), toUint8( g ), toUint8( b ), toUint8( a ) );
+    constexpr RgColor4DPacked32 MultiplyColorPacked32( RgColor4DPacked32 c, float mult )
+    {
+        auto rgba = UnpackColor4DPacked32Components( c );
+
+        rgba[ 0 ] = ToUint8Safe( static_cast< float >( rgba[ 0 ] ) / 255.0f * mult );
+        rgba[ 1 ] = ToUint8Safe( static_cast< float >( rgba[ 1 ] ) / 255.0f * mult );
+        rgba[ 2 ] = ToUint8Safe( static_cast< float >( rgba[ 2 ] ) / 255.0f * mult );
+        return PackColor( rgba[ 0 ], rgba[ 1 ], rgba[ 2 ], rgba[ 3 ] );
     }
 
     namespace detail
@@ -462,15 +573,6 @@ namespace Utils
         return global;
     }
 
-    constexpr float IntensityToNonMetric( float metricIntensity, float oneGameUnitInMeters )
-    {
-        return metricIntensity * ( oneGameUnitInMeters * oneGameUnitInMeters );
-    }
-    constexpr float IntensityFromNonMetric( float nonMetricIntensity, float oneGameUnitInMeters )
-    {
-        return nonMetricIntensity / ( oneGameUnitInMeters * oneGameUnitInMeters );
-    }
-
 // clang-format off
     // Column memory order!
     #define RG_TRANSFORM_TO_GLTF_MATRIX( t ) {                                      \
@@ -530,6 +632,20 @@ inline RgFloat3D ApplyTransformToDirection( const RgTransform* transform, const 
     RgFloat3D r = dir;
     ApplyTransformToDirection( transform, r.data );
     return r;
+}
+
+inline auto ApplyJitter( const float*     originalProj,
+                         const RgFloat2D& jitter,
+                         uint32_t         width,
+                         uint32_t         height ) -> std::array< float, 16 >
+{
+    auto jitterredProj = std::array< float, 16 >{};
+
+    memcpy( jitterredProj.data(), originalProj, 16 * sizeof( float ) );
+    jitterredProj[ 2 * 4 + 0 ] += jitter.data[ 0 ] / float( width );
+    jitterredProj[ 2 * 4 + 1 ] += jitter.data[ 1 ] / float( height );
+
+    return jitterredProj;
 }
 
 
@@ -597,6 +713,19 @@ struct CopyRange
         };
     }
 
+    static auto mergeSafe( const CopyRange& a, const CopyRange& b )
+    {
+        if( a.valid() )
+        {
+            if( b.valid() )
+            {
+                return merge( a, b );
+            }
+            return a;
+        }
+        return b;
+    }
+
     static auto remove_at_start( const CopyRange& full, const CopyRange& toremove )
     {
         if( toremove.count() == 0 )
@@ -611,7 +740,7 @@ struct CopyRange
             return CopyRange{};
         }
         return CopyRange{
-            .vbegin = full.vbegin + toremove.count() ,
+            .vbegin = full.vbegin + toremove.count(),
             .vend   = full.vend,
         };
     }
@@ -638,6 +767,20 @@ inline auto MakeRangeFromOverallCount( uint32_t first, uint32_t overallCount )
         .vbegin = first,
         .vend   = overallCount,
     };
+}
+
+inline auto AddSuffix( const std::filesystem::path& base, const std::wstring_view filesuffix )
+    -> std::filesystem::path
+{
+    const auto ext = base.extension();
+
+    auto result = base;
+    result.replace_extension();
+
+    result += filesuffix;
+
+    result.replace_extension( ext );
+    return result;
 }
 
 namespace ext

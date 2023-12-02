@@ -39,7 +39,7 @@
     #define RGCONV
 #endif // defined(_WIN32)
 
-#define RG_RTGL_VERSION_API "1.04.0000"
+#define RG_RTGL_VERSION_API "001.006.000"
 
 #ifdef RG_USE_SURFACE_WIN32
     #include <windows.h>
@@ -89,6 +89,7 @@ typedef enum RgResult
     RG_RESULT_ERROR_CANT_FIND_HARDCODED_RESOURCES,
     RG_RESULT_ERROR_CANT_FIND_SHADER,
     RG_RESULT_ERROR_MEMORY_ALIGNMENT,
+    RG_RESULT_ERROR_NO_VULKAN_EXTENSION,
 } RgResult;
 
 typedef enum RgMessageSeverityFlagBits
@@ -169,7 +170,6 @@ typedef enum RgStructureType
     RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_INFO               = 15,
     RG_STRUCTURE_TYPE_START_FRAME_INFO                    = 16,
     RG_STRUCTURE_TYPE_DRAW_FRAME_INFO                     = 17,
-    RG_STRUCTURE_TYPE_DRAW_FRAME_RENDER_RESOLUTION_PARAMS = 18,
     RG_STRUCTURE_TYPE_DRAW_FRAME_ILLUMINATION_PARAMS      = 19,
     RG_STRUCTURE_TYPE_DRAW_FRAME_VOLUMETRIC_PARAMS        = 20,
     RG_STRUCTURE_TYPE_DRAW_FRAME_TONEMAPPING_PARAMS       = 21,
@@ -177,12 +177,14 @@ typedef enum RgStructureType
     RG_STRUCTURE_TYPE_DRAW_FRAME_REFLECT_REFRACT_PARAMS   = 23,
     RG_STRUCTURE_TYPE_DRAW_FRAME_SKY_PARAMS               = 24,
     RG_STRUCTURE_TYPE_DRAW_FRAME_TEXTURES_PARAMS          = 25,
-    RG_STRUCTURE_TYPE_DRAW_FRAME_LIGHTMAP_PARAMS          = 26,
     RG_STRUCTURE_TYPE_DRAW_FRAME_POST_EFFECTS_PARAMS      = 27,
     RG_STRUCTURE_TYPE_LENS_FLARE_INFO                     = 28,
     RG_STRUCTURE_TYPE_CAMERA_INFO                         = 30,
     RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_DETAILS_EXT        = 31,
     RG_STRUCTURE_TYPE_CAMERA_INFO_READ_BACK_EXT           = 32,
+    RG_STRUCTURE_TYPE_START_FRAME_RENDER_RESOLUTION_PARAMS  = 33,
+    RG_STRUCTURE_TYPE_SPAWN_FLUID_INFO                      = 34,
+    RG_STRUCTURE_TYPE_START_FRAME_FLUID_PARAMS              = 35,
 } RgStructureType;
 
 typedef enum RgTextureSwizzling
@@ -210,13 +212,20 @@ typedef struct RgFloat4D
     float data[ 4 ];
 } RgFloat4D;
 
+typedef struct RgQuaternion
+{
+    float data[ 4 ];
+} RgQuaternion;
+
 typedef struct RgInstanceCreateInfo
 {
     RgStructureType             sType;
     void*                       pNext;
 
-    // On Windows, a path to RTGL1.dll
-    const char*                 pRtglDynamicLibraryPath;
+    // Set to RG_RTGL_VERSION_API, for compatibility checks.
+    const char*                 version;
+    // Set to 'sizeof( RgInterface )', for compatibility checks.
+    uint64_t                    sizeOfRgInterface;
 
     // Application name.
     const char*                 pAppName;
@@ -229,11 +238,6 @@ typedef struct RgInstanceCreateInfo
     RgWaylandSurfaceCreateInfo* pWaylandSurfaceCreateInfo;
     RgXcbSurfaceCreateInfo*     pXcbSurfaceCreateInfo;
     RgXlibSurfaceCreateInfo*    pXlibSurfaceCreateInfo;
-
-    // Note: "RTGL1.json" is a development configuration file, located at pOverrideFolderPath.
-    // "VulkanValidation"   - validate each Vulkan API call and print using pfnPrint
-    // "Developer"          - load PNG texture files instead of KTX2; reload a texture if its PNG file was changed
-    // "FPSMonitor"         - show FPS at the window name
 
     // Folder for all resources.
     const char*                 pOverrideFolderPath;
@@ -257,13 +261,11 @@ typedef struct RgInstanceCreateInfo
     uint64_t                    dynamicMaxVertexCount;
 
     RgBool32                    rayCullBackFacingTriangles;
-    // Allow RG_GEOMETRY_VISIBILITY_TYPE_SKY.
-    // If true, RG_GEOMETRY_VISIBILITY_TYPE_WORLD_2 must not be used.
-    RgBool32                    allowGeometryWithSkyFlag;
     RgBool32                    allowTexCoordLayer1;
     RgBool32                    allowTexCoordLayer2;
     RgBool32                    allowTexCoordLayer3;
     // Which layer to interpret as a lightmap. Can be 1, 2 or 3.
+    // Set to 0, if no lightmaps.
     uint32_t                    lightmapTexCoordLayerIndex;
 
     // Memory that must be allocated for vertex and index buffers of rasterized geometry.
@@ -294,6 +296,9 @@ typedef struct RgInstanceCreateInfo
     // 1 game unit should correspond to (worldScale) meters.
     float                       worldScale;
 
+    float                       importedLightIntensityScaleDirectional;
+    float                       importedLightIntensityScaleSphere;
+    float                       importedLightIntensityScaleSpot;
 } RgInstanceCreateInfo;
 
 typedef struct RgInterface RgInterface;
@@ -301,6 +306,14 @@ typedef struct RgInterface RgInterface;
 typedef RgResult( RGAPI_PTR* PFN_rgCreateInstance )( const RgInstanceCreateInfo* pInfo,
                                                      RgInterface*                pInterface );
 typedef RgResult( RGAPI_PTR* PFN_rgDestroyInstance )();
+
+// .exe should export these symbols to find 'D3D12Core.dll', otherwise D3D12 init might fail,
+// because user's Windows might have an older D3D12Core which is incompatible with RTGL.
+// 'pOverrideFolderPath' here should be the same as 'RgInstanceCreateInfo::pOverrideFolderPath'
+#define RG_D3D12CORE_HELPER( pOverrideFolderPath )                                  \
+    extern "C" __declspec( dllexport ) extern const uint32_t D3D12SDKVersion = 611; \
+    extern "C" __declspec( dllexport ) extern const char*    D3D12SDKPath =         \
+        ( pOverrideFolderPath "\\bin\\" ); 
 
 
 
@@ -361,6 +374,8 @@ typedef enum RgMeshPrimitiveFlagBits
     // Requires vertexCount >= 3.
     RG_MESH_PRIMITIVE_DECAL                 = 1 << 14,
     RG_MESH_PRIMITIVE_EXPORT_INVERT_NORMALS = 1 << 15,
+    RG_MESH_PRIMITIVE_NO_SHADOW             = 1 << 16,
+    RG_MESH_PRIMITIVE_NO_MOTION_VECTORS     = 1 << 17,
 } RgMeshPrimitiveFlagBits;
 typedef uint32_t RgMeshPrimitiveFlags;
 
@@ -375,6 +390,8 @@ typedef enum RgMeshInfoFlagBits
     RG_MESH_FORCE_GLASS             = 1 << 4,
     // Force all primitives of this mesh to be a water. Useful for overriding replacement RgMeshPrimitiveFlags.
     RG_MESH_FORCE_WATER             = 1 << 5,
+    // Force all primitives of this mesh to ignore refracting geometry behind this primitive. Useful for overriding replacement RgMeshPrimitiveFlags.
+    RG_MESH_FORCE_IGNORE_REFRACT_AFTER      = 1 << 6,
 } RgMeshInfoFlagBits;
 typedef uint32_t RgMeshInfoFlags;
 
@@ -485,6 +502,8 @@ typedef struct RgMeshPrimitiveInfo
     // If alpha < 1.0, then RG_MESH_PRIMITIVE_TRANSLUCENT is assumed.
     RgColor4DPacked32           color;
     float                       emissive;
+    // Default: 1.0
+    float                       classicLight;
 } RgMeshPrimitiveInfo;
 
 // Mesh is a set of primitives.
@@ -503,6 +522,8 @@ typedef struct RgMeshInfo
     // will be found. If not set, a scene name is used.
     RgBool32                    isExportable;
     float                       animationTime;
+    // Default: 1.0
+    float                       localLightsIntensity;
 } RgMeshInfo;
 
 typedef RgResult( RGAPI_PTR* PFN_rgUploadMeshPrimitive )( const RgMeshInfo*          pMesh,
@@ -527,6 +548,23 @@ typedef struct RgLensFlareInfo
 } RgLensFlareInfo;
 
 typedef RgResult( RGAPI_PTR* PFN_rgUploadLensFlare )( const RgLensFlareInfo* pInfo );
+
+
+typedef struct RgSpawnFluidInfo
+{
+    RgStructureType sType;
+    void*           pNext;
+    RgFloat3D       position;
+    float           radius;
+    RgFloat3D       velocity;
+    // Each particle would have a random velocity in range
+    // [ ( 1.0 - dispersionVelocity ) * velocity, velocity ]
+    float           dispersionVelocity;
+    // [0, 180]
+    float           dispersionAngleDegrees;
+    uint32_t        count;
+} RgSpawnFluidInfo;
+typedef RgResult( RGAPI_PTR* PFN_rgSpawnFluid )( const RgSpawnFluidInfo* pInfo );
 
 
 
@@ -565,17 +603,34 @@ typedef RgResult( RGAPI_PTR* PFN_rgUploadCamera )( const RgCameraInfo* pInfo );
 
 
 
+typedef enum RgLightAdditionalFlagBits
+{
+    // Use the light source for scattering.
+    // Only one per scene is allowed.
+    // If GLTF is used, this can be overwritten by a GLTF's sun.
+    RG_LIGHT_ADDITIONAL_VOLUMETRIC                  = 1,
+    // Multiply the light intensity by a parent mesh's intensity ''.
+    RG_LIGHT_ADDITIONAL_APPLY_PARENT_MESH_INTENSITY = 2,
+    RG_LIGHT_ADDITIONAL_LIGHTSTYLE                  = 4,
+} RgLightAdditionalFlagBits;
+typedef uint32_t RgLightAdditionalFlags;
+
 // Can be linked after RgLightDirectionalEXT / RgLightSphericalEXT / RgLightPolygonalEXT /
 // RgLightSpotEXT.
 typedef struct RgLightAdditionalEXT
 {
-    RgStructureType     sType;
-    void*               pNext;
-    int                 lightstyle;
-    // Use the light source for scattering.
-    // Only one per scene is allowed.
-    // If GLTF is used, this can be overwritten by a GLTF's sun.
-    RgBool32            isVolumetric;
+    RgStructureType             sType;
+    void*                       pNext;
+    RgLightAdditionalFlags      flags;
+    // If flags contain RG_LIGHT_ADDITIONAL_LIGHTSTYLE,
+    // light intensity is multiplied by ( pLightstyleValues8[ lightstyle ] / 255.0 )
+    int                         lightstyle;
+    // If non-empty, 'hashName' is used to calculate 'uniqueId' when imported from GLTF.
+    // Use case: there are 2 animation frames represented by 2 gltf nodes:
+    // if 'hashName' are not set or not the same, then when anim.frame is changed,
+    // 'uniqueId' won't be identical, so path tracer won't be able to match these lights,
+    // causing noise.
+    char                        hashName[ 40 ];
 } RgLightAdditionalEXT;
 
 // Can be linked after RgLightInfo.
@@ -702,20 +757,6 @@ typedef RgResult( RGAPI_PTR* PFN_rgMarkOriginalTextureAsDeleted )( const char* p
 
 
 
-typedef struct RgStartFrameInfo
-{
-    RgStructureType sType;
-    void*           pNext;
-    const char*     pMapName;
-    RgBool32        ignoreExternalGeometry;
-    RgBool32        vsync;
-} RgStartFrameInfo;
-
-typedef RgResult( RGAPI_PTR* PFN_rgStartFrame )( const RgStartFrameInfo* pInfo );
-
-
-
-// Can be linked after RgDrawFrameInfo.
 typedef enum RgRenderUpscaleTechnique
 {
     RG_RENDER_UPSCALE_TECHNIQUE_LINEAR,
@@ -723,6 +764,13 @@ typedef enum RgRenderUpscaleTechnique
     RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2,
     RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS,
 } RgRenderUpscaleTechnique;
+
+typedef enum RgFrameGenerationMode
+{
+    RG_FRAME_GENERATION_MODE_OFF,               // Completely unload frame generation logic
+    RG_FRAME_GENERATION_MODE_WITHOUT_GENERATED, // Run, but don't present generated frames
+    RG_FRAME_GENERATION_MODE_ON,                // Enable
+} RgFrameGenerationMode;
 
 typedef enum RgRenderSharpenTechnique
 {
@@ -741,13 +789,16 @@ typedef enum RgRenderResolutionMode
     RG_RENDER_RESOLUTION_MODE_NATIVE_AA,
 } RgRenderResolutionMode;
 
-typedef struct RgDrawFrameRenderResolutionParams
+// Can be linked after RgStartFrameInfo.
+typedef struct RgStartFrameRenderResolutionParams
 {
     RgStructureType          sType;
     void*                    pNext;
     RgRenderUpscaleTechnique upscaleTechnique;
-    RgRenderSharpenTechnique sharpenTechnique;
     RgRenderResolutionMode   resolutionMode;
+    RgFrameGenerationMode    frameGeneration;
+    RgBool32                 preferDxgiPresent;
+    RgRenderSharpenTechnique sharpenTechnique;
     // Used, if resolutionMode is RG_RENDER_RESOLUTION_MODE_CUSTOM
     RgExtent2D               customRenderSize;
     // If true, final image will be downscaled to 'pixelizedRenderSize' at the very end.
@@ -755,9 +806,50 @@ typedef struct RgDrawFrameRenderResolutionParams
     // be done in higher resolution.
     RgBool32                 pixelizedRenderSizeEnable;
     RgExtent2D               pixelizedRenderSize;
-    // Drop history, e.g. if there's camera changed its position drastically.
-    RgBool32                 resetUpscalerHistory;
-} RgDrawFrameRenderResolutionParams;
+} RgStartFrameRenderResolutionParams;
+
+// Can be linked after RgStartFrameInfo.
+typedef struct RgStartFrameFluidParams
+{
+    RgStructureType sType;
+    void*           pNext;
+    RgBool32        enabled;
+    RgBool32        reset;
+    RgFloat3D       gravity;
+    RgFloat3D       color;
+    uint32_t        particleBudget;
+    float           particleRadius;
+} RgStartFrameFluidParams;
+
+typedef enum RgStaticSceneStatusFlagBits
+{
+    RG_STATIC_SCENE_STATUS_LOADED            = 1,
+    RG_STATIC_SCENE_STATUS_NEW_SCENE_STARTED = 2,
+    RG_STATIC_SCENE_STATUS_EXPORT_STARTED    = 4,
+} RgStaticSceneStatusFlagBits;
+typedef uint32_t RgStaticSceneStatusFlags;
+
+typedef struct RgStartFrameInfo
+{
+    RgStructureType sType;
+    void*           pNext;
+    const char*     pMapName;
+    RgBool32        ignoreExternalGeometry;
+    RgBool32        vsync;
+    RgBool32        hdr;
+    RgBool32        allowMapAutoExport;
+    // How much of the screen should be rendered in a lightmap mode.
+    // In [0.0, 1.0]
+    float           lightmapScreenCoverage;
+    uint32_t        lightstyleValuesCount;
+    const uint8_t*  pLightstyleValues8;
+    RgStaticSceneStatusFlags* pResultStaticSceneStatus;
+    float           staticSceneAnimationTime;
+} RgStartFrameInfo;
+
+typedef RgResult( RGAPI_PTR* PFN_rgStartFrame )( const RgStartFrameInfo* pInfo );
+
+
 
 typedef enum RgSkyType
 {
@@ -781,6 +873,14 @@ typedef struct RgDrawFrameTonemappingParams
     // One channel must be 1.0, the rest can be <= 1.0 but not zero.
     // Default: 1.0 1.0 1.0
     RgFloat3D       crosstalk;
+    // Default: 0.1
+    float           contrast;
+    // Default: 1
+    float           hdrBrightness;
+    // Default: 0.1
+    float           hdrContrast;
+    // Default: 0.25 0.25 0.25
+    RgFloat3D       hdrSaturation;
 } RgDrawFrameTonemappingParams;
 
 // Can be linked after RgDrawFrameInfo.
@@ -819,6 +919,9 @@ typedef struct RgDrawFrameTexturesParams
     float           emissionMaxScreenColor;
     // Default: 0.0
     float           minRoughness;
+    // The deepest point that the 0.0 value of height map defines.
+    // Default 0.02
+    float           heightMapDepth;
 } RgDrawFrameTexturesParams;
 
 // Can be linked after RgDrawFrameInfo.
@@ -853,9 +956,7 @@ typedef struct RgDrawFrameIlluminationParams
     // For which light first-person viewer shadows should be ignored.
     // E.g. first-person flashlight.
     // Null, if none.
-    uint64_t*       lightUniqueIdIgnoreFirstPersonViewerShadows;
-    uint32_t        lightstyleValuesCount;
-    const float*    pLightstyleValues;
+    const uint64_t* lightUniqueIdIgnoreFirstPersonViewerShadows;
 } RgDrawFrameIlluminationParams;
 
 // Can be linked after RgDrawFrameInfo.
@@ -876,7 +977,7 @@ typedef struct RgDrawFrameVolumetricParams
     RgFloat3D       ambientColor;
     // Default: 0.2
     float           scaterring;
-    // g parameter [-1..1] for the Henyey–Greenstein phase function.
+    // g parameter [-1..1] for the Henyey-Greenstein phase function.
     // Default: 0.0 (isotropic)
     float           assymetry;
     // If true, maintain a world-space grid, each cell of which contains
@@ -898,10 +999,12 @@ typedef struct RgDrawFrameBloomParams
 {
     RgStructureType sType;
     void*           pNext;
+    // EV value to adjust bloom inputs
+    float           inputEV;
+    float           inputThreshold;
+    // Scale to apply to a calculated bloom
     // Negative value disables bloom pass
     float           bloomIntensity;
-    float           inputThreshold;
-    float           bloomEmissionMultiplier;
     float           lensDirtIntensity;
 } RgDrawFrameBloomParams;
 
@@ -941,6 +1044,13 @@ typedef struct RgPostEffectHueShift
     float       transitionDurationIn;
     float       transitionDurationOut;
 } RgPostEffectHueShift;
+
+typedef struct RgPostEffectNightVision
+{
+    RgBool32    isActive;
+    float       transitionDurationIn;
+    float       transitionDurationOut;
+} RgPostEffectNightVision;
 
 typedef struct RgPostEffectDistortedSides
 {
@@ -1007,6 +1117,7 @@ typedef struct RgDrawFramePostEffectsParams
     const RgPostEffectChromaticAberration*  pChromaticAberration;
     const RgPostEffectInverseBlackAndWhite* pInverseBlackAndWhite;
     const RgPostEffectHueShift*             pHueShift;
+    const RgPostEffectNightVision*          pNightVision;
     const RgPostEffectDistortedSides*       pDistortedSides;
     const RgPostEffectWaves*                pWaves;
     const RgPostEffectColorTint*            pColorTint;
@@ -1055,37 +1166,17 @@ typedef struct RgDrawFrameReflectRefractParams
     RgBool32        portalNormalTwirl;
 } RgDrawFrameReflectRefractParams;
 
-// Can be linked after RgDrawFrameInfo.
-typedef struct RgDrawFrameLightmapParams
-{
-    RgStructureType             sType;
-    void*                       pNext;
-    // How much of the screen should be rendered in a lightmap mode.
-    // In [0.0, 1.0]
-    float                       lightmapScreenCoverage;
-} RgDrawFrameLightmapParams;
-
-typedef enum RgDrawFrameRayCullFlagBits
-{
-    RG_DRAW_FRAME_RAY_CULL_WORLD_0_BIT  = 1,    // RG_GEOMETRY_VISIBILITY_TYPE_WORLD_0
-    RG_DRAW_FRAME_RAY_CULL_WORLD_1_BIT  = 2,    // RG_GEOMETRY_VISIBILITY_TYPE_WORLD_1
-    RG_DRAW_FRAME_RAY_CULL_WORLD_2_BIT  = 4,    // RG_GEOMETRY_VISIBILITY_TYPE_WORLD_2
-    RG_DRAW_FRAME_RAY_CULL_SKY_BIT      = 8,    // RG_GEOMETRY_VISIBILITY_TYPE_SKY
-} RgDrawFrameRayCullFlagBits;
-typedef uint32_t RgDrawFrameRayCullFlags;
-
 typedef struct RgDrawFrameInfo
 {
     RgStructureType             sType;
     void*                       pNext;
     // Max value: 10000.0
     float                       rayLength;
-    // What world parts to render. First-person related geometry is always enabled.
-    RgDrawFrameRayCullFlags     rayCullMaskWorld;
 
     RgBool32                    disableRayTracedGeometry;
     RgBool32                    disableRasterization;
     RgBool32                    presentPrevFrame;
+    RgBool32                    resetHistory;
 
     double                      currentTime;
 } RgDrawFrameInfo;
@@ -1102,6 +1193,19 @@ typedef enum RgUtilImScratchTopology
     RG_UTIL_IM_SCRATCH_TOPOLOGY_QUADS,
 } RgUtilImScratchTopology;
 
+typedef struct RgUtilMemoryUsage
+{
+    size_t vramUsed;
+    size_t vramTotal;
+} RgUtilMemoryUsage;
+
+typedef enum RgFeatureFlagBits
+{
+    RG_FEATURE_HDR      = 1,
+    RG_FEATURE_FLUID    = 2,
+} RgFeatureFlagBits;
+typedef uint32_t RgFeatureFlags;
+
 typedef RgPrimitiveVertex*  ( RGAPI_PTR* PFN_rgUtilScratchAllocForVertices      )( uint32_t vertexCount );
 typedef void                ( RGAPI_PTR* PFN_rgUtilScratchFree                  )( const RgPrimitiveVertex* pPointer );
 typedef void                ( RGAPI_PTR* PFN_rgUtilScratchGetIndices            )( RgUtilImScratchTopology topology, uint32_t vertexCount, const uint32_t** ppOutIndices, uint32_t* pOutIndexCount );
@@ -1116,12 +1220,15 @@ typedef void                ( RGAPI_PTR* PFN_rgUtilImScratchTexCoord_Layer3     
 typedef void                ( RGAPI_PTR* PFN_rgUtilImScratchColor               )( RgColor4DPacked32 color );
 typedef void                ( RGAPI_PTR* PFN_rgUtilImScratchEnd                 )();
 typedef void                ( RGAPI_PTR* PFN_rgUtilImScratchSetToPrimitive      )( RgMeshPrimitiveInfo* pTarget ); // Set accumulated vertices to pTarget
-typedef RgBool32            ( RGAPI_PTR* PFN_rgUtilIsUpscaleTechniqueAvailable  )( RgRenderUpscaleTechnique technique );
+typedef RgBool32            ( RGAPI_PTR* PFN_rgUtilIsUpscaleTechniqueAvailable  )( RgRenderUpscaleTechnique technique, RgFrameGenerationMode frameGeneration, const char **ppFailureReason );
+typedef RgBool32            ( RGAPI_PTR* PFN_rgUtilIsDXGIAvailable              )( const char **ppFailureReason );
+typedef RgUtilMemoryUsage   ( RGAPI_PTR* PFN_rgUtilRequestMemoryUsage           )();
 typedef const char*         ( RGAPI_PTR* PFN_rgUtilGetResultDescription         )( RgResult result );
 typedef RgColor4DPacked32   ( RGAPI_PTR* PFN_rgUtilPackColorByte4D              )( uint8_t r, uint8_t g, uint8_t b, uint8_t a );
 typedef RgColor4DPacked32   ( RGAPI_PTR* PFN_rgUtilPackColorFloat4D             )( float r, float g, float b, float a );
 typedef RgNormalPacked32    ( RGAPI_PTR* PFN_rgUtilPackNormal                   )( float x, float y, float z );
 typedef void                ( RGAPI_PTR* PFN_rgUtilExportAsTGA                  )( const void* pPixels, uint32_t width, uint32_t height, const char* pPath );
+typedef RgFeatureFlags      ( RGAPI_PTR* PFN_rgUtilGetSupportedFeatures         )();
 
 
 
@@ -1154,16 +1261,22 @@ typedef struct RgInterface
     PFN_rgUtilImScratchEnd                rgUtilImScratchEnd;
     PFN_rgUtilImScratchSetToPrimitive     rgUtilImScratchSetToPrimitive;
     PFN_rgUtilIsUpscaleTechniqueAvailable rgUtilIsUpscaleTechniqueAvailable;
+    PFN_rgUtilIsDXGIAvailable             rgUtilDXGIAvailable;
+    PFN_rgUtilRequestMemoryUsage          rgUtilRequestMemoryUsage;
     PFN_rgUtilGetResultDescription        rgUtilGetResultDescription;
     PFN_rgUtilPackColorByte4D             rgUtilPackColorByte4D;
     PFN_rgUtilPackColorFloat4D            rgUtilPackColorFloat4D;
     PFN_rgUtilPackNormal                  rgUtilPackNormal;
     PFN_rgUtilExportAsTGA                 rgUtilExportAsTGA;
+    PFN_rgUtilGetSupportedFeatures        rgUtilGetSupportedFeatures;
+    // Additional
+    PFN_rgSpawnFluid                      rgSpawnFluid;
 } RgInterface;
 
 #if defined( _WIN32 )
 
 inline RgResult rgLoadLibraryAndCreate( const RgInstanceCreateInfo* pInfo,
+                                        RgBool32                    useDebugBinary,
                                         RgInterface*                pOutInterface,
                                         HMODULE*                    pOutDll )
 {
@@ -1172,12 +1285,36 @@ inline RgResult rgLoadLibraryAndCreate( const RgInstanceCreateInfo* pInfo,
         *pOutDll = NULL;
     }
 
-    if( !pInfo || !pInfo->pRtglDynamicLibraryPath )
+    if( !pInfo || !pInfo->pOverrideFolderPath )
     {
         return RG_RESULT_WRONG_FUNCTION_ARGUMENT;
     }
 
-    HMODULE dll = LoadLibraryA( pInfo->pRtglDynamicLibraryPath );
+    if( pInfo->version == nullptr || strcmp( pInfo->version, RG_RTGL_VERSION_API ) != 0 )
+    {
+        return RG_RESULT_WRONG_FUNCTION_ARGUMENT;
+    }
+
+    if( pInfo->sizeOfRgInterface != sizeof( RgInterface ) )
+    {
+        return RG_RESULT_WRONG_FUNCTION_ARGUMENT;
+    }
+
+    char rtglDllPath[ MAX_PATH ];
+    {
+        const char* dllPath = useDebugBinary ? "\\bin\\debug\\RTGL1.dll" : "\\bin\\RTGL1.dll";
+
+        if( strlen( pInfo->pOverrideFolderPath ) + strlen( dllPath ) >= MAX_PATH - 1 )
+        {
+            return RG_RESULT_WRONG_FUNCTION_ARGUMENT;
+        }
+
+        rtglDllPath[ 0 ] = '\0';
+        strcpy( rtglDllPath, pInfo->pOverrideFolderPath );
+        strcat( rtglDllPath, dllPath );
+    }
+
+    HMODULE dll = LoadLibraryA( rtglDllPath );
     if( !dll )
     {
         return RG_RESULT_CANT_FIND_DYNAMIC_LIBRARY;

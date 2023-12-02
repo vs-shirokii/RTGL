@@ -20,9 +20,11 @@
 
 #pragma once
 
+#include "Const.h"
 #include "Common.h"
 #include "Containers.h"
 #include "DrawFrameInfo.h"
+#include "SamplerManager.h"
 
 #include <filesystem>
 #include <ranges>
@@ -40,31 +42,86 @@ class TextureManager;
 class TextureMetaManager;
 class LightManager;
 
+enum AnimationInterpolation
+{
+    ANIMATION_INTERPOLATION_LINEAR,
+    ANIMATION_INTERPOLATION_STEP,
+    ANIMATION_INTERPOLATION_CUBIC,
+};
+
+template< typename T >
+struct AnimationFrame
+{
+    T                      value;
+    float                  seconds;
+    AnimationInterpolation interpolation;
+};
+
+template< typename T >
+struct AnimationChannel
+{
+    std::vector< AnimationFrame< T > > frames{};
+};
+
+struct AnimationData
+{
+    AnimationChannel< RgFloat3D >    position{};
+    AnimationChannel< RgQuaternion > quaternion{};
+    AnimationChannel< float >        fovYRadians{};
+};
+
+inline bool IsAnimDataEmpty( const AnimationData & a )
+{
+    return a.position.frames.empty() && a.quaternion.frames.empty() && a.fovYRadians.frames.empty();
+}
+
 struct WholeModelFile
 {
+    const inline static auto DefaultSampler = SamplerManager::Handle{
+        RG_SAMPLER_FILTER_AUTO,
+        RG_SAMPLER_ADDRESS_MODE_REPEAT,
+        RG_SAMPLER_ADDRESS_MODE_REPEAT,
+    };
+
+    struct RawMaterialData
+    {
+        bool               isReplacement{ false };
+        RgTextureSwizzling pbrSwizzling{ RG_TEXTURE_SWIZZLING_OCCLUSION_ROUGHNESS_METALLIC };
+        std::string        pTextureName{};
+        std::array< std::filesystem::path, TEXTURES_PER_MATERIAL_COUNT >  fullPaths{};
+        std::array< SamplerManager::Handle, TEXTURES_PER_MATERIAL_COUNT > samplers{
+            DefaultSampler, DefaultSampler, DefaultSampler, DefaultSampler, DefaultSampler
+        };
+        bool trackOriginalTexture{ false };
+    };
+
+    struct RawPrimitiveData
+    {
+        std::vector< RgPrimitiveVertex >                 vertices;
+        std::vector< uint32_t >                          indices;
+        RgMeshPrimitiveFlags                             flags;
+        std::string                                      textureName;
+        RgColor4DPacked32                                color;
+        float                                            emissive;
+        std::optional< RgMeshPrimitiveAttachedLightEXT > attachedLight;
+        std::optional< RgMeshPrimitivePBREXT >           pbr;
+        std::optional< RgMeshPrimitivePortalEXT >        portal;
+    };
+
     struct RawModelData
     {
-        struct RawPrimitiveData
-        {
-            std::vector< RgPrimitiveVertex >                 vertices;
-            std::vector< uint32_t >                          indices;
-            RgMeshPrimitiveFlags                             flags;
-            std::string                                      textureName;
-            RgColor4DPacked32                                color;
-            float                                            emissive;
-            std::optional< RgMeshPrimitiveAttachedLightEXT > attachedLight;
-            std::optional< RgMeshPrimitivePBREXT >           pbr;
-            std::optional< RgMeshPrimitivePortalEXT >        portal;
-        };
-
         uint64_t                        uniqueObjectID{ 0 };
         RgTransform                     meshTransform{};
         std::vector< RawPrimitiveData > primitives{};
         std::vector< LightCopy >        localLights{};
+        AnimationData                   animobj{};
     };
 
     rgl::string_map< RawModelData > models{};
     std::vector< LightCopy >        lights{};
+    std::optional< RgCameraInfo >   camera{};
+    AnimationData                   animcamera{};
+    std::vector< RawMaterialData >  materials{};
 };
 
 
@@ -72,30 +129,35 @@ class GltfImporter
 {
 public:
     GltfImporter( const std::filesystem::path& gltfPath,
-                  const RgTransform&           worldTransform,
-                  float                        oneGameUnitInMeters );
-    ~GltfImporter();
+                  const ImportExportParams&    params,
+                  const TextureMetaManager&    textureMeta,
+                  bool                         isReplacement );
+    ~GltfImporter() = default;
 
-    GltfImporter( const GltfImporter& other )                = delete;
-    GltfImporter( GltfImporter&& other ) noexcept            = delete;
-    GltfImporter& operator=( const GltfImporter& other )     = delete;
-    GltfImporter& operator=( GltfImporter&& other ) noexcept = delete;
-
-    [[nodiscard]] auto ParseFile( VkCommandBuffer           cmdForTextures,
-                                  uint32_t                  frameIndex,
-                                  TextureManager&           textureManager,
-                                  bool                      isReplacement,
-                                  const TextureMetaManager& textureMeta ) const -> WholeModelFile;
-
-    explicit operator bool() const;
+    GltfImporter( const GltfImporter& )                = delete;
+    GltfImporter( GltfImporter&& ) noexcept            = delete;
+    GltfImporter& operator=( const GltfImporter& )     = delete;
+    GltfImporter& operator=( GltfImporter&& ) noexcept = delete;
 
     [[nodiscard]] auto FilePath() const { return std::string_view{ gltfPath }; }
 
+    explicit operator bool() const { return isParsed; }
+
+    WholeModelFile&& Move()
+    {
+        assert( isParsed );
+        return std::move( parsedModel );
+    }
+
 private:
-    cgltf_data*           data;
+    void ParseFile( cgltf_data* data, bool isReplacement, const TextureMetaManager& textureMeta );
+
+private:
     std::string           gltfPath;
     std::filesystem::path gltfFolder;
-    float                 oneGameUnitInMeters;
+    ImportExportParams    params;
+    WholeModelFile        parsedModel;
+    bool                  isParsed;
 };
 
 }
@@ -120,10 +182,10 @@ inline auto MakeMeshInfoFrom( const char* name, const WholeModelFile::RawModelDa
 }
 
 template< typename Func >
-inline auto MakeMeshPrimitiveInfoAndProcess(
-    const WholeModelFile::RawModelData::RawPrimitiveData& primitive,
-    uint32_t                                              index,
-    Func&& funcToProcessPrimitive ) -> std::invoke_result_t< Func, const RgMeshPrimitiveInfo& >
+inline auto MakeMeshPrimitiveInfoAndProcess( const WholeModelFile::RawPrimitiveData& primitive,
+                                             uint32_t                                index,
+                                             Func&& funcToProcessPrimitive )
+    -> std::invoke_result_t< Func, const RgMeshPrimitiveInfo& >
 {
     auto dstPrim = RgMeshPrimitiveInfo{
         .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,

@@ -92,14 +92,17 @@ void main()
     // sample albedo, so dark places will be visible too
     // gauss to smooth out low res albedo
     float fullbright = 0.0;
-    for( int i = -1; i <= 1; i++ )
+    if( !classicShading_Upscaled( pix ) )
     {
-        for( int j = -1; j <= 1; j++ )
+        for( int i = -1; i <= 1; i++ )
         {
-            fullbright = sampleAlbedo( pix + ivec2( i, j ) );
+            for( int j = -1; j <= 1; j++ )
+            {
+                fullbright = sampleAlbedo( pix + ivec2( i, j ) );
+            }
         }
+        fullbright /= 9;
     }
-    fullbright /= 9;
 
     float bw = max( getBW( color ), fullbright );
 
@@ -111,5 +114,8 @@ void main()
     const int L = 32;
     bw          = clamp( int( bw * L ), 0, L ) / float( L );
 
-    effect_storeToTarget( mix( color, vec3( 1 - bw ), getProgress() ), pix );
+    // if hdr color and it's very bright, make those places bright instead of black
+    float hdrFix = 10 * smoothstep(1.2, 2.0, getLuminance(color));
+
+    effect_storeToTarget( mix( color, vec3( 1 - bw ) + hdrFix, getProgress() ), pix );
 }

@@ -34,7 +34,9 @@ layout(push_constant) uniform RasterizerFrag_BT
     layout(offset = 64) uint packedColor;
     layout(offset = 68) uint textureIndex;
     layout(offset = 72) uint emissiveTextureIndex;
-    layout(offset = 76) uint emissiveMult;
+    layout(offset = 76) float emissiveMult;
+    layout(offset = 80) uint normalTextureIndex;
+    layout(offset = 84) uint manualSrgb;
 } rasterizerFragInfo;
 
 layout (constant_id = 0) const uint alphaTest = 0;
@@ -46,6 +48,9 @@ void main()
 {
     vec4 albedoAlpha = getTextureSample(rasterizerFragInfo.textureIndex, vertTexCoord);
 
+// SHIPPING_HACK begin: ktx2 alpha can be slightly less than actual 1.0
+    albedoAlpha.a = min( 1.0, albedoAlpha.a * 1.01 );
+// SHIPPING_HACK end
 
     outColor = unpackUintColor( rasterizerFragInfo.packedColor ) * vertColor * albedoAlpha;
 
@@ -56,5 +61,11 @@ void main()
         {
             discard;
         }
+    }
+
+
+    if (rasterizerFragInfo.manualSrgb != 0)
+    {
+        outColor.rgb = pow(outColor.rgb, vec3(1.0 / 2.2));
     }
 }

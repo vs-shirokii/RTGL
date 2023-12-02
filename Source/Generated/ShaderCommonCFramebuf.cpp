@@ -2,166 +2,168 @@
 
 #include "ShaderCommonCFramebuf.h"
 
-const uint32_t RTGL1::ShFramebuffers_Count = 76;
-
 const VkFormat RTGL1::ShFramebuffers_Formats[] = 
 {
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_R8_UINT,
-    VK_FORMAT_R32_UINT,
-    VK_FORMAT_R32_UINT,
-    VK_FORMAT_R8G8_UNORM,
-    VK_FORMAT_R8G8_UNORM,
-    VK_FORMAT_R16_SFLOAT,
-    VK_FORMAT_R16_SFLOAT,
-    VK_FORMAT_R16_SFLOAT,
-    VK_FORMAT_R32_SFLOAT,
-    VK_FORMAT_R16G16B16A16_SFLOAT,
-    VK_FORMAT_R32_UINT,
-    VK_FORMAT_R32_UINT,
-    VK_FORMAT_R32_UINT,
-    VK_FORMAT_R32G32B32A32_SFLOAT,
-    VK_FORMAT_R32G32B32A32_SFLOAT,
-    VK_FORMAT_R32G32B32A32_SFLOAT,
-    VK_FORMAT_R32G32B32A32_SFLOAT,
-    VK_FORMAT_R16G16B16A16_SFLOAT,
-    VK_FORMAT_R32G32B32A32_UINT,
-    VK_FORMAT_R16G16B16A16_SFLOAT,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_R16G16_SFLOAT,
-    VK_FORMAT_R8_UNORM,
-    VK_FORMAT_R16G16B16A16_SFLOAT,
-    VK_FORMAT_R16G16B16A16_SFLOAT,
-    VK_FORMAT_R32_UINT,
-    VK_FORMAT_R32_UINT,
-    VK_FORMAT_R32_UINT,
-    VK_FORMAT_R16G16_SFLOAT,
-    VK_FORMAT_R16G16_SFLOAT,
-    VK_FORMAT_R16G16B16A16_SFLOAT,
-    VK_FORMAT_R16G16B16A16_SFLOAT,
-    VK_FORMAT_R16G16B16A16_SFLOAT,
-    VK_FORMAT_R32_UINT,
-    VK_FORMAT_R32_UINT,
-    VK_FORMAT_R32_UINT,
-    VK_FORMAT_R32_UINT,
-    VK_FORMAT_R32_UINT,
-    VK_FORMAT_R32_UINT,
-    VK_FORMAT_R32_UINT,
-    VK_FORMAT_R32_UINT,
-    VK_FORMAT_R16_SFLOAT,
-    VK_FORMAT_R16_SFLOAT,
-    VK_FORMAT_R32_UINT,
-    VK_FORMAT_R16G16B16A16_SFLOAT,
-    VK_FORMAT_R16G16B16A16_SFLOAT,
-    VK_FORMAT_R16_SFLOAT,
-    VK_FORMAT_R16_SFLOAT,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_B10G11R11_UFLOAT_PACK32,
-    VK_FORMAT_R32G32B32A32_UINT,
-    VK_FORMAT_R32G32B32A32_UINT,
-    VK_FORMAT_R32G32B32A32_UINT,
-    VK_FORMAT_R16G16_SFLOAT,
-    VK_FORMAT_R16G16_SFLOAT,
-    VK_FORMAT_R8G8B8A8_UNORM,
-    VK_FORMAT_R8G8B8A8_UNORM,
-    VK_FORMAT_R8G8B8A8_UNORM,
-    VK_FORMAT_R8_UINT,
+    VK_FORMAT_B10G11R11_UFLOAT_PACK32, // Albedo
+    VK_FORMAT_R8_UINT, // IsSky
+    VK_FORMAT_R32_UINT, // Normal
+    VK_FORMAT_R32_UINT, // Normal_Prev
+    VK_FORMAT_R8G8_UNORM, // MetallicRoughness
+    VK_FORMAT_R8G8_UNORM, // MetallicRoughness_Prev
+    VK_FORMAT_R16_SFLOAT, // DepthWorld
+    VK_FORMAT_R16_SFLOAT, // DepthWorld_Prev
+    VK_FORMAT_R16_SFLOAT, // DepthGrad
+    VK_FORMAT_R32_SFLOAT, // DepthNdc
+    VK_FORMAT_R32_SFLOAT, // DepthFluid
+    VK_FORMAT_R32_SFLOAT, // DepthFluidTemp
+    VK_FORMAT_R32_UINT, // FluidNormal
+    VK_FORMAT_R32_UINT, // FluidNormalTemp
+    VK_FORMAT_R16G16B16A16_SFLOAT, // Motion
+    VK_FORMAT_R32_UINT, // UnfilteredDirect
+    VK_FORMAT_R32_UINT, // UnfilteredSpecular
+    VK_FORMAT_R32_UINT, // UnfilteredIndir
+    VK_FORMAT_R32G32B32A32_SFLOAT, // SurfacePosition
+    VK_FORMAT_R32G32B32A32_SFLOAT, // SurfacePosition_Prev
+    VK_FORMAT_R32G32B32A32_SFLOAT, // VisibilityBuffer
+    VK_FORMAT_R32G32B32A32_SFLOAT, // VisibilityBuffer_Prev
+    VK_FORMAT_R16G16B16A16_SFLOAT, // ViewDirection
+    VK_FORMAT_R16G16B16A16_SFLOAT, // ViewDirection_Prev
+    VK_FORMAT_R32G32B32A32_UINT, // PrimaryToReflRefr
+    VK_FORMAT_R16G16B16A16_SFLOAT, // Throughput
+    VK_FORMAT_R16G16B16A16_SFLOAT, // PreFinal
+    VK_FORMAT_R16G16B16A16_SFLOAT, // Final
+    VK_FORMAT_R16G16B16A16_SFLOAT, // UpscaledPing
+    VK_FORMAT_R16G16B16A16_SFLOAT, // UpscaledPong
+    VK_FORMAT_R16G16_SFLOAT, // MotionDlss
+    VK_FORMAT_R8_UNORM, // Reactivity
+    VK_FORMAT_R8G8B8A8_UNORM, // HudOnly
+    VK_FORMAT_R16G16B16A16_SFLOAT, // AccumHistoryLength
+    VK_FORMAT_R16G16B16A16_SFLOAT, // AccumHistoryLength_Prev
+    VK_FORMAT_R32_UINT, // DiffTemporary
+    VK_FORMAT_R32_UINT, // DiffAccumColor
+    VK_FORMAT_R32_UINT, // DiffAccumColor_Prev
+    VK_FORMAT_R16G16_SFLOAT, // DiffAccumMoments
+    VK_FORMAT_R16G16_SFLOAT, // DiffAccumMoments_Prev
+    VK_FORMAT_R16G16B16A16_SFLOAT, // DiffColorHistory
+    VK_FORMAT_R16G16B16A16_SFLOAT, // DiffPingColorAndVariance
+    VK_FORMAT_R16G16B16A16_SFLOAT, // DiffPongColorAndVariance
+    VK_FORMAT_R32_UINT, // SpecAccumColor
+    VK_FORMAT_R32_UINT, // SpecAccumColor_Prev
+    VK_FORMAT_R32_UINT, // SpecPingColor
+    VK_FORMAT_R32_UINT, // SpecPongColor
+    VK_FORMAT_R32_UINT, // IndirAccum
+    VK_FORMAT_R32_UINT, // IndirAccum_Prev
+    VK_FORMAT_R32_UINT, // IndirPing
+    VK_FORMAT_R32_UINT, // IndirPong
+    VK_FORMAT_R16_SFLOAT, // AtrousFilteredVariance
+    VK_FORMAT_R32_UINT, // NormalDecal
+    VK_FORMAT_R16G16B16A16_SFLOAT, // Scattering
+    VK_FORMAT_R16G16B16A16_SFLOAT, // Scattering_Prev
+    VK_FORMAT_R16_SFLOAT, // ScatteringHistory
+    VK_FORMAT_R16_SFLOAT, // ScatteringHistory_Prev
+    VK_FORMAT_B10G11R11_UFLOAT_PACK32, // ScreenEmisRT
+    VK_FORMAT_B10G11R11_UFLOAT_PACK32, // ScreenEmission
+    VK_FORMAT_R16G16B16A16_SFLOAT, // Bloom
+    VK_FORMAT_R16G16B16A16_SFLOAT, // Bloom_Mip1
+    VK_FORMAT_R16G16B16A16_SFLOAT, // Bloom_Mip2
+    VK_FORMAT_R16G16B16A16_SFLOAT, // Bloom_Mip3
+    VK_FORMAT_R16G16B16A16_SFLOAT, // Bloom_Mip4
+    VK_FORMAT_R16G16B16A16_SFLOAT, // Bloom_Mip5
+    VK_FORMAT_R16G16B16A16_SFLOAT, // Bloom_Mip6
+    VK_FORMAT_R16G16B16A16_SFLOAT, // Bloom_Mip7
+    VK_FORMAT_R16G16B16A16_SFLOAT, // WipeEffectSource
+    VK_FORMAT_R32G32_UINT, // Reservoirs
+    VK_FORMAT_R32G32_UINT, // Reservoirs_Prev
+    VK_FORMAT_R32G32_UINT, // ReservoirsInitial
+    VK_FORMAT_R32G32B32A32_UINT, // IndirectReservoirsInitial
+    VK_FORMAT_R16G16_SFLOAT, // GradientInputs
+    VK_FORMAT_R16G16_SFLOAT, // GradientInputs_Prev
+    VK_FORMAT_R8G8B8A8_UNORM, // DISPingGradient
+    VK_FORMAT_R8G8B8A8_UNORM, // DISPongGradient
+    VK_FORMAT_R8G8B8A8_UNORM, // DISGradientHistory
+    VK_FORMAT_R8_UINT, // GradientPrevPix
 };
 
 const RTGL1::FramebufferImageFlags RTGL1::ShFramebuffers_Flags[] = 
 {
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_IS_ATTACHMENT,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_IS_ATTACHMENT,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_IS_ATTACHMENT | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_UPSCALED_SIZE | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_USAGE_TRANSFER,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_IS_ATTACHMENT | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_UPSCALED_SIZE | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_USAGE_TRANSFER,
-    0,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_IS_ATTACHMENT,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_IS_ATTACHMENT,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_IS_ATTACHMENT,
-    0,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_BILINEAR_SAMPLER,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_BILINEAR_SAMPLER,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_BILINEAR_SAMPLER,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_BILINEAR_SAMPLER,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_BILINEAR_SAMPLER,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_BILINEAR_SAMPLER,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_BILINEAR_SAMPLER,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_BILINEAR_SAMPLER,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_BILINEAR_SAMPLER,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_UPSCALED_SIZE | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_USAGE_TRANSFER,
-    0,
-    0,
-    0,
-    0,
-    0,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_1_3,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_1_3,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_1_3,
-    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_1_3,
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_IS_ATTACHMENT, // Albedo
+    0, // IsSky
+    0, // Normal
+    0, // Normal_Prev
+    0, // MetallicRoughness
+    0, // MetallicRoughness_Prev
+    0, // DepthWorld
+    0, // DepthWorld_Prev
+    0, // DepthGrad
+    0, // DepthNdc
+    0, // DepthFluid
+    0, // DepthFluidTemp
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_IS_ATTACHMENT, // FluidNormal
+    0, // FluidNormalTemp
+    0, // Motion
+    0, // UnfilteredDirect
+    0, // UnfilteredSpecular
+    0, // UnfilteredIndir
+    0, // SurfacePosition
+    0, // SurfacePosition_Prev
+    0, // VisibilityBuffer
+    0, // VisibilityBuffer_Prev
+    0, // ViewDirection
+    0, // ViewDirection_Prev
+    0, // PrimaryToReflRefr
+    0, // Throughput
+    0, // PreFinal
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_IS_ATTACHMENT, // Final
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_IS_ATTACHMENT | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_UPSCALED_SIZE | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_USAGE_TRANSFER, // UpscaledPing
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_IS_ATTACHMENT | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_UPSCALED_SIZE | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_USAGE_TRANSFER, // UpscaledPong
+    0, // MotionDlss
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_IS_ATTACHMENT, // Reactivity
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_IS_ATTACHMENT | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_UPSCALED_SIZE | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_USAGE_TRANSFER, // HudOnly
+    0, // AccumHistoryLength
+    0, // AccumHistoryLength_Prev
+    0, // DiffTemporary
+    0, // DiffAccumColor
+    0, // DiffAccumColor_Prev
+    0, // DiffAccumMoments
+    0, // DiffAccumMoments_Prev
+    0, // DiffColorHistory
+    0, // DiffPingColorAndVariance
+    0, // DiffPongColorAndVariance
+    0, // SpecAccumColor
+    0, // SpecAccumColor_Prev
+    0, // SpecPingColor
+    0, // SpecPongColor
+    0, // IndirAccum
+    0, // IndirAccum_Prev
+    0, // IndirPing
+    0, // IndirPong
+    0, // AtrousFilteredVariance
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_IS_ATTACHMENT, // NormalDecal
+    0, // Scattering
+    0, // Scattering_Prev
+    0, // ScatteringHistory
+    0, // ScatteringHistory_Prev
+    0, // ScreenEmisRT
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_IS_ATTACHMENT, // ScreenEmission
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_BILINEAR_SAMPLER | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_UPSCALED_SIZE, // Bloom
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_BILINEAR_SAMPLER | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_UPSCALED_SIZE, // Bloom_Mip1
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_BILINEAR_SAMPLER | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_UPSCALED_SIZE, // Bloom_Mip2
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_BILINEAR_SAMPLER | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_UPSCALED_SIZE, // Bloom_Mip3
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_BILINEAR_SAMPLER | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_UPSCALED_SIZE, // Bloom_Mip4
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_BILINEAR_SAMPLER | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_UPSCALED_SIZE, // Bloom_Mip5
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_BILINEAR_SAMPLER | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_UPSCALED_SIZE, // Bloom_Mip6
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_BILINEAR_SAMPLER | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_UPSCALED_SIZE, // Bloom_Mip7
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_UPSCALED_SIZE | RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_USAGE_TRANSFER, // WipeEffectSource
+    0, // Reservoirs
+    0, // Reservoirs_Prev
+    0, // ReservoirsInitial
+    0, // IndirectReservoirsInitial
+    0, // GradientInputs
+    0, // GradientInputs_Prev
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_1_3, // DISPingGradient
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_1_3, // DISPongGradient
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_1_3, // DISGradientHistory
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_1_3, // GradientPrevPix
 };
 
 const uint32_t RTGL1::ShFramebuffers_Bindings[] = 
@@ -242,6 +244,8 @@ const uint32_t RTGL1::ShFramebuffers_Bindings[] =
     73,
     74,
     75,
+    76,
+    77,
 };
 
 const uint32_t RTGL1::ShFramebuffers_BindingsSwapped[] = 
@@ -260,49 +264,49 @@ const uint32_t RTGL1::ShFramebuffers_BindingsSwapped[] =
     11,
     12,
     13,
-    15,
     14,
-    17,
+    15,
     16,
-    18,
+    17,
     19,
-    20,
+    18,
     21,
-    22,
+    20,
     23,
+    22,
     24,
     25,
     26,
-    28,
     27,
+    28,
     29,
-    31,
     30,
-    33,
+    31,
     32,
     34,
+    33,
     35,
-    36,
-    38,
     37,
+    36,
     39,
+    38,
     40,
-    42,
     41,
-    43,
+    42,
     44,
+    43,
     45,
     46,
+    48,
     47,
     49,
-    48,
-    51,
     50,
+    51,
     52,
-    53,
     54,
-    55,
+    53,
     56,
+    55,
     57,
     58,
     59,
@@ -313,21 +317,21 @@ const uint32_t RTGL1::ShFramebuffers_BindingsSwapped[] =
     64,
     65,
     66,
-    68,
     67,
     69,
-    71,
+    68,
     70,
-    72,
+    71,
     73,
+    72,
     74,
     75,
+    76,
+    77,
 };
 
 const uint32_t RTGL1::ShFramebuffers_Sampler_Bindings[] = 
 {
-    76,
-    77,
     78,
     79,
     80,
@@ -402,69 +406,71 @@ const uint32_t RTGL1::ShFramebuffers_Sampler_Bindings[] =
     149,
     150,
     151,
+    152,
+    153,
+    154,
+    155,
 };
 
 const uint32_t RTGL1::ShFramebuffers_Sampler_BindingsSwapped[] = 
 {
-    76,
-    77,
-    79,
     78,
+    79,
     81,
     80,
     83,
     82,
-    84,
     85,
+    84,
     86,
     87,
     88,
     89,
-    91,
     90,
-    93,
+    91,
     92,
+    93,
     94,
     95,
-    96,
     97,
-    98,
+    96,
     99,
-    100,
+    98,
     101,
+    100,
     102,
-    104,
     103,
+    104,
     105,
-    107,
     106,
-    109,
+    107,
     108,
+    109,
     110,
-    111,
     112,
-    114,
+    111,
     113,
     115,
+    114,
+    117,
     116,
     118,
-    117,
     119,
     120,
-    121,
     122,
+    121,
     123,
-    125,
     124,
-    127,
     126,
+    125,
+    127,
     128,
     129,
     130,
-    131,
     132,
-    133,
+    131,
     134,
+    133,
     135,
     136,
     137,
@@ -473,15 +479,19 @@ const uint32_t RTGL1::ShFramebuffers_Sampler_BindingsSwapped[] =
     140,
     141,
     142,
-    144,
     143,
+    144,
     145,
     147,
     146,
     148,
     149,
-    150,
     151,
+    150,
+    152,
+    153,
+    154,
+    155,
 };
 
 const char *const RTGL1::ShFramebuffers_DebugNames[] = 
@@ -496,6 +506,10 @@ const char *const RTGL1::ShFramebuffers_DebugNames[] =
     "Framebuf DepthWorld_Prev",
     "Framebuf DepthGrad",
     "Framebuf DepthNdc",
+    "Framebuf DepthFluid",
+    "Framebuf DepthFluidTemp",
+    "Framebuf FluidNormal",
+    "Framebuf FluidNormalTemp",
     "Framebuf Motion",
     "Framebuf UnfilteredDirect",
     "Framebuf UnfilteredSpecular",
@@ -505,6 +519,7 @@ const char *const RTGL1::ShFramebuffers_DebugNames[] =
     "Framebuf VisibilityBuffer",
     "Framebuf VisibilityBuffer_Prev",
     "Framebuf ViewDirection",
+    "Framebuf ViewDirection_Prev",
     "Framebuf PrimaryToReflRefr",
     "Framebuf Throughput",
     "Framebuf PreFinal",
@@ -513,6 +528,7 @@ const char *const RTGL1::ShFramebuffers_DebugNames[] =
     "Framebuf UpscaledPong",
     "Framebuf MotionDlss",
     "Framebuf Reactivity",
+    "Framebuf HudOnly",
     "Framebuf AccumHistoryLength",
     "Framebuf AccumHistoryLength_Prev",
     "Framebuf DiffTemporary",
@@ -532,17 +548,14 @@ const char *const RTGL1::ShFramebuffers_DebugNames[] =
     "Framebuf IndirPing",
     "Framebuf IndirPong",
     "Framebuf AtrousFilteredVariance",
-    "Framebuf HistogramInput",
     "Framebuf NormalDecal",
     "Framebuf Scattering",
     "Framebuf Scattering_Prev",
     "Framebuf ScatteringHistory",
     "Framebuf ScatteringHistory_Prev",
-    "Framebuf AcidFogRT",
-    "Framebuf AcidFog",
     "Framebuf ScreenEmisRT",
     "Framebuf ScreenEmission",
-    "Framebuf BloomInput",
+    "Framebuf Bloom",
     "Framebuf Bloom_Mip1",
     "Framebuf Bloom_Mip2",
     "Framebuf Bloom_Mip3",
@@ -550,17 +563,98 @@ const char *const RTGL1::ShFramebuffers_DebugNames[] =
     "Framebuf Bloom_Mip5",
     "Framebuf Bloom_Mip6",
     "Framebuf Bloom_Mip7",
-    "Framebuf Bloom_Mip8",
-    "Framebuf Bloom_Result",
     "Framebuf WipeEffectSource",
     "Framebuf Reservoirs",
     "Framebuf Reservoirs_Prev",
     "Framebuf ReservoirsInitial",
+    "Framebuf IndirectReservoirsInitial",
     "Framebuf GradientInputs",
     "Framebuf GradientInputs_Prev",
     "Framebuf DISPingGradient",
     "Framebuf DISPongGradient",
     "Framebuf DISGradientHistory",
     "Framebuf GradientPrevPix",
+};
+
+const wchar_t *const RTGL1::ShFramebuffers_DebugNamesW[] = 
+{
+    L"Framebuf Albedo",
+    L"Framebuf IsSky",
+    L"Framebuf Normal",
+    L"Framebuf Normal_Prev",
+    L"Framebuf MetallicRoughness",
+    L"Framebuf MetallicRoughness_Prev",
+    L"Framebuf DepthWorld",
+    L"Framebuf DepthWorld_Prev",
+    L"Framebuf DepthGrad",
+    L"Framebuf DepthNdc",
+    L"Framebuf DepthFluid",
+    L"Framebuf DepthFluidTemp",
+    L"Framebuf FluidNormal",
+    L"Framebuf FluidNormalTemp",
+    L"Framebuf Motion",
+    L"Framebuf UnfilteredDirect",
+    L"Framebuf UnfilteredSpecular",
+    L"Framebuf UnfilteredIndir",
+    L"Framebuf SurfacePosition",
+    L"Framebuf SurfacePosition_Prev",
+    L"Framebuf VisibilityBuffer",
+    L"Framebuf VisibilityBuffer_Prev",
+    L"Framebuf ViewDirection",
+    L"Framebuf ViewDirection_Prev",
+    L"Framebuf PrimaryToReflRefr",
+    L"Framebuf Throughput",
+    L"Framebuf PreFinal",
+    L"Framebuf Final",
+    L"Framebuf UpscaledPing",
+    L"Framebuf UpscaledPong",
+    L"Framebuf MotionDlss",
+    L"Framebuf Reactivity",
+    L"Framebuf HudOnly",
+    L"Framebuf AccumHistoryLength",
+    L"Framebuf AccumHistoryLength_Prev",
+    L"Framebuf DiffTemporary",
+    L"Framebuf DiffAccumColor",
+    L"Framebuf DiffAccumColor_Prev",
+    L"Framebuf DiffAccumMoments",
+    L"Framebuf DiffAccumMoments_Prev",
+    L"Framebuf DiffColorHistory",
+    L"Framebuf DiffPingColorAndVariance",
+    L"Framebuf DiffPongColorAndVariance",
+    L"Framebuf SpecAccumColor",
+    L"Framebuf SpecAccumColor_Prev",
+    L"Framebuf SpecPingColor",
+    L"Framebuf SpecPongColor",
+    L"Framebuf IndirAccum",
+    L"Framebuf IndirAccum_Prev",
+    L"Framebuf IndirPing",
+    L"Framebuf IndirPong",
+    L"Framebuf AtrousFilteredVariance",
+    L"Framebuf NormalDecal",
+    L"Framebuf Scattering",
+    L"Framebuf Scattering_Prev",
+    L"Framebuf ScatteringHistory",
+    L"Framebuf ScatteringHistory_Prev",
+    L"Framebuf ScreenEmisRT",
+    L"Framebuf ScreenEmission",
+    L"Framebuf Bloom",
+    L"Framebuf Bloom_Mip1",
+    L"Framebuf Bloom_Mip2",
+    L"Framebuf Bloom_Mip3",
+    L"Framebuf Bloom_Mip4",
+    L"Framebuf Bloom_Mip5",
+    L"Framebuf Bloom_Mip6",
+    L"Framebuf Bloom_Mip7",
+    L"Framebuf WipeEffectSource",
+    L"Framebuf Reservoirs",
+    L"Framebuf Reservoirs_Prev",
+    L"Framebuf ReservoirsInitial",
+    L"Framebuf IndirectReservoirsInitial",
+    L"Framebuf GradientInputs",
+    L"Framebuf GradientInputs_Prev",
+    L"Framebuf DISPingGradient",
+    L"Framebuf DISPongGradient",
+    L"Framebuf DISGradientHistory",
+    L"Framebuf GradientPrevPix",
 };
 

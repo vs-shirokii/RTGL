@@ -39,6 +39,7 @@ namespace
 
 constexpr auto MatchPrevInvalidValue = RTGL1::GeomInfoManager::MatchPrevIndexType{ -1 };
 
+#if !SUPPRESS_TEXLAYERS
 uint32_t GetMaterialBlendFlags( const RgTextureLayerBlendType* blend, uint32_t layerIndex )
 {
     if( blend == nullptr )
@@ -72,11 +73,13 @@ uint32_t GetMaterialBlendFlags( const RgMeshPrimitiveTextureLayersEXT& info, uin
         default: assert( 0 ); return 0;
     }
 }
+#endif
 
 }
 
 bool RTGL1::GeomInfoManager::LayerExists( const RgMeshPrimitiveInfo& info, uint32_t layerIndex )
 {
+#if !SUPPRESS_TEXLAYERS
     if( auto layers = pnext::find< RgMeshPrimitiveTextureLayersEXT >( &info ) )
     {
         switch( layerIndex )
@@ -87,6 +90,7 @@ bool RTGL1::GeomInfoManager::LayerExists( const RgMeshPrimitiveInfo& info, uint3
             default: assert( 0 ); return false;
         }
     }
+#endif
 
     return false;
 }
@@ -94,6 +98,7 @@ bool RTGL1::GeomInfoManager::LayerExists( const RgMeshPrimitiveInfo& info, uint3
 const RgFloat2D* RTGL1::GeomInfoManager::AccessLayerTexCoords( const RgMeshPrimitiveInfo& info,
                                                                uint32_t layerIndex )
 {
+#if !SUPPRESS_TEXLAYERS
     if( auto layers = pnext::find< RgMeshPrimitiveTextureLayersEXT >( &info ) )
     {
         switch( layerIndex )
@@ -105,6 +110,7 @@ const RgFloat2D* RTGL1::GeomInfoManager::AccessLayerTexCoords( const RgMeshPrimi
             default: assert( 0 ); return nullptr;
         }
     }
+#endif
 
     return nullptr;
 }
@@ -116,6 +122,7 @@ uint32_t RTGL1::GeomInfoManager::GetPrimitiveFlags( const RgMeshInfo*          m
     uint32_t f = 0;
 
 
+#if !SUPPRESS_TEXLAYERS
     if( auto layers = pnext::find< RgMeshPrimitiveTextureLayersEXT >( &info ) )
     {
         f |= LayerExists( info, 1 ) ? GEOM_INST_FLAG_EXISTS_LAYER1 : 0;
@@ -127,6 +134,7 @@ uint32_t RTGL1::GeomInfoManager::GetPrimitiveFlags( const RgMeshInfo*          m
         f |= GetMaterialBlendFlags( *layers, 2 );
         f |= GetMaterialBlendFlags( *layers, 3 );
     }
+#endif
 
     if( ( info.flags & RG_MESH_PRIMITIVE_MIRROR ) ||
         ( mesh && ( mesh->flags & RG_MESH_FORCE_MIRROR ) ) )
@@ -167,7 +175,8 @@ uint32_t RTGL1::GeomInfoManager::GetPrimitiveFlags( const RgMeshInfo*          m
         f |= GEOM_INST_FLAG_MIRROR_IF_SMOOTH;
     }
 
-    if( info.flags & RG_MESH_PRIMITIVE_IGNORE_REFRACT_AFTER )
+    if( ( info.flags & RG_MESH_PRIMITIVE_IGNORE_REFRACT_AFTER ) ||
+        ( mesh && ( mesh->flags & RG_MESH_FORCE_IGNORE_REFRACT_AFTER ) ) )
     {
         f |= GEOM_INST_FLAG_IGNORE_REFRACT_AFTER;
     }
@@ -363,7 +372,8 @@ void RTGL1::GeomInfoManager::PrepareForFrame( uint32_t frameIndex )
 void RTGL1::GeomInfoManager::WriteGeomInfo( uint32_t                 frameIndex,
                                             const PrimitiveUniqueID& geomUniqueID,
                                             ShGeometryInstance&      src,
-                                            bool                     isStatic )
+                                            bool                     isStatic,
+                                            bool                     noMotionVectors )
 {
     // must be aligned for per-triangle vertex attributes
     assert( src.baseVertexIndex % 3 == 0 );
@@ -378,7 +388,7 @@ void RTGL1::GeomInfoManager::WriteGeomInfo( uint32_t                 frameIndex,
         assert( isnew );
     }
 
-    if( auto prev = FindPrevFrameData( geomUniqueID, src, frameIndex ) )
+    if( auto prev = FindPrevFrameData( geomUniqueID, src, frameIndex, noMotionVectors ) )
     {
         // copy data from previous frame to current ShGeometryInstance
         src.prevBaseVertexIndex = prev->baseVertexIndex;
@@ -404,10 +414,83 @@ void RTGL1::GeomInfoManager::WriteGeomInfo( uint32_t                 frameIndex,
     WritePrevForNextFrame( geomUniqueID, src, frameIndex );
 }
 
+void RTGL1::GeomInfoManager::Hack_PatchGeomInfoTexturesForStatic(
+    const PrimitiveUniqueID& geomUniqueID,
+    uint32_t                 texture_base,
+    uint32_t                 texture_base_ORM,
+    uint32_t                 texture_base_N,
+    uint32_t                 texture_base_E,
+    uint32_t                 texture_base_D )
+{
+    {
+        const auto f = staticUniqueIds.find( geomUniqueID );
+        if( f == staticUniqueIds.end() )
+        {
+            debug::Error( "Failed to patch textures for static geominfo: ID is not for static" );
+            return;
+        }
+    }
+
+    const auto f = curFrame_IdToInfo.find( geomUniqueID );
+    if( f == curFrame_IdToInfo.end() )
+    {
+        debug::Error( "Failed to patch textures for static geominfo: "
+                      "info with specified ID was not uploaded" );
+        return;
+    }
+
+    ShGeometryInstance& dst = f->second;
+    {
+        dst.texture_base     = texture_base;
+        dst.texture_base_ORM = texture_base_ORM;
+        dst.texture_base_N   = texture_base_N;
+        dst.texture_base_E   = texture_base_E;
+        dst.texture_base_D   = texture_base_D;
+    }
+}
+
+void RTGL1::GeomInfoManager::Hack_PatchGeomInfoTransformForStatic(
+    const PrimitiveUniqueID& geomUniqueID, const RgTransform& transform )
+{
+    {
+        const auto f = staticUniqueIds.find( geomUniqueID );
+        if( f == staticUniqueIds.end() )
+        {
+            debug::Warning( "Failed to patch transform for static geominfo: ID is not for static" );
+            return;
+        }
+    }
+
+    const auto f = curFrame_IdToInfo.find( geomUniqueID );
+    if( f == curFrame_IdToInfo.end() )
+    {
+        debug::Error( "Failed to patch transform for static geominfo: "
+                      "info with specified ID was not uploaded" );
+        return;
+    }
+
+    ShGeometryInstance& dst = f->second;
+    {
+        static_assert( sizeof( dst.model_0 ) == sizeof( transform.matrix[ 0 ] ) );
+        static_assert( sizeof( dst.model_1 ) == sizeof( transform.matrix[ 1 ] ) );
+        static_assert( sizeof( dst.model_2 ) == sizeof( transform.matrix[ 2 ] ) );
+
+        memcpy( dst.model_0, transform.matrix[ 0 ], 4 * sizeof( float ) );
+        memcpy( dst.model_1, transform.matrix[ 1 ], 4 * sizeof( float ) );
+        memcpy( dst.model_2, transform.matrix[ 2 ], 4 * sizeof( float ) );
+    }
+}
+
 auto RTGL1::GeomInfoManager::FindPrevFrameData( const PrimitiveUniqueID&  geomUniqueID,
                                                 const ShGeometryInstance& target,
-                                                uint32_t frameIndex ) const -> const PrevInfo*
+                                                uint32_t                  frameIndex,
+                                                bool noMotionVectors ) const -> const PrevInfo*
 {
+    if( noMotionVectors )
+    {
+        return nullptr;
+    }
+
     auto& idToInfo_prev = idToPrevInfo[ Utils::PrevFrame( frameIndex ) ];
 
     // if geomUniqueId existed in prev frame

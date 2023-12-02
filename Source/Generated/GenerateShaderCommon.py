@@ -260,14 +260,16 @@ CONST = {
     "BINDING_DRAW_LENS_FLARES_INSTANCES"        : 0,
     "BINDING_PORTAL_INSTANCES"                  : 0,
     "BINDING_LPM_PARAMS"                        : 0,
-    "BINDING_RESTIR_INDIRECT_INITIAL_SAMPLES"   : 0,
-    "BINDING_RESTIR_INDIRECT_RESERVOIRS"        : 1,
-    "BINDING_RESTIR_INDIRECT_RESERVOIRS_PREV"   : 2,
+    "BINDING_RESTIR_INDIRECT_RESERVOIRS"        : 2,
+    "BINDING_RESTIR_INDIRECT_RESERVOIRS_PREV"   : 1,
     "BINDING_VOLUMETRIC_STORAGE"                : 0,
     "BINDING_VOLUMETRIC_SAMPLER"                : 1,
     "BINDING_VOLUMETRIC_SAMPLER_PREV"           : 2,
-    "BINDING_VOLUMETRIC_ILLUMINATION"           : 3,
-    "BINDING_VOLUMETRIC_ILLUMINATION_SAMPLER"   : 4,
+#   "BINDING_VOLUMETRIC_ILLUMINATION"           : 3,
+#   "BINDING_VOLUMETRIC_ILLUMINATION_SAMPLER"   : 4,
+    "BINDING_FLUID_PARTICLES_ARRAY"             : 0,
+    "BINDING_FLUID_GENERATE_ID_TO_SOURCE"       : 1,
+    "BINDING_FLUID_SOURCES"                     : 2,
 
     "INSTANCE_CUSTOM_INDEX_FLAG_FIRST_PERSON"           : BIT( 0 ),
     "INSTANCE_CUSTOM_INDEX_FLAG_FIRST_PERSON_VIEWER"    : BIT( 1 ),
@@ -289,10 +291,10 @@ CONST = {
     "SBT_INDEX_RAYGEN_REFL_REFR"            : 1,
     "SBT_INDEX_RAYGEN_DIRECT"               : 2,
     "SBT_INDEX_RAYGEN_INDIRECT_INIT"        : 3,
-    "SBT_INDEX_RAYGEN_INDIRECT_FINAL"       : 4,
-    "SBT_INDEX_RAYGEN_GRADIENTS"            : 5,
-    "SBT_INDEX_RAYGEN_INITIAL_RESERVOIRS"   : 6,
-    "SBT_INDEX_RAYGEN_VOLUMETRIC"           : 7,
+#   "SBT_INDEX_RAYGEN_INDIRECT_FINAL"       :  ,
+    "SBT_INDEX_RAYGEN_GRADIENTS"            : 4,
+    "SBT_INDEX_RAYGEN_INITIAL_RESERVOIRS"   : 5,
+    "SBT_INDEX_RAYGEN_VOLUMETRIC"           : 6,
     "SBT_INDEX_MISS_DEFAULT"                : 0,
     "SBT_INDEX_MISS_SHADOW"                 : 1,
     "SBT_INDEX_HITGROUP_FULLY_OPAQUE"       : 0,
@@ -338,6 +340,9 @@ CONST = {
     "SKY_TYPE_COLOR"                        : 0,
     "SKY_TYPE_CUBEMAP"                      : 1,
     "SKY_TYPE_RASTERIZED_GEOMETRY"          : 2,
+
+    # to reduce shader opearations
+    "SUPPRESS_TEXLAYERS"                    : 1,
     
     "BLUE_NOISE_TEXTURE_COUNT"              : 128,
     "BLUE_NOISE_TEXTURE_SIZE"               : 128,
@@ -354,7 +359,7 @@ CONST = {
     "COMPUTE_BLOOM_DOWNSAMPLE_GROUP_SIZE_Y" : 16,
     "COMPUTE_BLOOM_APPLY_GROUP_SIZE_X"      : 16,
     "COMPUTE_BLOOM_APPLY_GROUP_SIZE_Y"      : 16,
-    "COMPUTE_BLOOM_STEP_COUNT"              : 8,
+    "COMPUTE_BLOOM_STEP_COUNT"              : 7,
 
     "COMPUTE_EFFECT_GROUP_SIZE_X"           : 16,
     "COMPUTE_EFFECT_GROUP_SIZE_Y"           : 16,
@@ -382,6 +387,9 @@ CONST = {
     "COMPUTE_INDIRECT_DRAW_FLARES_GROUP_SIZE_X"         : 256,
     "LENS_FLARES_MAX_DRAW_CMD_COUNT"                    : 512,
 
+    "COMPUTE_FLUID_PARTICLES_GROUP_SIZE_X"              : 256,
+    "COMPUTE_FLUID_PARTICLES_GENERATE_GROUP_SIZE_X"     : 256,
+
     "DEBUG_SHOW_FLAG_MOTION_VECTORS"        : BIT( 0 ),
     "DEBUG_SHOW_FLAG_GRADIENTS"             : BIT( 1 ),
     "DEBUG_SHOW_FLAG_UNFILTERED_DIFFUSE"    : BIT( 2 ),
@@ -393,6 +401,7 @@ CONST = {
     "DEBUG_SHOW_FLAG_LIGHT_GRID"            : BIT( 8 ),
     "DEBUG_SHOW_FLAG_ALBEDO_WHITE"          : BIT( 9 ),
     "DEBUG_SHOW_FLAG_NORMALS"               : BIT( 10 ),
+    "DEBUG_SHOW_FLAG_BLOOM"                 : BIT( 11 ),
     
     "MAX_RAY_LENGTH"                        : "10000.0",
 
@@ -407,25 +416,27 @@ CONST = {
     "LIGHT_TYPE_NONE"                       : 0,
     "LIGHT_TYPE_DIRECTIONAL"                : 1,
     "LIGHT_TYPE_SPHERE"                     : 2,
-    "LIGHT_TYPE_TRIANGLE"                   : 3,
-    "LIGHT_TYPE_SPOT"                       : 4,
+    "LIGHT_TYPE_SPOT"                       : 3,
+    "LIGHT_TYPE_TRIANGLE"                   : 4,
+
+    "TRIANGLE_LIGHTS"                       : 0,
 
     "LIGHT_ARRAY_DIRECTIONAL_LIGHT_OFFSET"  : 0,
     "LIGHT_ARRAY_REGULAR_LIGHTS_OFFSET"     : 1,
 
     "LIGHT_INDEX_NONE"                      : ((1 << 15) - 1),
 
-    "LIGHT_GRID_SIZE_X"                     : 16,
-    "LIGHT_GRID_SIZE_Y"                     : 16,
-    "LIGHT_GRID_SIZE_Z"                     : 16,
-    "LIGHT_GRID_CELL_SIZE"                  : 128,
-    "COMPUTE_LIGHT_GRID_GROUP_SIZE_X"       : 256,
+    "LIGHT_GRID_ENABLED"                    : 0, # no effect on enabling?
+#   "LIGHT_GRID_SIZE_X"                     : 16,
+#   "LIGHT_GRID_SIZE_Y"                     : 16,
+#   "LIGHT_GRID_SIZE_Z"                     : 16,
+#   "LIGHT_GRID_CELL_SIZE"                  : 128,
+#   "COMPUTE_LIGHT_GRID_GROUP_SIZE_X"       : 256,
 
     "PORTAL_INDEX_NONE"                     : 63,
     "PORTAL_MAX_COUNT"                      : 63,
 
-    "PACKED_INDIRECT_SAMPLE_SIZE_IN_WORDS"    : 6,
-    "PACKED_INDIRECT_RESERVOIR_SIZE_IN_WORDS" : 8,
+    "PACKED_INDIRECT_RESERVOIR_SIZE_IN_WORDS" : 5,
 
     "VOLUMETRIC_SIZE_X"                     : 160,
     "VOLUMETRIC_SIZE_Y"                     : 88,
@@ -437,6 +448,15 @@ CONST = {
     "VOLUME_ENABLE_NONE"                    : 0,
     "VOLUME_ENABLE_SIMPLE"                  : 1,
     "VOLUME_ENABLE_VOLUMETRIC"              : 2,
+
+    "HDR_DISPLAY_NONE"                      : 0,
+    "HDR_DISPLAY_LINEAR"                    : 1,
+    "HDR_DISPLAY_ST2084"                    : 2,
+
+    "ILLUMINATION_VOLUME"                   : 0,
+
+    "COMPUTE_INDIRECT_FINAL_GROUP_SIZE_X"   : 16,
+    "COMPUTE_INDIRECT_FINAL_GROUP_SIZE_Y"   : 16,
 }
 
 CONST_GLSL_ONLY = {
@@ -480,6 +500,11 @@ VERTEX_STRUCT = [
     (TYPE_FLOAT32,      2,     "texCoord",              1),
     (TYPE_UINT32,       1,     "color",                 1),
     (TYPE_UINT32,       1,     "_pad0",                 1),
+]
+
+VERTEX_COMPACT_STRUCT = [
+    (TYPE_FLOAT32,      3,     "position",              1),
+    (TYPE_UINT32 ,      1,     "normalPacked",          1),
 ]
 
 # Must be careful with std140 offsets! They are set manually.
@@ -539,7 +564,7 @@ GLOBAL_UNIFORM_STRUCT = [
 
     (TYPE_FLOAT32,      1,      "bloomIntensity",                   1),
     (TYPE_FLOAT32,      1,      "bloomThreshold",                   1),
-    (TYPE_FLOAT32,      1,      "bloomEmissionMultiplier",          1),
+    (TYPE_FLOAT32,      1,      "bloomEV",                          1),
     (TYPE_UINT32,       1,      "reflectRefractMaxDepth",           1),
 
     (TYPE_UINT32,       1,      "cameraMediaType",                  1),
@@ -597,6 +622,13 @@ GLOBAL_UNIFORM_STRUCT = [
     (TYPE_FLOAT32,      1,      "volumeFallbackSrcExists",          1),
     (TYPE_FLOAT32,      1,      "volumeLightMult",                  1),
 
+    (TYPE_UINT32,       1,      "hdrDisplay",                       1),
+    (TYPE_FLOAT32,      1,      "parallaxMaxDepth",                 1),
+    (TYPE_UINT32,       1,      "fluidEnabled",                     1),
+    (TYPE_FLOAT32,      1,      "_pad3",                            1),
+
+    (TYPE_FLOAT32,      4,      "fluidColor",                       1),
+
     #(TYPE_FLOAT32,      1,      "_pad0",                            1),
     #(TYPE_FLOAT32,      1,      "_pad1",                            1),
     #(TYPE_FLOAT32,      1,      "_pad2",                            1),
@@ -636,8 +668,8 @@ GEOM_INSTANCE_STRUCT = [
 
     (TYPE_UINT32,       1,      "vertexCount",          1),
     (TYPE_UINT32,       1,      "indexCount",           1),
-    (TYPE_FLOAT32,      1,      "roughnessDefault",     1),
-    (TYPE_FLOAT32,      1,      "metallicDefault",      1),
+    (TYPE_UINT32,       1,      "texture_base_D",       1),
+    (TYPE_UINT32,       1,      "roughnessDefault_metallicDefault", 1),
 
     (TYPE_FLOAT32,      1,      "emissiveMult",         1),
     (TYPE_UINT32,       1,      "firstVertex_Layer1",   1),
@@ -647,12 +679,12 @@ GEOM_INSTANCE_STRUCT = [
 
 # TODO: make more compact
 LIGHT_ENCODED_STRUCT = [
-    (TYPE_FLOAT32,      3,      "color",                1),
     (TYPE_UINT32,       1,      "lightType",            1),
-
-    (TYPE_FLOAT32,      4,      "data_0",               1),
-    (TYPE_FLOAT32,      4,      "data_1",               1),
-    (TYPE_FLOAT32,      4,      "data_2",               1),
+    (TYPE_UINT32,       1,      "colorE5",              1),
+    (TYPE_FLOAT32,      1,      "ldata0",               1),
+    (TYPE_FLOAT32,      1,      "ldata1",               1),
+    (TYPE_FLOAT32,      1,      "ldata2",               1),
+    (TYPE_FLOAT32,      1,      "ldata3",               1),
 ]
 
 # TODO: light index / target pdf - 16 bits
@@ -706,10 +738,11 @@ STRUCT_BREAK_TYPE_ONLY_C    = 2
 #                      it'll be represented as an array of primitive types
 STRUCTS = {
     "ShVertex":                 (VERTEX_STRUCT,                 False,  STRUCT_ALIGNMENT_STD140,    0),
+    "ShVertexCompact":          (VERTEX_COMPACT_STRUCT,         False,  STRUCT_ALIGNMENT_STD140,    0),
     "ShGlobalUniform":          (GLOBAL_UNIFORM_STRUCT,         False,  STRUCT_ALIGNMENT_STD140,    STRUCT_BREAK_TYPE_ONLY_C),
     "ShGeometryInstance":       (GEOM_INSTANCE_STRUCT,          False,  STRUCT_ALIGNMENT_STD430,    0),
     "ShTonemapping":            (TONEMAPPING_STRUCT,            False,  0,                          0),
-    "ShLightEncoded":           (LIGHT_ENCODED_STRUCT,          False,  STRUCT_ALIGNMENT_STD430,    0),
+    "ShLightEncoded":           (LIGHT_ENCODED_STRUCT,          False,  0,                          0),
     "ShLightInCell":            (LIGHT_IN_CELL,                 False,  STRUCT_ALIGNMENT_STD430,    0),
     "ShIndirectDrawCommand":    (INDIRECT_DRAW_CMD_STRUCT,      False,  STRUCT_ALIGNMENT_STD430,    0),
     # TODO: should be STRUCT_ALIGNMENT_STD430, but current generator is not great as it just adds pads at the end, so it's 0
@@ -768,24 +801,29 @@ FRAMEBUFFERS = {
     "DepthWorld"                        : (TYPE_FLOAT16,    COMPONENT_R,    FRAMEBUF_FLAGS_STORE_PREV),
     "DepthGrad"                         : (TYPE_FLOAT16,    COMPONENT_R,    0),
     "DepthNdc"                          : (TYPE_FLOAT32,    COMPONENT_R,    0),
+    "DepthFluid"                        : (TYPE_FLOAT32,    COMPONENT_R,    0),
+    "DepthFluidTemp"                    : (TYPE_FLOAT32,    COMPONENT_R,    0),
+    "FluidNormal"                       : (TYPE_UINT32,     COMPONENT_R,    FRAMEBUF_FLAGS_IS_ATTACHMENT),
+    "FluidNormalTemp"                   : (TYPE_UINT32,     COMPONENT_R,    0),
     "Motion"                            : (TYPE_FLOAT16,    COMPONENT_RGBA, 0),
     "UnfilteredDirect"                  : (TYPE_PACK_E5,    COMPONENT_RGB,  0),
     "UnfilteredSpecular"                : (TYPE_PACK_E5,    COMPONENT_RGB,  0),
     "UnfilteredIndir"                   : (TYPE_PACK_E5,    COMPONENT_RGB,  0),
     "SurfacePosition"                   : (TYPE_FLOAT32,    COMPONENT_RGBA, FRAMEBUF_FLAGS_STORE_PREV),
     "VisibilityBuffer"                  : (TYPE_FLOAT32,    COMPONENT_RGBA, FRAMEBUF_FLAGS_STORE_PREV),
-    "ViewDirection"                     : (TYPE_FLOAT16,    COMPONENT_RGBA, 0),
+    "ViewDirection"                     : (TYPE_FLOAT16,    COMPONENT_RGBA, FRAMEBUF_FLAGS_STORE_PREV),
     "PrimaryToReflRefr"                 : (TYPE_UINT32,     COMPONENT_RGBA, 0),
     "Throughput"                        : (TYPE_FLOAT16,    COMPONENT_RGBA, 0),
-    "PreFinal"                          : (TYPE_PACK_11,    COMPONENT_RGB,  0),
-    "Final"                             : (TYPE_PACK_11,    COMPONENT_RGB,  FRAMEBUF_FLAGS_IS_ATTACHMENT),
+    "PreFinal"                          : (TYPE_FLOAT16,    COMPONENT_RGBA, 0),
+    "Final"                             : (TYPE_FLOAT16,    COMPONENT_RGBA, FRAMEBUF_FLAGS_IS_ATTACHMENT),
 
-    "UpscaledPing"                      : (TYPE_PACK_11,    COMPONENT_RGB,  FRAMEBUF_FLAGS_IS_ATTACHMENT | FRAMEBUF_FLAGS_UPSCALED_SIZE | FRAMEBUF_FLAGS_USAGE_TRANSFER),  # dst for DLSS and blitting in,
-    "UpscaledPong"                      : (TYPE_PACK_11,    COMPONENT_RGB,  FRAMEBUF_FLAGS_IS_ATTACHMENT | FRAMEBUF_FLAGS_UPSCALED_SIZE | FRAMEBUF_FLAGS_USAGE_TRANSFER),  #       src for WipeEffectSource 
+    "UpscaledPing"                      : (TYPE_FLOAT16,    COMPONENT_RGBA, FRAMEBUF_FLAGS_IS_ATTACHMENT | FRAMEBUF_FLAGS_UPSCALED_SIZE | FRAMEBUF_FLAGS_USAGE_TRANSFER),  # dst for DLSS and blitting in,
+    "UpscaledPong"                      : (TYPE_FLOAT16,    COMPONENT_RGBA, FRAMEBUF_FLAGS_IS_ATTACHMENT | FRAMEBUF_FLAGS_UPSCALED_SIZE | FRAMEBUF_FLAGS_USAGE_TRANSFER),  #       src for WipeEffectSource 
 
     # for upscalers
     "MotionDlss"                        : (TYPE_FLOAT16,    COMPONENT_RG,   0),
     "Reactivity"                        : (TYPE_UNORM8,     COMPONENT_R,    FRAMEBUF_FLAGS_IS_ATTACHMENT),
+    "HudOnly"                           : (TYPE_UNORM8,     COMPONENT_RGBA, FRAMEBUF_FLAGS_IS_ATTACHMENT | FRAMEBUF_FLAGS_UPSCALED_SIZE | FRAMEBUF_FLAGS_USAGE_TRANSFER),  # src for framegen
 
     "AccumHistoryLength"                : (TYPE_FLOAT16,    COMPONENT_RGBA, FRAMEBUF_FLAGS_STORE_PREV),
     
@@ -807,36 +845,30 @@ FRAMEBUFFERS = {
 
     "AtrousFilteredVariance"            : (TYPE_FLOAT16,    COMPONENT_R,    0),
     
-    "HistogramInput"                    : (TYPE_FLOAT16,    COMPONENT_R,    0),
-    
     "NormalDecal"                       : (TYPE_UINT32,     COMPONENT_R,    FRAMEBUF_FLAGS_IS_ATTACHMENT),
     
     "Scattering"                        : (TYPE_FLOAT16,    COMPONENT_RGBA, FRAMEBUF_FLAGS_STORE_PREV),
     "ScatteringHistory"                 : (TYPE_FLOAT16,    COMPONENT_R,    FRAMEBUF_FLAGS_STORE_PREV),
-
-    # TODO: remove after implementing media volumetrics
-    "AcidFogRT"                         : (TYPE_PACK_11,    COMPONENT_RGB,  0),
-    "AcidFog"                           : (TYPE_PACK_11,    COMPONENT_RGB,  0),
     
     # need separate one for RT, to resolve checkerboarded across multiple pixels
     "ScreenEmisRT"                      : (TYPE_PACK_11,    COMPONENT_RGB,  0),
     "ScreenEmission"                    : (TYPE_PACK_11,    COMPONENT_RGB,  FRAMEBUF_FLAGS_IS_ATTACHMENT),
 
-    "BloomInput"                        : (TYPE_PACK_11,    COMPONENT_RGB,  0),
-    "Bloom_Mip1"                        : (TYPE_PACK_11,    COMPONENT_RGB,  FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER),
-    "Bloom_Mip2"                        : (TYPE_PACK_11,    COMPONENT_RGB,  FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER),
-    "Bloom_Mip3"                        : (TYPE_PACK_11,    COMPONENT_RGB,  FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER),
-    "Bloom_Mip4"                        : (TYPE_PACK_11,    COMPONENT_RGB,  FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER),
-    "Bloom_Mip5"                        : (TYPE_PACK_11,    COMPONENT_RGB,  FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER),
-    "Bloom_Mip6"                        : (TYPE_PACK_11,    COMPONENT_RGB,  FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER),
-    "Bloom_Mip7"                        : (TYPE_PACK_11,    COMPONENT_RGB,  FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER),
-    "Bloom_Mip8"                        : (TYPE_PACK_11,    COMPONENT_RGB,  FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER),
-    "Bloom_Result"                      : (TYPE_PACK_11,    COMPONENT_RGB,  FRAMEBUF_FLAGS_BILINEAR_SAMPLER),
+    "Bloom"                             : (TYPE_FLOAT16,    COMPONENT_RGBA, FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER | FRAMEBUF_FLAGS_UPSCALED_SIZE),
+    "Bloom_Mip1"                        : (TYPE_FLOAT16,    COMPONENT_RGBA, FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER | FRAMEBUF_FLAGS_UPSCALED_SIZE),
+    "Bloom_Mip2"                        : (TYPE_FLOAT16,    COMPONENT_RGBA, FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER | FRAMEBUF_FLAGS_UPSCALED_SIZE),
+    "Bloom_Mip3"                        : (TYPE_FLOAT16,    COMPONENT_RGBA, FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER | FRAMEBUF_FLAGS_UPSCALED_SIZE),
+    "Bloom_Mip4"                        : (TYPE_FLOAT16,    COMPONENT_RGBA, FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER | FRAMEBUF_FLAGS_UPSCALED_SIZE),
+    "Bloom_Mip5"                        : (TYPE_FLOAT16,    COMPONENT_RGBA, FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER | FRAMEBUF_FLAGS_UPSCALED_SIZE),
+    "Bloom_Mip6"                        : (TYPE_FLOAT16,    COMPONENT_RGBA, FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER | FRAMEBUF_FLAGS_UPSCALED_SIZE),
+    "Bloom_Mip7"                        : (TYPE_FLOAT16,    COMPONENT_RGBA, FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM | FRAMEBUF_FLAGS_BILINEAR_SAMPLER | FRAMEBUF_FLAGS_UPSCALED_SIZE),
+  
+    "WipeEffectSource"                  : (TYPE_FLOAT16,    COMPONENT_RGBA, FRAMEBUF_FLAGS_UPSCALED_SIZE | FRAMEBUF_FLAGS_USAGE_TRANSFER), # dst to copy in
     
-    "WipeEffectSource"                  : (TYPE_PACK_11,    COMPONENT_RGB,  FRAMEBUF_FLAGS_UPSCALED_SIZE | FRAMEBUF_FLAGS_USAGE_TRANSFER), # dst to copy in
-    
-    "Reservoirs"                        : (TYPE_UINT32,     COMPONENT_RGBA, FRAMEBUF_FLAGS_STORE_PREV),
-    "ReservoirsInitial"                 : (TYPE_UINT32,     COMPONENT_RGBA, 0),
+    "Reservoirs"                        : (TYPE_UINT32,     COMPONENT_RG,   FRAMEBUF_FLAGS_STORE_PREV),
+    "ReservoirsInitial"                 : (TYPE_UINT32,     COMPONENT_RG,   0),
+
+    "IndirectReservoirsInitial"         : (TYPE_UINT32,     COMPONENT_RGBA, 0),
 }
 
 if GRADIENT_ESTIMATION_ENABLED:
@@ -1134,28 +1166,32 @@ def getPublicFlags(flags):
         return "0"
     else:
         return r
-    
+
+
+_ShFramebuffers_Count = 0
+
 
 def getAllVulkanFramebufDeclarations():
-    return ("extern const uint32_t ShFramebuffers_Count;\n"
+    return ("constexpr uint32_t ShFramebuffers_Count = %s;\n"
             "extern const VkFormat ShFramebuffers_Formats[];\n"
             "extern const FramebufferImageFlags ShFramebuffers_Flags[];\n"
             "extern const uint32_t ShFramebuffers_Bindings[];\n"
             "extern const uint32_t ShFramebuffers_BindingsSwapped[];\n"
             "extern const uint32_t ShFramebuffers_Sampler_Bindings[];\n"
             "extern const uint32_t ShFramebuffers_Sampler_BindingsSwapped[];\n"
-            "extern const char *const ShFramebuffers_DebugNames[];\n\n")
+            "extern const char *const ShFramebuffers_DebugNames[];\n"
+            "extern const wchar_t *const ShFramebuffers_DebugNamesW[];\n\n") % str(_ShFramebuffers_Count)
 
 
 def getAllVulkanFramebufDefinitions():
-    template = ("const uint32_t RTGL1::ShFramebuffers_Count = %d;\n\n"
-                "const VkFormat RTGL1::ShFramebuffers_Formats[] = \n{\n%s};\n\n"
+    template = ("const VkFormat RTGL1::ShFramebuffers_Formats[] = \n{\n%s};\n\n"
                 "const RTGL1::FramebufferImageFlags RTGL1::ShFramebuffers_Flags[] = \n{\n%s};\n\n"
                 "const uint32_t RTGL1::ShFramebuffers_Bindings[] = \n{\n%s};\n\n"
                 "const uint32_t RTGL1::ShFramebuffers_BindingsSwapped[] = \n{\n%s};\n\n"
                 "const uint32_t RTGL1::ShFramebuffers_Sampler_Bindings[] = \n{\n%s};\n\n"
                 "const uint32_t RTGL1::ShFramebuffers_Sampler_BindingsSwapped[] = \n{\n%s};\n\n"
-                "const char *const RTGL1::ShFramebuffers_DebugNames[] = \n{\n%s};\n\n")
+                "const char *const RTGL1::ShFramebuffers_DebugNames[] = \n{\n%s};\n\n"
+                "const wchar_t *const RTGL1::ShFramebuffers_DebugNamesW[] = \n{\n%s};\n\n")
     TAB_STR = "    "
     formats = ""
     count = 0
@@ -1167,9 +1203,9 @@ def getAllVulkanFramebufDefinitions():
     samplerBindingsSwapped = ""
     names = ""
     for name, (baseFormat, components, flags) in FRAMEBUFFERS.items():
-        formats += TAB_STR + VULKAN_IMAGE_FORMATS[(baseFormat, components)] + ",\n"
+        formats += TAB_STR + VULKAN_IMAGE_FORMATS[(baseFormat, components)] + ", // " + name + "\n"
         names += TAB_STR + "\"" + FRAMEBUF_DEBUG_NAME_PREFIX + name + "\",\n"
-        publicFlags += TAB_STR + getPublicFlags(flags) + ",\n"
+        publicFlags += TAB_STR + getPublicFlags(flags) + ", // " + name + "\n"
 
         if not flags & FRAMEBUF_FLAGS_STORE_PREV:
             bindings                += TAB_STR + str(count)         + ",\n"
@@ -1180,9 +1216,9 @@ def getAllVulkanFramebufDefinitions():
             bindingsSwapped         += TAB_STR + str(count + 1)     + ",\n"
             bindingsSwapped         += TAB_STR + str(count)         + ",\n"
             
-            formats += TAB_STR + VULKAN_IMAGE_FORMATS[(baseFormat, components)] + ",\n"
+            formats += TAB_STR + VULKAN_IMAGE_FORMATS[(baseFormat, components)] + ", // " + name + FRAMEBUF_STORE_PREV_POSTFIX + "\n"
             names += TAB_STR + "\"" + FRAMEBUF_DEBUG_NAME_PREFIX + name + FRAMEBUF_STORE_PREV_POSTFIX + "\",\n"
-            publicFlags += TAB_STR + getPublicFlags(flags) + ",\n"
+            publicFlags += TAB_STR + getPublicFlags(flags) + ", // " + name + FRAMEBUF_STORE_PREV_POSTFIX + "\n"
             count += 1
 
         count += 1
@@ -1206,7 +1242,12 @@ def getAllVulkanFramebufDefinitions():
 
         samplerCount += 1
 
-    return template % (count, formats, publicFlags, bindings, bindingsSwapped, samplerBindings, samplerBindingsSwapped, names)
+    wnames = names.replace(f"\"{FRAMEBUF_DEBUG_NAME_PREFIX}", f"L\"{FRAMEBUF_DEBUG_NAME_PREFIX}")
+
+    global _ShFramebuffers_Count
+    _ShFramebuffers_Count = count
+
+    return template % (formats, publicFlags, bindings, bindingsSwapped, samplerBindings, samplerBindingsSwapped, names, wnames)
 
 
 FILE_HEADER = "// This file was generated by GenerateShaderCommon.py\n\n"
@@ -1221,6 +1262,10 @@ def writeToC(commonHeaderFile, fbHeaderFile, fbSourceFile):
     commonHeaderFile.write(getAllStructDefs(C_TYPE_NAMES))
     commonHeaderFile.write("}")
 
+    fbSourceFile.write(FILE_HEADER)
+    fbSourceFile.write("#include \"%s\"\n\n" % os.path.basename(fbHeaderFile.name))
+    fbSourceFile.write(getAllVulkanFramebufDefinitions())
+
     fbHeaderFile.write(FILE_HEADER)
     fbHeaderFile.write("#pragma once\n\n")
     fbHeaderFile.write("#include \"../Common.h\"\n\n")
@@ -1228,10 +1273,6 @@ def writeToC(commonHeaderFile, fbHeaderFile, fbSourceFile):
     fbHeaderFile.write(getAllFramebufConstants())
     fbHeaderFile.write(getAllVulkanFramebufDeclarations())
     fbHeaderFile.write("}")
-
-    fbSourceFile.write(FILE_HEADER)
-    fbSourceFile.write("#include \"%s\"\n\n" % os.path.basename(fbHeaderFile.name))
-    fbSourceFile.write(getAllVulkanFramebufDefinitions())
 
 
 def writeToGLSL(f):

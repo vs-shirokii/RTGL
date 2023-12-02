@@ -171,14 +171,52 @@ bool RTGL1::TextureMetaManager::Modify(
             ( Utils::UnpackAlphaFromPacked32( prim.color ) < MESH_TRANSLUCENT_ALPHA_THRESHOLD );
 
         {
+            RgColor4DPacked32 lightColor;
+
+            // if default, consider hex
+            if( meta->attachedLightColor[ 0 ] == 255 && //
+                meta->attachedLightColor[ 1 ] == 255 &&
+                meta->attachedLightColor[ 2 ] == 255 )
+            {
+                const char( &hex )[ 7 ] = meta->attachedLightColorHEX;
+
+                assert( hex[ 6 ] == '\0' );
+                auto to4bits = []( char h ) -> uint8_t {
+                    if( h >= '0' && h <= '9' )
+                    {
+                        return h - '0';
+                    }
+                    if( h >= 'a' && h <= 'f' )
+                    {
+                        return h - 'a' + 10;
+                    }
+                    if( h >= 'A' && h <= 'F' )
+                    {
+                        return h - 'A' + 10;
+                    }
+                    debug::Error( R"('textures.json': Wrong HEX character in 'lightColorHEX': {})",
+                                  h );
+                    return 0;
+                };
+
+                lightColor = Utils::PackColor( ( to4bits( hex[ 0 ] ) << 4 ) | to4bits( hex[ 1 ] ),
+                                               ( to4bits( hex[ 2 ] ) << 4 ) | to4bits( hex[ 3 ] ),
+                                               ( to4bits( hex[ 4 ] ) << 4 ) | to4bits( hex[ 5 ] ),
+                                               255 );
+            }
+            else
+            {
+                lightColor = Utils::PackColor( meta->attachedLightColor[ 0 ],
+                                               meta->attachedLightColor[ 1 ],
+                                               meta->attachedLightColor[ 2 ],
+                                               255 );
+            }
+
             auto attachedLight = RgMeshPrimitiveAttachedLightEXT{
                 .sType         = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_ATTACHED_LIGHT_EXT,
                 .pNext         = nullptr,
                 .intensity     = meta->attachedLightIntensity,
-                .color         = Utils::PackColor( meta->attachedLightColor[ 0 ],
-                                           meta->attachedLightColor[ 1 ],
-                                           meta->attachedLightColor[ 2 ],
-                                           255 ),
+                .color         = lightColor,
                 .evenOnDynamic = meta->attachedLightEvenOnDynamic,
             };
 
@@ -230,6 +268,11 @@ bool RTGL1::TextureMetaManager::Modify(
         if( meta->isThinMedia )
         {
             prim.flags |= RG_MESH_PRIMITIVE_THIN_MEDIA;
+        }
+
+        if( meta->noShadow )
+        {
+            prim.flags |= RG_MESH_PRIMITIVE_NO_SHADOW;
         }
 
         prim.emissive = Utils::Saturate( meta->emissiveMult );

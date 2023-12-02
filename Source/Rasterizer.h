@@ -113,7 +113,21 @@ public:
                            const float*                  view,
                            const float*                  proj,
                            const RgFloat2D&              jitter,
-                           const RenderResolutionHelper& renderResolution );
+                           const RenderResolutionHelper& renderResolution,
+                           float                         lightmapScreenCoverage );
+
+    void DrawClassic( VkCommandBuffer               cmd,
+                      uint32_t                      frameIndex,
+                      FramebufferImageIndex         destination,
+                      const TextureManager&         textureManager,
+                      const GlobalUniform&          uniform,
+                      const Tonemapping&            tonemapping,
+                      const Volumetric&             volumetric,
+                      const float*                  view,
+                      const float*                  proj,
+                      const RenderResolutionHelper& renderResolution,
+                      float                         lightmapScreenCoverage,
+                      const RgFloat3D&              skyViewerPos );
 
     void DrawToSwapchain( VkCommandBuffer       cmd,
                           uint32_t              frameIndex,
@@ -122,7 +136,8 @@ public:
                           const float*          view,
                           const float*          proj,
                           uint32_t              swapchainWidth,
-                          uint32_t              swapchainHeight );
+                          uint32_t              swapchainHeight,
+                          bool                  isHdr );
 
     void OnShaderReload( const ShaderManager* shaderManager ) override;
     void OnFramebuffersSizeChange( const ResolutionState& resolutionState ) override;

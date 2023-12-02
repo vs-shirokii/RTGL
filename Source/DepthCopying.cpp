@@ -31,11 +31,11 @@ RTGL1::DepthCopying::DepthCopying( VkDevice             _device,
                                    VkFormat             _depthFormat,
                                    const ShaderManager& _shaderManager,
                                    const Framebuffers&  _storageFramebuffers )
-    : device( _device )
-    , renderPass( VK_NULL_HANDLE )
-    , framebuffers{}
-    , pipelineLayout( VK_NULL_HANDLE )
-    , pipeline( VK_NULL_HANDLE )
+    : device{ _device }
+    , renderPass{ VK_NULL_HANDLE }
+    , framebuffer{ VK_NULL_HANDLE }
+    , pipelineLayout{ VK_NULL_HANDLE }
+    , pipeline{ VK_NULL_HANDLE }
 {
     CreateRenderPass( _depthFormat );
     CreatePipelineLayout( _storageFramebuffers.GetDescSetLayout() );
@@ -58,7 +58,7 @@ void RTGL1::DepthCopying::Process( VkCommandBuffer     cmd,
                                    uint32_t            height,
                                    bool                justClear )
 {
-    assert( renderPass && framebuffers[ frameIndex ] && pipeline && pipelineLayout );
+    assert( renderPass && framebuffer && pipeline && pipelineLayout );
 
     VkDescriptorSet descSets[] = {
         storageFramebuffers.GetDescSet( frameIndex ),
@@ -81,7 +81,7 @@ void RTGL1::DepthCopying::Process( VkCommandBuffer     cmd,
     VkRenderPassBeginInfo beginInfo = {
         .sType           = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         .renderPass      = renderPass,
-        .framebuffer     = framebuffers[ frameIndex ],
+        .framebuffer     = framebuffer,
         .renderArea      = renderArea,
         .clearValueCount = 0,
     };
@@ -190,40 +190,33 @@ void RTGL1::DepthCopying::CreateRenderPass( VkFormat depthFormat )
     SET_DEBUG_NAME( device, renderPass, VK_OBJECT_TYPE_RENDER_PASS, "Depth copying render pass" );
 }
 
-void RTGL1::DepthCopying::CreateFramebuffers( VkImageView pDepthAttchViews[ MAX_FRAMES_IN_FLIGHT ],
+void RTGL1::DepthCopying::CreateFramebuffers( VkImageView depthAttchView,
                                               uint32_t    width,
                                               uint32_t    height )
 {
     assert( renderPass );
+    assert( !framebuffer );
 
-    for( uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++ )
-    {
-        assert( framebuffers[ i ] == VK_NULL_HANDLE );
+    VkFramebufferCreateInfo fbInfo = {
+        .sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+        .renderPass      = renderPass,
+        .attachmentCount = 1,
+        .pAttachments    = &depthAttchView,
+        .width           = width,
+        .height          = height,
+        .layers          = 1,
+    };
 
-        VkFramebufferCreateInfo fbInfo = {
-            .sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-            .renderPass      = renderPass,
-            .attachmentCount = 1,
-            .pAttachments    = &pDepthAttchViews[ i ],
-            .width           = width,
-            .height          = height,
-            .layers          = 1,
-        };
-
-        VkResult r = vkCreateFramebuffer( device, &fbInfo, nullptr, &framebuffers[ i ] );
-        VK_CHECKERROR( r );
-    }
+    VkResult r = vkCreateFramebuffer( device, &fbInfo, nullptr, &framebuffer );
+    VK_CHECKERROR( r );
 }
 
 void RTGL1::DepthCopying::DestroyFramebuffers()
 {
-    for( auto& f : framebuffers )
+    if( framebuffer != VK_NULL_HANDLE )
     {
-        if( f != VK_NULL_HANDLE )
-        {
-            vkDestroyFramebuffer( device, f, nullptr );
-            f = VK_NULL_HANDLE;
-        }
+        vkDestroyFramebuffer( device, framebuffer, nullptr );
+        framebuffer = VK_NULL_HANDLE;
     }
 }
 

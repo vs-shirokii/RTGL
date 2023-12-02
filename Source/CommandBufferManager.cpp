@@ -115,6 +115,19 @@ VkCommandBuffer RTGL1::CommandBufferManager::StartCmd( uint32_t       frameIndex
     return cmd;
 }
 
+VkQueue RTGL1::CommandBufferManager::PopQueueOfCmd( VkCommandBuffer cmd )
+{
+    auto& qs = cmdQueues[ currentFrameIndex ];
+
+    auto found = qs.find( cmd );
+    assert( found != qs.end() );
+
+    VkQueue q = found->second;
+    qs.erase( found );
+
+    return q;
+}
+
 VkCommandBuffer RTGL1::CommandBufferManager::StartGraphicsCmd()
 {
     return StartCmd(
@@ -156,47 +169,79 @@ void RTGL1::CommandBufferManager::Submit( VkCommandBuffer cmd, VkFence fence )
     VK_CHECKERROR( r );
 }
 
+namespace
+{
+constexpr VkPipelineStageFlags DefaultStages[] = {
+    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+};
+}
 
-void RTGL1::CommandBufferManager::Submit( VkCommandBuffer             cmd,
-                                          const VkSemaphore*          waitSemaphores,
-                                          const VkPipelineStageFlags* waitStages,
-                                          uint32_t                    waitCount,
-                                          VkSemaphore                 signalSemaphore,
-                                          VkFence                     fence )
+void RTGL1::CommandBufferManager::Submit_Binary( VkCommandBuffer          cmd,
+                                                 std::span< VkSemaphore > waitSemaphores,
+                                                 VkSemaphore              signalSemaphore,
+                                                 VkFence                  fence )
 {
     VkResult r = vkEndCommandBuffer( cmd );
     VK_CHECKERROR( r );
-    
-    VkSubmitInfo submitInfo = {
+
+    assert( waitSemaphores.size() <= std::size( DefaultStages ) );
+
+    auto submitInfo = VkSubmitInfo{
         .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .waitSemaphoreCount   = waitCount,
-        .pWaitSemaphores      = waitSemaphores,
-        .pWaitDstStageMask    = waitStages,
+        .pNext                = nullptr,
+        .waitSemaphoreCount   = static_cast< uint32_t >( waitSemaphores.size() ),
+        .pWaitSemaphores      = waitSemaphores.data(),
+        .pWaitDstStageMask    = DefaultStages,
         .commandBufferCount   = 1,
         .pCommandBuffers      = &cmd,
         .signalSemaphoreCount = 1,
         .pSignalSemaphores    = &signalSemaphore,
     };
 
-    auto& qs = cmdQueues[ currentFrameIndex ];
-    assert( qs.find( cmd ) != qs.end() );
-
-    VkQueue q = qs[ cmd ];
-    qs.erase( cmd );
-
-    r = vkQueueSubmit( q, 1, &submitInfo, fence );
+    r = vkQueueSubmit( PopQueueOfCmd( cmd ), 1, &submitInfo, fence );
     VK_CHECKERROR( r );
 }
 
-void RTGL1::CommandBufferManager::Submit( VkCommandBuffer      cmd,
-                                          VkSemaphore          waitSemaphore,
-                                          VkPipelineStageFlags waitStages,
-                                          VkSemaphore          signalSemaphore,
-                                          VkFence              fence )
+void RTGL1::CommandBufferManager::Submit_TimelineInternal( VkCommandBuffer          cmd,
+                                                           std::span< VkSemaphore > waitSemaphores,
+                                                           std::span< uint64_t >    waitValues,
+                                                           VkSemaphore              signalSemaphore,
+                                                           uint64_t                 signalValue,
+                                                           VkFence                  fence )
 {
-    Submit( cmd, &waitSemaphore, &waitStages, 1, signalSemaphore, fence );
-}
+    VkResult r = vkEndCommandBuffer( cmd );
+    VK_CHECKERROR( r );
 
+    assert( waitSemaphores.size() <= std::size( DefaultStages ) );
+    assert( waitSemaphores.size() == waitValues.size() || waitValues.empty() );
+    
+    auto timelineSemaphoreSubmitInfo = VkTimelineSemaphoreSubmitInfo{
+        .sType                     = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+        .pNext                     = nullptr,
+        .waitSemaphoreValueCount   = static_cast< uint32_t >( waitValues.size() ),
+        .pWaitSemaphoreValues      = waitValues.data(),
+        .signalSemaphoreValueCount = signalSemaphore ? 1u : 0u,
+        .pSignalSemaphoreValues    = &signalValue,
+    };
+    
+    auto submitInfo = VkSubmitInfo{
+        .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .pNext                = &timelineSemaphoreSubmitInfo,
+        .waitSemaphoreCount   = static_cast< uint32_t >( waitSemaphores.size() ),
+        .pWaitSemaphores      = waitSemaphores.data(),
+        .pWaitDstStageMask    = DefaultStages,
+        .commandBufferCount   = 1,
+        .pCommandBuffers      = &cmd,
+        .signalSemaphoreCount = signalSemaphore ? 1u : 0u,
+        .pSignalSemaphores    = &signalSemaphore,
+    };
+    
+    r = vkQueueSubmit( PopQueueOfCmd( cmd ), 1, &submitInfo, fence );
+    VK_CHECKERROR( r );
+}
 
 void RTGL1::CommandBufferManager::WaitGraphicsIdle()
 {

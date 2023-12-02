@@ -27,19 +27,19 @@
 #if defined( HITINFO_INL_PRIM )
 vec3 processAlbedoGrad(         
     uint geometryInstanceFlags, 
-    const vec2 texCoords[ 4 ], const uint layerColorTextures[ 4 ], const uint layerColors[ 4 ], 
-    const vec2 dPdx[ 4 ], const vec2 dPdy[ 4 ] )
+    const vec2 texCoords[ TEXLAYER_MAX ], const uint layerColorTextures[ TEXLAYER_MAX ], const uint layerColors[ TEXLAYER_MAX ], 
+    const vec2 dPdx[ TEXLAYER_MAX ], const vec2 dPdy[ TEXLAYER_MAX ] )
 
 #elif defined( HITINFO_INL_RFL )
 vec3 processAlbedoRayConeDeriv( 
     uint geometryInstanceFlags, 
-    const vec2 texCoords[ 4 ], const uint layerColorTextures[ 4 ], const uint layerColors[ 4 ], 
+    const vec2 texCoords[ TEXLAYER_MAX ], const uint layerColorTextures[ TEXLAYER_MAX ], const uint layerColors[ TEXLAYER_MAX ], 
     const DerivativeSet derivSet )
 
 #elif defined( HITINFO_INL_INDIR )
 vec3 processAlbedo(             
     uint geometryInstanceFlags, 
-    const vec2 texCoords[ 4 ], const uint layerColorTextures[ 4 ], const uint layerColors[ 4 ], 
+    const vec2 texCoords[ TEXLAYER_MAX ], const uint layerColorTextures[ TEXLAYER_MAX ], const uint layerColors[ TEXLAYER_MAX ], 
     float lod )
 #endif
 {
@@ -78,13 +78,10 @@ vec3 processAlbedo(
         }
 
     #if defined( HITINFO_INL_CLASSIC_SHADING )
-        if( !classicShading_PRIM() )
+        if( i == MATERIAL_LIGHTMAP_LAYER_INDEX )
         {
-            if( i == MATERIAL_LIGHTMAP_LAYER_INDEX )
-            {
-                // ignore lightmap layer, if using RT illumination
-                continue;
-            }
+            // ignore lightmap layer, if using RT illumination
+            continue;
         }
     #endif
 
@@ -170,6 +167,90 @@ vec3 intersectRayTriangle(const mat3 positions, const vec3 orig, const vec3 dir)
 
     return vec3(1 - u - v, u, v);
 }
+
+// 0.0 - deepest point; 1.0 - surface level
+float sampleHeightMap( const uint textureIndex, const vec2 texCoords )
+{
+    return getTextureSampleLod( textureIndex, texCoords, 0 ).r;
+}
+
+const int ParallaxLinearSteps       = 10;
+const int ParallaxBinarySearchSteps = 4;
+
+vec2 parallaxTexCoords( const uint  heightTextureIndex,
+                        const vec2  texCoords,
+                        const vec3  viewDir,
+                        const float maxDepth )
+{
+    const float deltaLayerDepth     = maxDepth / ParallaxLinearSteps;
+    const vec2  deltaLayerTexCoords = viewDir.xy / viewDir.z * deltaLayerDepth;
+
+    float depth         = 0.0;
+    float curLayerDepth = 0.0;
+
+    // linear search for a layer
+    for( int i = 0; i < ParallaxLinearSteps; i++ )
+    {
+        curLayerDepth         = i * deltaLayerDepth;
+        vec2 curLayerTexCoord = texCoords - i * deltaLayerTexCoords;
+
+        depth = maxDepth * ( 1.0 - sampleHeightMap( heightTextureIndex, curLayerTexCoord ) );
+        if( depth < curLayerDepth )
+        {
+            break;
+        }
+    }
+
+    // binary search for more precise hit position in the layer
+    float lower  = curLayerDepth - deltaLayerDepth;
+    float higher = curLayerDepth;
+    for( int i = 0; i < ParallaxBinarySearchSteps; i++ )
+    {
+        float mid = ( lower + higher ) * 0.5;
+        if( depth < mid )
+        {
+            higher = mid;
+        }
+        else
+        {
+            lower = mid;
+        }
+    }
+
+    float hit = ( lower + higher ) * 0.5;
+    return texCoords - viewDir.xy / viewDir.z * hit;
+}
+
+// Correct 'candidateNormal' that was produced by a normal map, or vertex interpolation:
+// prevent self intersections, i.e. the reflection over 'candidateNormal' would not
+// point into the surface (defined by 'triangleNormal'), which would
+// produce zero later in a pipeline, e.g. max(0,dot(n,l))
+// "The Iray Light Transport Simulation and Rendering System",
+// "A.3 Local Shading Normal Adaption"
+vec3 sanitizeNormal( const vec3 triangleNormal, //
+                     const vec3 candidateNormal,
+                     const vec3 fromViewer )
+{
+    const vec3 candidateRefl = reflect( fromViewer, candidateNormal );
+
+    float nr = dot( candidateRefl, triangleNormal );
+
+    // if reflection doesn't cause self intersection
+    if( nr > 0 )
+    {
+        return candidateNormal;
+    }
+
+    const float a = -nr * 2;
+    const float b = max( 0.001, dot( candidateNormal, triangleNormal ) );
+
+    const vec3 sanitizedRefl = candidateRefl + a / b * candidateNormal;
+
+    // r = v - 2 * (v.n) * n
+    // n ~ -r + v
+    return -safeNormalize2( -normalize( sanitizedRefl ) + fromViewer, //
+                            triangleNormal );
+}
 #endif // HITINFO_INL_PRIM
 
 
@@ -177,7 +258,7 @@ vec3 intersectRayTriangle(const mat3 positions, const vec3 orig, const vec3 dir)
 
 ShHitInfo getHitInfoPrimaryRay(
     const ShPayload pl, 
-    const vec3 rayOrigin, const vec3 rayDirAX, const vec3 rayDirAY, 
+    const vec3 rayOrigin, const vec3 viewDir, const vec3 rayDirAX, const vec3 rayDirAY, 
     out vec2 motion, out float motionDepthLinear, 
     out vec2 gradDepth, out float depthNDC, out float depthLinear,
     out vec3 emission)
@@ -190,7 +271,8 @@ ShHitInfo getHitInfoWithRayCone_ReflectionRefraction(
     in out vec3 virtualPosForMotion,
     out float rayLen,
     out vec2 motion, out float motionDepthLinear,
-    out vec3 emission)
+    out vec3 emission,
+    out bool hasNormalMap)
 
 #elif defined(HITINFO_INL_INDIR)
 
@@ -210,34 +292,53 @@ ShHitInfo getHitInfoBounce(
 
     const ShTriangle tr = getTriangle(instanceId, instCustomIndex, geomIndex, primIndex);
 
+
+
+    // GEOMETRY
+
     const vec2 inBaryCoords = pl.baryCoords;
     const vec3 baryCoords = vec3(1.0f - inBaryCoords.x - inBaryCoords.y, inBaryCoords.x, inBaryCoords.y);
 
-    const vec2 texCoords[] = {
+     vec2 texCoords[] = {
         tr.layerTexCoord[ 0 ] * baryCoords,
+#if !SUPPRESS_TEXLAYERS
         tr.layerTexCoord[ 1 ] * baryCoords,
         tr.layerTexCoord[ 2 ] * baryCoords,
         tr.layerTexCoord[ 3 ] * baryCoords,
+#endif
     };
 
     h.hitPosition = tr.positions * baryCoords;
 
-    if( ( tr.geometryInstanceFlags & GEOM_INST_FLAG_EXACT_NORMALS ) == 0 )
+    vec3 exactNormal = safeNormalize3(        //
+        cross( tr.positions[ 1 ] - tr.positions[ 0 ], //
+               tr.positions[ 2 ] - tr.positions[ 0 ] ),
+        0.00000001,
+        vec3( 0, 1, 0 ) );
     {
-        h.normal = normalize( tr.normals * baryCoords );
-    }
-    else
-    {
-        h.normal = safeNormalize(
-            cross( tr.positions[ 1 ] - tr.positions[ 0 ], tr.positions[ 2 ] - tr.positions[ 0 ] ) );
+        if( ( tr.geometryInstanceFlags & GEOM_INST_FLAG_EXACT_NORMALS ) == 0 )
+        {
+            h.normal = normalize( tr.normals * baryCoords );
+        }
+        else
+        {
+            h.normal = exactNormal;
+        }
+
+        // always face ray origin
+        const vec3 toViewer = safeNormalize3( rayOrigin - h.hitPosition, 0.00000001, vec3( 0 ) );
+        if( dot( exactNormal, toViewer ) < 0 )
+        {
+            exactNormal *= -1;
+            h.normal *= -1;
+        }
+
+        h.normal = sanitizeNormal( exactNormal, h.normal, -toViewer );
     }
 
-    // always face ray origin
-    if( dot( h.normal, h.hitPosition - rayOrigin ) > 0 )
-    {
-        h.normal *= -1;
-    }
 
+
+    // CLIP SPACE
 
 #if defined(HITINFO_INL_PRIM)
     // Tracing Ray Differentials, Igehy
@@ -264,13 +365,8 @@ ShHitInfo getHitInfoBounce(
     const vec2 screenSpacePrev   = ndcPrev.xy * 0.5 + 0.5;
 #endif // HITINFO_INL_PRIM
 
-
 #if defined(HITINFO_INL_RFL) 
     rayLen = length(h.hitPosition - rayOrigin);
-#endif 
-
-
-#if defined(HITINFO_INL_RFL)
     virtualPosForMotion += viewDir * rayLen;
 
     const vec4 viewSpacePosCur   = globalUniform.view     * vec4(virtualPosForMotion, 1.0);
@@ -285,25 +381,25 @@ ShHitInfo getHitInfoBounce(
     const float clipSpaceDepth   = clipSpacePosCur[2];
 #endif // HITINFO_INL_RFL
 
-
 #if defined(HITINFO_INL_PRIM)
     depthNDC = ndcCur.z;
     depthLinear = length(viewSpacePosCur.xyz);
 #endif
 
 
+
+    // MOTION
+
 #if defined(HITINFO_INL_PRIM) || defined(HITINFO_INL_RFL)
     // difference in screen-space
     motion = (screenSpacePrev - screenSpaceCur);
 #endif
-
 
 #if defined(HITINFO_INL_PRIM)
     motionDepthLinear = length(viewSpacePosPrev.xyz) - depthLinear;
 #elif defined(HITINFO_INL_RFL)
     motionDepthLinear = length(viewSpacePosPrev.xyz) - length(viewSpacePosCur.xyz);
 #endif 
-
 
 #if defined(HITINFO_INL_PRIM) 
     // gradient of clip-space depth with respect to clip-space coordinates
@@ -313,50 +409,112 @@ ShHitInfo getHitInfoBounce(
 #endif
 
 
+
+    // TEXTURE SAMPLING
+
 #if defined( HITINFO_INL_PRIM )
     // pixel's footprint in texture space
     const vec2 dTdx[] = {
         ( tr.layerTexCoord[ 0 ] * baryCoordsAX - texCoords[ 0 ] ),
+#if !SUPPRESS_TEXLAYERS
         ( tr.layerTexCoord[ 1 ] * baryCoordsAX - texCoords[ 1 ] ),
         ( tr.layerTexCoord[ 2 ] * baryCoordsAX - texCoords[ 2 ] ),
         ( tr.layerTexCoord[ 3 ] * baryCoordsAX - texCoords[ 3 ] ),
+#endif
     };
 
     const vec2 dTdy[] = {
         ( tr.layerTexCoord[ 0 ] * baryCoordsAY - texCoords[ 0 ] ),
+#if !SUPPRESS_TEXLAYERS
         ( tr.layerTexCoord[ 1 ] * baryCoordsAY - texCoords[ 1 ] ),
         ( tr.layerTexCoord[ 2 ] * baryCoordsAY - texCoords[ 2 ] ),
         ( tr.layerTexCoord[ 3 ] * baryCoordsAY - texCoords[ 3 ] ),
+#endif
     };
+#elif defined(HITINFO_INL_RFL)
+    const DerivativeSet derivSet = getTriangleUVDerivativesFromRayCone(tr, h.normal, rayCone, rayDir);
+#endif
 
+
+
+    // HEIGHT / NORMAL MAP (ignored for indirect)
+
+#if defined( HITINFO_INL_PRIM ) || defined( HITINFO_INL_RFL )
+    vec3 tangent, bitangent;
+    if( tr.heightTexture != MATERIAL_NO_TEXTURE || tr.normalTexture != MATERIAL_NO_TEXTURE )
+    {
+        makeTangentBitangent( tr.positions, tr.layerTexCoord[ 0 ], tangent, bitangent );
+    }
+
+    if( globalUniform.parallaxMaxDepth > 0.0001 && tr.heightTexture != MATERIAL_NO_TEXTURE )
+    {
+        vec3 viewDirInTextureSpace;
+        {
+            mat3 worldToTbn       = transpose( mat3( tangent, bitangent, h.normal ) );
+            viewDirInTextureSpace = normalize( worldToTbn * viewDir );
+        }
+
+        texCoords[ 0 ] = parallaxTexCoords( tr.heightTexture,
+                                            texCoords[ 0 ],
+                                            viewDirInTextureSpace,
+                                            globalUniform.parallaxMaxDepth );
+    }
+
+
+    if (tr.normalTexture != MATERIAL_NO_TEXTURE)
+    {
+        vec2 nrm =
+    #if defined( HITINFO_INL_PRIM )
+            getTextureSampleGrad( tr.normalTexture, texCoords[ 0 ], dTdx[ 0 ], dTdy[ 0 ] )
+    #elif defined( HITINFO_INL_RFL )
+            getTextureSampleDerivSet( tr.normalTexture, texCoords[ 0 ], derivSet, 0 )
+    #endif
+            .xy;
+        nrm.xy = nrm.xy * 2.0 - vec2( 1.0 );
+
+        const vec3 newNormal = safeNormalize2( tangent * nrm.x + bitangent * nrm.y + h.normal, //
+                                               h.normal );
+        h.normal = safeNormalize2( mix( h.normal, newNormal, globalUniform.normalMapStrength ), //
+                                   h.normal );
+
+        const vec3 toViewer = safeNormalize2( rayOrigin - h.hitPosition, vec3( 0 ) );
+        h.normal            = sanitizeNormal( exactNormal, h.normal, -toViewer );
+    }
+
+#if defined( HITINFO_INL_RFL )
+    hasNormalMap = ( tr.normalTexture != MATERIAL_NO_TEXTURE );
+#endif
+
+#endif // HITINFO_INL_PRIM || HITINFO_INL_RFL
+
+
+
+    // ALBEDO
+
+#if defined( HITINFO_INL_PRIM )
     h.albedo = processAlbedoGrad( tr.geometryInstanceFlags, 
                                   texCoords,
                                   tr.layerColorTextures, 
                                   tr.layerColors, 
                                   dTdx, dTdy );
-#endif // HITINFO_INL_PRIM 
-
-
-#if defined(HITINFO_INL_RFL)
-    DerivativeSet derivSet = getTriangleUVDerivativesFromRayCone(tr, h.normal, rayCone, rayDir);
-
+#elif defined(HITINFO_INL_RFL)
     h.albedo = processAlbedoRayConeDeriv( tr.geometryInstanceFlags,
                                           texCoords,
                                           tr.layerColorTextures,
                                           tr.layerColors,
                                           derivSet );
-#endif // HITINFO_INL_RFL
-
-
-#if defined(HITINFO_INL_INDIR)
+#elif defined(HITINFO_INL_INDIR)
     const float viewDist = length(h.hitPosition - globalUniform.cameraPosition.xyz);
     const float hitDistance = length(h.hitPosition - rayOrigin);
 
     const float lod = getBounceLOD(originRoughness, viewDist, hitDistance, globalUniform.renderWidth, bounceMipBias);
 
     h.albedo = processAlbedo(tr.geometryInstanceFlags, texCoords, tr.layerColorTextures, tr.layerColors, lod);
-#endif // HITINFO_INL_INDIR
+#endif
 
+
+
+    // METALLIC-ROUGHNESS
 
     if( tr.occlusionRougnessMetallicTexture != MATERIAL_NO_TEXTURE )
     {
@@ -380,6 +538,9 @@ ShHitInfo getHitInfoBounce(
     h.roughness = max( h.roughness, max( globalUniform.minRoughness, MIN_GGX_ROUGHNESS ) );
 
 
+
+    // EMISSIVE
+
     if( tr.emissiveTexture != MATERIAL_NO_TEXTURE )
     {
         emission =
@@ -397,40 +558,8 @@ ShHitInfo getHitInfoBounce(
     }
 
 
-#if defined(HITINFO_INL_INDIR)
-    // ignore precise normals for indirect
-#else
-    if (tr.normalTexture != MATERIAL_NO_TEXTURE)
-    {
-        // less details in normal maps for better denoising
-        const float suppressDetails = 5.0;
 
-        vec2 nrm =
-    #if defined( HITINFO_INL_PRIM )
-            getTextureSampleGrad( tr.normalTexture, texCoords[ 0 ], dTdx[ 0 ] * suppressDetails, dTdy[ 0 ] * suppressDetails )
-    #elif defined( HITINFO_INL_RFL )
-            getTextureSampleDerivSet( tr.normalTexture, texCoords[ 0 ], derivSet, 0 )
-    #endif
-            .xy;
-        nrm.xy = nrm.xy * 2.0 - vec2( 1.0 );
-
-        const vec3 bitangent = cross(h.normal, tr.tangent.xyz) * tr.tangent.w;
-        const vec3 newNormal = safeNormalize(tr.tangent.xyz * nrm.x + bitangent * nrm.y + h.normal);
-
-        h.normal = safeNormalize(mix(h.normal, newNormal, globalUniform.normalMapStrength));
-    }
-#endif // HITINFO_INL_INDIR
-
-#if defined( HITINFO_INL_CLASSIC_SHADING )
-    if( classicShading_PRIM() )
-    {
-        h.albedo *= (
-            unpackUintColor(tr.vertexColors[0]).rgb * baryCoords[0] +
-            unpackUintColor(tr.vertexColors[1]).rgb * baryCoords[1] +
-            unpackUintColor(tr.vertexColors[2]).rgb * baryCoords[2] 
-        );
-    }
-#endif
+    // MISC
 
     h.instCustomIndex = instCustomIndex;
     h.geometryInstanceFlags = tr.geometryInstanceFlags;

@@ -61,6 +61,7 @@ RTGL1::Bloom::Bloom( VkDevice                        _device,
     , pipelineLayout( VK_NULL_HANDLE )
     , downsamplePipelines{}
     , upsamplePipelines{}
+    , preloadPipelines{}
     , applyPipelines{}
 {
     {
@@ -68,16 +69,9 @@ RTGL1::Bloom::Bloom( VkDevice                        _device,
             framebuffers->GetDescSetLayout(),
             _uniform.GetDescSetLayout(),
             _tonemapping.GetDescSetLayout(),
-        };
-        pipelineLayout = CreatePipelineLayout( device, setLayouts, "Bloom layout" );
-    }
-    {
-        VkDescriptorSetLayout setLayouts[] = {
-            framebuffers->GetDescSetLayout(),
-            _uniform.GetDescSetLayout(),
             _textureManager.GetDescSetLayout(),
         };
-        applyPipelineLayout = CreatePipelineLayout( device, setLayouts, "Bloom apply layout" );
+        pipelineLayout = CreatePipelineLayout( device, setLayouts, "Bloom layout" );
     }
     CreatePipelines( &_shaderManager );
 
@@ -87,24 +81,30 @@ RTGL1::Bloom::Bloom( VkDevice                        _device,
 RTGL1::Bloom::~Bloom()
 {
     vkDestroyPipelineLayout( device, pipelineLayout, nullptr );
-    vkDestroyPipelineLayout( device, applyPipelineLayout, nullptr );
     DestroyPipelines();
 }
 
-void RTGL1::Bloom::Prepare( VkCommandBuffer      cmd,
-                            uint32_t             frameIndex,
-                            const GlobalUniform& uniform,
-                            const Tonemapping&   tonemapping )
+RTGL1::FramebufferImageIndex RTGL1::Bloom::Apply( VkCommandBuffer       cmd,
+                                                  uint32_t              frameIndex,
+                                                  const GlobalUniform&  uniform,
+                                                  const Tonemapping&    tonemapping,
+                                                  const TextureManager& textureManager,
+                                                  uint32_t              upscaledWidth,
+                                                  uint32_t              upscaledHeight,
+                                                  FramebufferImageIndex inputFramebuf )
 {
-    VkMemoryBarrier2KHR memoryBarrier = {
+    auto blabel = CmdLabel{ cmd, "Bloom" };
+
+    // SHIPPING_HACK - this barrier is too strict, but at some point,
+    //                 there were bugs with incorrect sync between bloom passes
+    auto memoryBarrier = VkMemoryBarrier2KHR{
         .sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2_KHR,
         .srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
         .srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT_KHR,
         .dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR,
         .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT_KHR | VK_ACCESS_2_SHADER_READ_BIT_KHR,
     };
-
-    VkDependencyInfoKHR dependencyInfo = {
+    auto dependencyInfo = VkDependencyInfoKHR{
         .sType              = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR,
         .memoryBarrierCount = 1,
         .pMemoryBarriers    = &memoryBarrier,
@@ -115,6 +115,7 @@ void RTGL1::Bloom::Prepare( VkCommandBuffer      cmd,
         framebuffers->GetDescSet( frameIndex ),
         uniform.GetDescSet( frameIndex ),
         tonemapping.GetDescSet(),
+        textureManager.GetDescSet( frameIndex ),
     };
 
     vkCmdBindDescriptorSets( cmd,
@@ -126,31 +127,55 @@ void RTGL1::Bloom::Prepare( VkCommandBuffer      cmd,
                              0,
                              nullptr );
 
+
+    {
+        const auto src = inputFramebuf;
+        const auto dst = FB_IMAGE_INDEX_BLOOM;
+        const auto sz  = MakeSize( upscaledWidth, upscaledHeight, dst );
+
+        assert( src == FB_IMAGE_INDEX_UPSCALED_PING || src == FB_IMAGE_INDEX_UPSCALED_PONG );
+        bool isSourcePing = ( src == FB_IMAGE_INDEX_UPSCALED_PING ? 1 : 0 );
+
+        framebuffers->BarrierOne( cmd, frameIndex, src );
+
+        vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, preloadPipelines[ isSourcePing ] );
+        vkCmdDispatch( cmd,
+                       Utils::GetWorkGroupCount( sz.width, COMPUTE_BLOOM_APPLY_GROUP_SIZE_X ),
+                       Utils::GetWorkGroupCount( sz.height, COMPUTE_BLOOM_APPLY_GROUP_SIZE_Y ),
+                       1 );
+    }
+
+
+    svkCmdPipelineBarrier2KHR( cmd, &dependencyInfo );
+
+
     for( int i = 0; i < COMPUTE_BLOOM_STEP_COUNT; i++ )
     {
-        CmdLabel label( cmd, "Bloom downsample iteration" );
+        auto label = CmdLabel{ cmd, "Bloom downsample" };
 
-        const float w = uniform.GetData()->renderWidth / float( 1 << ( i + 1 ) );
-        const float h = uniform.GetData()->renderHeight / float( 1 << ( i + 1 ) );
-
-        vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, downsamplePipelines[ i ] );
-
+        // clang-format off
+        auto src = FramebufferImageIndex{};
+        auto dst = FramebufferImageIndex{};
         switch( i )
         {
-            case 0: framebuffers->BarrierOne( cmd, frameIndex, FB_IMAGE_INDEX_BLOOM_INPUT ); break;
-            case 1: framebuffers->BarrierOne( cmd, frameIndex, FB_IMAGE_INDEX_BLOOM_MIP1 ); break;
-            case 2: framebuffers->BarrierOne( cmd, frameIndex, FB_IMAGE_INDEX_BLOOM_MIP2 ); break;
-            case 3: framebuffers->BarrierOne( cmd, frameIndex, FB_IMAGE_INDEX_BLOOM_MIP3 ); break;
-            case 4: framebuffers->BarrierOne( cmd, frameIndex, FB_IMAGE_INDEX_BLOOM_MIP4 ); break;
-            case 5: framebuffers->BarrierOne( cmd, frameIndex, FB_IMAGE_INDEX_BLOOM_MIP5 ); break;
-            case 6: framebuffers->BarrierOne( cmd, frameIndex, FB_IMAGE_INDEX_BLOOM_MIP6 ); break;
-            case 7: framebuffers->BarrierOne( cmd, frameIndex, FB_IMAGE_INDEX_BLOOM_MIP7 ); break;
+            case 0: src = FB_IMAGE_INDEX_BLOOM;      dst = FB_IMAGE_INDEX_BLOOM_MIP1; break;
+            case 1: src = FB_IMAGE_INDEX_BLOOM_MIP1; dst = FB_IMAGE_INDEX_BLOOM_MIP2; break;
+            case 2: src = FB_IMAGE_INDEX_BLOOM_MIP2; dst = FB_IMAGE_INDEX_BLOOM_MIP3; break;
+            case 3: src = FB_IMAGE_INDEX_BLOOM_MIP3; dst = FB_IMAGE_INDEX_BLOOM_MIP4; break;
+            case 4: src = FB_IMAGE_INDEX_BLOOM_MIP4; dst = FB_IMAGE_INDEX_BLOOM_MIP5; break;
+            case 5: src = FB_IMAGE_INDEX_BLOOM_MIP5; dst = FB_IMAGE_INDEX_BLOOM_MIP6; break;
+            case 6: src = FB_IMAGE_INDEX_BLOOM_MIP6; dst = FB_IMAGE_INDEX_BLOOM_MIP7; break;
             default: assert( 0 );
         }
+        // clang-format on
+        const auto sz = MakeSize( upscaledWidth, upscaledHeight, dst );
 
+        framebuffers->BarrierOne( cmd, frameIndex, src );
+
+        vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, downsamplePipelines[ i ] );
         vkCmdDispatch( cmd,
-                       Utils::GetWorkGroupCount( w, COMPUTE_BLOOM_DOWNSAMPLE_GROUP_SIZE_X ),
-                       Utils::GetWorkGroupCount( h, COMPUTE_BLOOM_DOWNSAMPLE_GROUP_SIZE_Y ),
+                       Utils::GetWorkGroupCount( sz.width, COMPUTE_BLOOM_DOWNSAMPLE_GROUP_SIZE_X ),
+                       Utils::GetWorkGroupCount( sz.height, COMPUTE_BLOOM_DOWNSAMPLE_GROUP_SIZE_Y ),
                        1 );
     }
 
@@ -161,83 +186,57 @@ void RTGL1::Bloom::Prepare( VkCommandBuffer      cmd,
     // start from the other side
     for( int i = COMPUTE_BLOOM_STEP_COUNT - 1; i >= 0; i-- )
     {
-        CmdLabel label( cmd, "Bloom upsample iteration" );
+        auto label = CmdLabel{ cmd, "Bloom upsample" };
 
-        const float w = uniform.GetData()->renderWidth / float( 1 << i );
-        const float h = uniform.GetData()->renderHeight / float( 1 << i );
-
-        vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, upsamplePipelines[ i ] );
-
+        // clang-format off
+        auto src = FramebufferImageIndex{};
+        auto dst = FramebufferImageIndex{};
         switch( i )
         {
-            case 7: framebuffers->BarrierOne( cmd, frameIndex, FB_IMAGE_INDEX_BLOOM_MIP8 ); break;
-            case 6: framebuffers->BarrierOne( cmd, frameIndex, FB_IMAGE_INDEX_BLOOM_MIP7 ); break;
-            case 5: framebuffers->BarrierOne( cmd, frameIndex, FB_IMAGE_INDEX_BLOOM_MIP6 ); break;
-            case 4: framebuffers->BarrierOne( cmd, frameIndex, FB_IMAGE_INDEX_BLOOM_MIP5 ); break;
-            case 3: framebuffers->BarrierOne( cmd, frameIndex, FB_IMAGE_INDEX_BLOOM_MIP4 ); break;
-            case 2: framebuffers->BarrierOne( cmd, frameIndex, FB_IMAGE_INDEX_BLOOM_MIP3 ); break;
-            case 1: framebuffers->BarrierOne( cmd, frameIndex, FB_IMAGE_INDEX_BLOOM_MIP2 ); break;
-            case 0: framebuffers->BarrierOne( cmd, frameIndex, FB_IMAGE_INDEX_BLOOM_MIP1 ); break;
+            case 6: src = FB_IMAGE_INDEX_BLOOM_MIP7; dst = FB_IMAGE_INDEX_BLOOM_MIP6; break;
+            case 5: src = FB_IMAGE_INDEX_BLOOM_MIP6; dst = FB_IMAGE_INDEX_BLOOM_MIP5; break;
+            case 4: src = FB_IMAGE_INDEX_BLOOM_MIP5; dst = FB_IMAGE_INDEX_BLOOM_MIP4; break;
+            case 3: src = FB_IMAGE_INDEX_BLOOM_MIP4; dst = FB_IMAGE_INDEX_BLOOM_MIP3; break;
+            case 2: src = FB_IMAGE_INDEX_BLOOM_MIP3; dst = FB_IMAGE_INDEX_BLOOM_MIP2; break;
+            case 1: src = FB_IMAGE_INDEX_BLOOM_MIP2; dst = FB_IMAGE_INDEX_BLOOM_MIP1; break;
+            case 0: src = FB_IMAGE_INDEX_BLOOM_MIP1; dst = FB_IMAGE_INDEX_BLOOM; break;
             default: assert( 0 );
         }
+        // clang-format on
+        const auto sz = MakeSize( upscaledWidth, upscaledHeight, dst );
 
+        framebuffers->BarrierOne( cmd, frameIndex, src );
+
+        vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, upsamplePipelines[ i ] );
         vkCmdDispatch( cmd,
-                       Utils::GetWorkGroupCount( w, COMPUTE_BLOOM_UPSAMPLE_GROUP_SIZE_X ),
-                       Utils::GetWorkGroupCount( h, COMPUTE_BLOOM_UPSAMPLE_GROUP_SIZE_Y ),
+                       Utils::GetWorkGroupCount( sz.width, COMPUTE_BLOOM_UPSAMPLE_GROUP_SIZE_X ),
+                       Utils::GetWorkGroupCount( sz.height, COMPUTE_BLOOM_UPSAMPLE_GROUP_SIZE_Y ),
                        1 );
     }
 
 
     svkCmdPipelineBarrier2KHR( cmd, &dependencyInfo );
-}
-
-RTGL1::FramebufferImageIndex RTGL1::Bloom::Apply( VkCommandBuffer       cmd,
-                                                  uint32_t              frameIndex,
-                                                  const GlobalUniform&  uniform,
-                                                  const TextureManager& textureManager,
-                                                  uint32_t              width,
-                                                  uint32_t              height,
-                                                  FramebufferImageIndex inputFramebuf )
-{
-    CmdLabel label( cmd, "Bloom apply" );
 
 
-    assert( inputFramebuf == FB_IMAGE_INDEX_UPSCALED_PING ||
-            inputFramebuf == FB_IMAGE_INDEX_UPSCALED_PONG );
-    uint32_t isSourcePing = inputFramebuf == FB_IMAGE_INDEX_UPSCALED_PING;
+    FramebufferImageIndex result;
+    {
+        uint32_t isSourcePing = ( inputFramebuf == FB_IMAGE_INDEX_UPSCALED_PING ? 1 : 0 );
 
+        vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, applyPipelines[ isSourcePing ] );
 
-    // bind desc sets
-    VkDescriptorSet sets[] = {
-        framebuffers->GetDescSet( frameIndex ),
-        uniform.GetDescSet( frameIndex ),
-        textureManager.GetDescSet( frameIndex ),
-    };
+        FramebufferImageIndex fs[] = {
+            inputFramebuf,
+            FB_IMAGE_INDEX_BLOOM,
+        };
+        framebuffers->BarrierMultiple( cmd, frameIndex, fs );
 
-    vkCmdBindDescriptorSets( cmd,
-                             VK_PIPELINE_BIND_POINT_COMPUTE,
-                             applyPipelineLayout,
-                             0,
-                             std::size( sets ),
-                             sets,
-                             0,
-                             nullptr );
-
-    vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE, applyPipelines[ isSourcePing ] );
-
-    FramebufferImageIndex fs[] = {
-        inputFramebuf,
-        FB_IMAGE_INDEX_BLOOM_RESULT,
-    };
-    framebuffers->BarrierMultiple( cmd, frameIndex, fs );
-
-    vkCmdDispatch( cmd,
-                   Utils::GetWorkGroupCount( width, COMPUTE_BLOOM_APPLY_GROUP_SIZE_X ),
-                   Utils::GetWorkGroupCount( height, COMPUTE_BLOOM_APPLY_GROUP_SIZE_Y ),
-                   1 );
-
-
-    return isSourcePing ? FB_IMAGE_INDEX_UPSCALED_PONG : FB_IMAGE_INDEX_UPSCALED_PING;
+        vkCmdDispatch( cmd,
+                       Utils::GetWorkGroupCount( upscaledWidth, COMPUTE_BLOOM_APPLY_GROUP_SIZE_X ),
+                       Utils::GetWorkGroupCount( upscaledHeight, COMPUTE_BLOOM_APPLY_GROUP_SIZE_Y ),
+                       1 );
+        result = isSourcePing ? FB_IMAGE_INDEX_UPSCALED_PONG : FB_IMAGE_INDEX_UPSCALED_PING;
+    }
+    return result;
 }
 
 void RTGL1::Bloom::OnShaderReload( const ShaderManager* shaderManager )
@@ -256,33 +255,17 @@ void RTGL1::Bloom::CreateStepPipelines( const ShaderManager* shaderManager )
 {
     assert( pipelineLayout != VK_NULL_HANDLE );
 
-    const char* dnsmplDebugNames[] = {
-        "Bloom downsample 0 pipeline", "Bloom downsample 1 pipeline", "Bloom downsample 2 pipeline",
-        "Bloom downsample 3 pipeline", "Bloom downsample 4 pipeline", "Bloom downsample 5 pipeline",
-        "Bloom downsample 6 pipeline", "Bloom downsample 7 pipeline",
-    };
-    static_assert( COMPUTE_BLOOM_STEP_COUNT == std::size( dnsmplDebugNames ) );
-
-    const char* upsmplDebugNames[] = {
-        "Bloom upsample 0 pipeline", "Bloom upsample 1 pipeline", "Bloom upsample 2 pipeline",
-        "Bloom upsample 3 pipeline", "Bloom upsample 4 pipeline", "Bloom upsample 5 pipeline",
-        "Bloom upsample 6 pipeline", "Bloom upsample 7 pipeline",
-    };
-    static_assert( COMPUTE_BLOOM_STEP_COUNT == std::size( upsmplDebugNames ) );
-
-
     for( uint32_t i = 0; i < COMPUTE_BLOOM_STEP_COUNT; i++ )
     {
         assert( downsamplePipelines[ i ] == VK_NULL_HANDLE );
         assert( upsamplePipelines[ i ] == VK_NULL_HANDLE );
 
-        VkSpecializationMapEntry specEntry = {
+        auto specEntry = VkSpecializationMapEntry{
             .constantID = 0,
             .offset     = 0,
             .size       = sizeof( uint32_t ),
         };
-
-        VkSpecializationInfo specInfo = {
+        auto specInfo = VkSpecializationInfo{
             .mapEntryCount = 1,
             .pMapEntries   = &specEntry,
             .dataSize      = sizeof( uint32_t ),
@@ -290,7 +273,7 @@ void RTGL1::Bloom::CreateStepPipelines( const ShaderManager* shaderManager )
         };
 
         {
-            VkComputePipelineCreateInfo info = {
+            auto info = VkComputePipelineCreateInfo{
                 .sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
                 .stage  = shaderManager->GetStageInfo( "CBloomDownsample" ),
                 .layout = pipelineLayout,
@@ -301,12 +284,14 @@ void RTGL1::Bloom::CreateStepPipelines( const ShaderManager* shaderManager )
                 device, VK_NULL_HANDLE, 1, &info, nullptr, &downsamplePipelines[ i ] );
 
             VK_CHECKERROR( r );
-            SET_DEBUG_NAME(
-                device, downsamplePipelines[ i ], VK_OBJECT_TYPE_PIPELINE, dnsmplDebugNames[ i ] );
+            SET_DEBUG_NAME( device,
+                            downsamplePipelines[ i ],
+                            VK_OBJECT_TYPE_PIPELINE,
+                            std::format( "Bloom downsample ({})", i ).c_str() );
         }
 
         {
-            VkComputePipelineCreateInfo info = {
+            auto info = VkComputePipelineCreateInfo{
                 .sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
                 .stage  = shaderManager->GetStageInfo( "CBloomUpsample" ),
                 .layout = pipelineLayout,
@@ -317,16 +302,22 @@ void RTGL1::Bloom::CreateStepPipelines( const ShaderManager* shaderManager )
                 device, VK_NULL_HANDLE, 1, &info, nullptr, &upsamplePipelines[ i ] );
 
             VK_CHECKERROR( r );
-            SET_DEBUG_NAME(
-                device, upsamplePipelines[ i ], VK_OBJECT_TYPE_PIPELINE, upsmplDebugNames[ i ] );
+            SET_DEBUG_NAME( device,
+                            upsamplePipelines[ i ],
+                            VK_OBJECT_TYPE_PIPELINE,
+                            std::format( "Bloom upsample ({})", i ).c_str() );
         }
     }
 }
 
 void RTGL1::Bloom::CreateApplyPipelines( const ShaderManager* shaderManager )
 {
-    assert( applyPipelineLayout != VK_NULL_HANDLE );
+    assert( pipelineLayout != VK_NULL_HANDLE );
 
+    for( VkPipeline t : preloadPipelines )
+    {
+        assert( t == VK_NULL_HANDLE );
+    }
     for( VkPipeline t : applyPipelines )
     {
         assert( t == VK_NULL_HANDLE );
@@ -334,35 +325,54 @@ void RTGL1::Bloom::CreateApplyPipelines( const ShaderManager* shaderManager )
 
     for( uint32_t isSourcePing = 0; isSourcePing <= 1; isSourcePing++ )
     {
-        VkSpecializationMapEntry specEntry = {
+        auto specEntry = VkSpecializationMapEntry{
             .constantID = 0,
             .offset     = 0,
             .size       = sizeof( isSourcePing ),
         };
-
-        VkSpecializationInfo specInfo = {
+        auto specInfo = VkSpecializationInfo{
             .mapEntryCount = 1,
             .pMapEntries   = &specEntry,
             .dataSize      = sizeof( isSourcePing ),
             .pData         = &isSourcePing,
         };
 
-        VkComputePipelineCreateInfo info = {
-            .sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-            .stage  = shaderManager->GetStageInfo( "CBloomApply" ),
-            .layout = applyPipelineLayout,
-        };
-        info.stage.pSpecializationInfo = &specInfo;
+        {
+            auto info = VkComputePipelineCreateInfo{
+                .sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+                .stage  = shaderManager->GetStageInfo( "CBloomPreload" ),
+                .layout = pipelineLayout,
+            };
+            info.stage.pSpecializationInfo = &specInfo;
 
-        VkResult r = vkCreateComputePipelines(
-            device, VK_NULL_HANDLE, 1, &info, nullptr, &applyPipelines[ isSourcePing ] );
+            VkResult r = vkCreateComputePipelines(
+                device, VK_NULL_HANDLE, 1, &info, nullptr, &preloadPipelines[ isSourcePing ] );
 
-        VK_CHECKERROR( r );
-        SET_DEBUG_NAME(
-            device,
-            applyPipelines[ isSourcePing ],
-            VK_OBJECT_TYPE_PIPELINE,
-            ( "Bloom apply from " + std::string( isSourcePing ? "Ping" : "Pong" ) ).c_str() );
+            VK_CHECKERROR( r );
+            SET_DEBUG_NAME(
+                device,
+                preloadPipelines[ isSourcePing ],
+                VK_OBJECT_TYPE_PIPELINE,
+                std::format( "Bloom Preload from {}", isSourcePing ? "Ping" : "Pong" ).c_str() );
+        }
+        {
+            auto info = VkComputePipelineCreateInfo{
+                .sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+                .stage  = shaderManager->GetStageInfo( "CBloomApply" ),
+                .layout = pipelineLayout,
+            };
+            info.stage.pSpecializationInfo = &specInfo;
+
+            VkResult r = vkCreateComputePipelines(
+                device, VK_NULL_HANDLE, 1, &info, nullptr, &applyPipelines[ isSourcePing ] );
+
+            VK_CHECKERROR( r );
+            SET_DEBUG_NAME(
+                device,
+                applyPipelines[ isSourcePing ],
+                VK_OBJECT_TYPE_PIPELINE,
+                std::format( "Bloom Apply from {}", isSourcePing ? "Ping" : "Pong" ).c_str() );
+        }
     }
 }
 
@@ -384,5 +394,39 @@ void RTGL1::Bloom::DestroyPipelines()
     {
         vkDestroyPipeline( device, t, nullptr );
         t = VK_NULL_HANDLE;
+    }
+
+    for( VkPipeline& t : preloadPipelines )
+    {
+        vkDestroyPipeline( device, t, nullptr );
+        t = VK_NULL_HANDLE;
+    }
+}
+
+
+VkExtent2D RTGL1::Bloom::MakeSize( uint32_t              upscaledWidth,
+                                   uint32_t              upscaledHeight,
+                                   FramebufferImageIndex index )
+{
+    assert( ShFramebuffers_Flags[ index ] & FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM );
+
+    auto l_downscaleBy = []( const uint32_t w, uint32_t h, uint32_t div ) {
+        return VkExtent2D{
+            .width  = ( w + div - 1 ) / div,
+            .height = ( h + div - 1 ) / div,
+        };
+    };
+
+    switch( index )
+    {
+        case FB_IMAGE_INDEX_BLOOM: return l_downscaleBy( upscaledWidth, upscaledHeight, 2 );
+        case FB_IMAGE_INDEX_BLOOM_MIP1: return l_downscaleBy( upscaledWidth, upscaledHeight, 4 );
+        case FB_IMAGE_INDEX_BLOOM_MIP2: return l_downscaleBy( upscaledWidth, upscaledHeight, 8 );
+        case FB_IMAGE_INDEX_BLOOM_MIP3: return l_downscaleBy( upscaledWidth, upscaledHeight, 16 );
+        case FB_IMAGE_INDEX_BLOOM_MIP4: return l_downscaleBy( upscaledWidth, upscaledHeight, 32 );
+        case FB_IMAGE_INDEX_BLOOM_MIP5: return l_downscaleBy( upscaledWidth, upscaledHeight, 64 );
+        case FB_IMAGE_INDEX_BLOOM_MIP6: return l_downscaleBy( upscaledWidth, upscaledHeight, 128 );
+        case FB_IMAGE_INDEX_BLOOM_MIP7: return l_downscaleBy( upscaledWidth, upscaledHeight, 256 );
+        default: assert( 0 ); return { upscaledWidth, upscaledHeight };
     }
 }

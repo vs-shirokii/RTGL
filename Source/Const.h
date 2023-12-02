@@ -35,24 +35,23 @@ constexpr uint32_t TEXTURE_FILE_EXTENSION_MAX_LENGTH = 16;
 constexpr uint32_t TEXTURE_COUNT_MAX           = 4096;
 constexpr uint32_t EMPTY_TEXTURE_INDEX         = 0;
 constexpr uint32_t MATERIALS_MAX_LAYER_COUNT   = 4;
-constexpr uint32_t TEXTURES_PER_MATERIAL_COUNT = 4;
+constexpr uint32_t TEXTURES_PER_MATERIAL_COUNT = 5;
 
 constexpr const char* TEXTURE_ALBEDO_ALPHA_POSTFIX                 = "";
 constexpr const char* TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_POSTFIX = "_orm";
 constexpr const char* TEXTURE_NORMAL_POSTFIX                       = "_n";
 constexpr const char* TEXTURE_EMISSIVE_POSTFIX                     = "_e";
+constexpr const char* TEXTURE_HEIGHT_POSTFIX                       = "_h";
 
 constexpr uint32_t TEXTURE_ALBEDO_ALPHA_INDEX                 = 0;
 constexpr uint32_t TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_INDEX = 1;
 constexpr uint32_t TEXTURE_NORMAL_INDEX                       = 2;
 constexpr uint32_t TEXTURE_EMISSIVE_INDEX                     = 3;
+constexpr uint32_t TEXTURE_HEIGHT_INDEX                       = 4;
 
 constexpr uint32_t MAX_PREGENERATED_MIPMAP_LEVELS = 20;
 
 constexpr float MESH_TRANSLUCENT_ALPHA_THRESHOLD = 0.98f;
-
-// Use WORLD2 mask bit as SKY
-#define RAYCULLMASK_SKY_IS_WORLD2 1
 
 #define RTGL1_MAIN_ROOT_NODE "rtgl1_main_root"
 
@@ -65,6 +64,12 @@ constexpr std::string_view SHADERS_FOLDER            = "shaders";
 constexpr std::string_view DATABASE_FOLDER           = "data";
 
 constexpr std::string_view TEXTURES_FOLDER_JUNCTION        = "mat_junction";
+constexpr std::wstring_view TEXTURES_FOLDER_JUNCTION_W     = L"mat_junction";
 constexpr std::string_view TEXTURES_FOLDER_JUNCTION_PREFIX = "mat_junction/";
+constexpr std::string_view TEXTURES_FOLDER_EXTERNAL        = "ext";
+
+constexpr std::wstring_view SCENE_PATCH_SUFFIX = L"_patch";
+
+constexpr const char* MATERIAL_NAME_SCENEBUILDINGWARNING = "_rgscenewarn";
 
 }

@@ -363,7 +363,7 @@ float traceVisibility(const Surface surf, const vec3 lightPosition, uint lightIn
 
 void shade(const Surface surf, const LightSample light, float oneOverPdf, out vec3 diffuse, out vec3 specular)
 {
-    vec3 l = safeNormalize(light.position - surf.position);
+    vec3 l = safeNormalize2(light.position - surf.position, surf.normal);
     float nl = dot(surf.normal, l);
 
     if( nl <= 0 )
@@ -377,6 +377,9 @@ void shade(const Surface surf, const LightSample light, float oneOverPdf, out ve
 
     diffuse  *= oneOverPdf;
     specular *= oneOverPdf;
+
+    diffuse  = max( diffuse, vec3( 0 ) );
+    specular = max( specular, vec3( 0 ) );
 }
 
 float targetPdfForLightSample(const LightSample light, const Surface surf)
@@ -398,6 +401,7 @@ Reservoir calcInitialReservoir(uint seed, uint salt, const Surface surf, const v
     #define INITIAL_SAMPLES 8
     
     Reservoir regularReservoir = emptyReservoir();
+#if LIGHT_GRID_ENABLED
     if (isInsideCell(surf.position))
     {
         vec3 gridWorldPos = jitterPositionForLightGrid(surf.position, rnd8_4(seed, salt++).xyz);
@@ -427,6 +431,7 @@ Reservoir calcInitialReservoir(uint seed, uint salt, const Surface surf, const v
         }
     }
     else
+#endif // LIGHT_GRID_ENABLED
     {      
         for (int i = 0; i < INITIAL_SAMPLES; i++)
         {
@@ -668,7 +673,7 @@ void traceDirectIllumination( const Surface   surf,
         out_distance = length(light.position - surf.position);
     #endif
     #if LIGHT_SAMPLE_METHOD == LIGHT_SAMPLE_METHOD_VOLUME
-        out_lightdirection = safeNormalize( surf.position - light.position );
+        out_lightdirection = safeNormalize2( surf.position - light.position, vec3( 0 ) );
     #endif
     }
 }
@@ -731,7 +736,7 @@ vec3 processDirectIllumination( uint          seed,
     #if SHIPPING_HACK
     if( reservoir.selected != LIGHT_ARRAY_DIRECTIONAL_LIGHT_OFFSET )
     {
-        out_diffuse = clamp( out_diffuse, vec3( 0 ), vec3( 20 ) );
+        out_diffuse = clamp( out_diffuse, vec3( 0 ), vec3( 500 ) );
     }
     #endif
 

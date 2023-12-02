@@ -42,11 +42,21 @@ public:
     ASComponent& operator=( const ASComponent& other )     = delete;
     ASComponent& operator=( ASComponent&& other ) noexcept = delete;
 
-    void RecreateIfNotValid( const VkAccelerationStructureBuildSizesInfoKHR& buildSizes,
-                             ChunkedStackAllocator&                          allocator );
+    bool RecreateIfNotValid( const VkAccelerationStructureBuildSizesInfoKHR& buildSizes,
+                             ChunkedStackAllocator&                          allocator,
+                             bool                                            resetAllocOnCreate = false );
 
-    VkAccelerationStructureKHR GetAS() const;
-    VkDeviceAddress            GetASAddress() const;
+    [[nodiscard]] VkAccelerationStructureKHR GetAS() const
+    {
+        assert( as );
+        return as;
+    }
+
+    [[nodiscard]] VkDeviceAddress GetASAddress() const
+    {
+        assert( asAddress != 0 );
+        return asAddress;
+    }
 
 protected:
     virtual VkAccelerationStructureTypeKHR GetType() const = 0;
@@ -56,12 +66,11 @@ private:
         -> VkAccelerationStructureKHR;
     void DestroyAS();
 
-    VkDeviceAddress GetASAddress( VkAccelerationStructureKHR as ) const;
-
 protected:
     VkDevice                   device;
     VkAccelerationStructureKHR as;
     VkDeviceSize               asSize;
+    VkDeviceSize               asAddress;
 
     const char* debugName;
 };
@@ -70,7 +79,7 @@ protected:
 struct BLASComponent final : public ASComponent
 {
     explicit BLASComponent( VkDevice device, const char* debugName = nullptr );
-    ~BLASComponent() override                            = default;
+    ~BLASComponent() override = default;
 
     BLASComponent( const BLASComponent& )                = delete;
     BLASComponent( BLASComponent&& ) noexcept            = delete;

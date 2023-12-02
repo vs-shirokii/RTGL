@@ -36,7 +36,9 @@ namespace RTGL1
 class ShaderManager
 {
 public:
-    explicit ShaderManager( VkDevice device, std::filesystem::path shaderFolderPath );
+    explicit ShaderManager( VkDevice              device,
+                            std::filesystem::path shaderFolderPath,
+                            bool                  supportsRayQueryAndPositionFetch );
     ~ShaderManager();
 
     ShaderManager( const ShaderManager& other )                = delete;
@@ -74,6 +76,7 @@ private:
 private:
     VkDevice              device;
     std::filesystem::path shaderFolderPath;
+    bool                  supportsRayQueryAndPositionFetch;
 
     rgl::unordered_map< std::filesystem::path, ShaderModule > modules;
 

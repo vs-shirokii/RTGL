@@ -189,6 +189,7 @@ layout(set = DESC_SET_LIGHT_SOURCES, binding = BINDING_LIGHT_SOURCES_INDEX_CUR_T
     uint lightSources_Index_CurToPrev[];
 };
 
+#if LIGHT_GRID_ENABLED
 layout(set = DESC_SET_LIGHT_SOURCES, binding = BINDING_INITIAL_LIGHTS_GRID) 
 #ifndef LIGHT_GRID_WRITE
 readonly
@@ -202,16 +203,12 @@ layout(set = DESC_SET_LIGHT_SOURCES, binding = BINDING_INITIAL_LIGHTS_GRID_PREV)
 {
     ShLightInCell initialLightsGrid_Prev[];
 };
-#endif
+#endif // LIGHT_GRID_ENABLED
+#endif // DESC_SET_LIGHT_SOURCES
 
 
 
 #ifdef DESC_SET_RESTIR_INDIRECT
-layout(set = DESC_SET_RESTIR_INDIRECT, binding = BINDING_RESTIR_INDIRECT_INITIAL_SAMPLES) buffer RestirIndirectInitialSamples_BT
-{
-    uint g_restirIndirectInitialSamples[];
-};
-
 layout(set = DESC_SET_RESTIR_INDIRECT, binding = BINDING_RESTIR_INDIRECT_RESERVOIRS) buffer RestirIndirectReservoirs_BT
 {
     uint g_restirIndirectReservoirs[];
@@ -235,11 +232,13 @@ uniform sampler3D g_volumetric_Sampler;
 layout(set = DESC_SET_VOLUMETRIC, binding = BINDING_VOLUMETRIC_SAMPLER_PREV) 
 uniform sampler3D g_volumetric_Sampler_Prev;
 
+#if ILLUMINATION_VOLUME
 layout(set = DESC_SET_VOLUMETRIC, binding = BINDING_VOLUMETRIC_ILLUMINATION, r11f_g11f_b10f) 
 uniform image3D g_illuminationVolume;
 
 layout(set = DESC_SET_VOLUMETRIC, binding = BINDING_VOLUMETRIC_ILLUMINATION_SAMPLER) 
 uniform sampler3D g_illuminationVolume_Sampler;
+#endif
 #endif
 
 
@@ -486,11 +485,22 @@ vec3 getRayDirAY( vec2 inUV )
 
 bool classicShading( ivec2 regularPix )
 {
-    return regularPix.x < globalUniform.lightmapScreenCoverage * globalUniform.renderWidth;
+    return regularPix.x < int( globalUniform.lightmapScreenCoverage * globalUniform.renderWidth );
 }
 
 bool classicShading_Upscaled( ivec2 regularPix_Upscaled )
 {
-    return regularPix_Upscaled.x < globalUniform.lightmapScreenCoverage * globalUniform.upscaledRenderWidth;
+    return regularPix_Upscaled.x <=
+           int( globalUniform.lightmapScreenCoverage * globalUniform.upscaledRenderWidth );
+}
+
+uint hdrDisplayType()
+{
+    return globalUniform.hdrDisplay;
+}
+
+bool hdrDisplayEnabled()
+{
+    return globalUniform.hdrDisplay != HDR_DISPLAY_NONE;
 }
 #endif // DESC_SET_GLOBAL_UNIFORM

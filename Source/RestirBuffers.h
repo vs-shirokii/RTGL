@@ -36,8 +36,6 @@ public:
     RestirBuffers&        operator=( const RestirBuffers& other ) = delete;
     RestirBuffers&        operator=( RestirBuffers&& other ) noexcept = delete;
 
-    void                  BarrierInitial( VkCommandBuffer cmd );
-
     VkDescriptorSet       GetDescSet( uint32_t frameIndex ) const;
     VkDescriptorSetLayout GetDescSetLayout() const;
 
@@ -66,6 +64,5 @@ private:
     VkDescriptorSet                    descSets[ MAX_FRAMES_IN_FLIGHT ] = {};
 
     BufferDef                          reservoirs[ MAX_FRAMES_IN_FLIGHT ] = {};
-    BufferDef                          initialSamples                     = {};
 };
 }

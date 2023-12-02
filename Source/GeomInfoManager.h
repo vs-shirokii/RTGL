@@ -61,7 +61,17 @@ public:
     void WriteGeomInfo( uint32_t                 frameIndex,
                         const PrimitiveUniqueID& geomUniqueID,
                         ShGeometryInstance&      src,
-                        bool                     isStatic );
+                        bool                     isStatic,
+                        bool                     noMotionVectors );
+
+    void Hack_PatchGeomInfoTexturesForStatic( const PrimitiveUniqueID& geomUniqueID,
+                                              uint32_t                 texture_base,
+                                              uint32_t                 texture_base_ORM,
+                                              uint32_t                 texture_base_N,
+                                              uint32_t                 texture_base_E,
+                                              uint32_t                 texture_base_D );
+    void Hack_PatchGeomInfoTransformForStatic( const PrimitiveUniqueID& geomUniqueID,
+                                               const RgTransform&       transform );
 
 
     bool CopyFromStaging( VkCommandBuffer cmd, uint32_t frameIndex, UniqueIDToTlasID&& tlas );
@@ -99,7 +109,8 @@ private:
 private:
     auto FindPrevFrameData( const PrimitiveUniqueID&  geomUniqueID,
                             const ShGeometryInstance& target,
-                            uint32_t                  frameIndex ) const -> const PrevInfo*;
+                            uint32_t                  frameIndex,
+                            bool                      noMotionVectors ) const -> const PrevInfo*;
 
     void WritePrevForNextFrame( const PrimitiveUniqueID&  geomUniqueID,
                                 const ShGeometryInstance& src,

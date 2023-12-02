@@ -76,6 +76,10 @@ public:
     void             DestroyStagingSrcTextureBuffer( VkBuffer buffer );
     void             DestroyTextureImage( VkImage image );
 
+    
+    auto GetMemoryTypeIndex( uint32_t memoryTypeBits, VkMemoryPropertyFlags requirementsMask ) const
+        -> std::optional< uint32_t >;
+
 private:
     void CreateTexturesStagingPool();
     void CreateTexturesFinalPool();

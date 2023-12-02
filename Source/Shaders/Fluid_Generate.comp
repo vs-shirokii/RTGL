@@ -1,0 +1,108 @@
+// Copyright (c) 2024 V.Shirokii
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+#version 460
+
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+
+#include "ShaderCommonGLSLFunc.h"
+#include "Random.h"
+
+#define FLUID_DEF_SPEC_CONST 1
+#include "Fluid_Def.h"
+
+
+#define DESC_SET_FLUID 0
+
+layout( local_size_x = COMPUTE_FLUID_PARTICLES_GENERATE_GROUP_SIZE_X,
+        local_size_y = 1,
+        local_size_z = 1 ) in;
+
+layout( push_constant ) uniform PARTICLESPUSH_T push;
+
+layout( set     = DESC_SET_FLUID,
+        binding = BINDING_FLUID_PARTICLES_ARRAY ) writeonly buffer ParticlesArray_T
+{
+    ShParticleDef g_particlesArray[];
+};
+
+layout( set     = DESC_SET_FLUID,
+        binding = BINDING_FLUID_GENERATE_ID_TO_SOURCE ) readonly buffer GenerateIdToSource_T
+{
+    uint8_t g_generateIdToSource[];
+};
+
+layout( set = DESC_SET_FLUID, binding = BINDING_FLUID_SOURCES ) readonly buffer Sources_T
+{
+    ShParticleSourceDef g_sources[];
+};
+
+vec3 generateVelocity( const vec3  rnd,
+                       const vec3  baseVelocity,
+                       const float dispersion,
+                       const float dispersionAngle )
+{
+    vec4 velAndLen = safeNormalize4( baseVelocity, vec3( 0, 0, -1 ) );
+
+    float ignore;
+    vec3 randomDir = sampleOrientedHemisphere(
+        velAndLen.xyz, // normalized
+        rnd.x,
+        rnd.y,
+        ignore );
+
+    velAndLen.xyz = safeNormalize2( mix( velAndLen.xyz, randomDir, dispersionAngle ), vec3( 0 ) );
+
+    // reapply randomized length
+    velAndLen.xyz *= velAndLen.w * ( 1.0 - rnd.z * dispersion );
+
+    return velAndLen.xyz;
+}
+
+ShParticleDef generateParticle( uint8_t sourceId, const vec3 rnd )
+{
+    const ShParticleSourceDef src = g_sources[ sourceId ];
+
+    ShParticleDef p;
+    p.position = src.position;
+    p.velocity =
+        generateVelocity( rnd, src.velocity, src.velocityDispersion, src.velocityDispersionAngle );
+
+    return p;
+}
+
+void main()
+{
+    if( gl_GlobalInvocationID.x >= push.generateRingLength )
+    {
+        return;
+    }
+    const uint id = ( push.generateRingBegin + gl_GlobalInvocationID.x ) % g_maxParticleCount;
+
+    uint8_t sourceId = g_generateIdToSource[ id ];
+    if( sourceId == UINT8_MAX )
+    {
+        return;
+    }
+
+    g_particlesArray[ id ] =
+        generateParticle( sourceId, rnd8_4( id + uint( 100000 * push.deltaTime ), 0 ).xyz );
+}

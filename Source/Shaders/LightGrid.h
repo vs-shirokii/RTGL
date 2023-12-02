@@ -23,6 +23,7 @@
 
 #include "Reservoir.h"
 
+#if LIGHT_GRID_ENABLED
 
 #define LIGHT_GRID_INITIAL_SAMPLES 8
 #define LIGHT_GRID_TEMPORAL 1
@@ -132,5 +133,7 @@ ShLightInCell packReservoirToLightGrid(const Reservoir normalized)
     s.weightSum = normalized.weightSum;
     return s;
 }
+
+#endif // LIGHT_GRID_ENABLED
 
 #endif // LIGHT_GRID_H_

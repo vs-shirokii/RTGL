@@ -20,6 +20,8 @@
 
 #include "FolderObserver.h"
 
+#include <future>
+
 #include "Const.h"
 
 namespace fs = std::filesystem;
@@ -30,8 +32,26 @@ namespace
 {
     constexpr auto CHECK_FREQUENCY = std::chrono::milliseconds( 500 );
 
-    void InsertAllFolderFiles( std::deque< FolderObserver::DependentFile >& dst,
-                               const fs::path&                              folder )
+    using Clock = std::filesystem::file_time_type::clock;
+
+
+    struct DependentFile
+    {
+        FileType              type;
+        std::filesystem::path path;
+        uint64_t              pathHash;
+        Clock::time_point     lastWriteTime;
+
+        friend std::strong_ordering operator<=>( const DependentFile& a,
+                                                 const DependentFile& b ) noexcept
+        {
+            // only path
+            return a.path <=> b.path;
+        }
+    };
+
+
+    void InsertAllFolderFiles( std::deque< DependentFile >& dst, const fs::path& folder )
     {
         if( !fs::exists( folder ) )
         {
@@ -46,7 +66,7 @@ namespace
 
                 if( type != FileType::Unknown )
                 {
-                    dst.push_back( FolderObserver::DependentFile{
+                    dst.push_back( DependentFile{
                         .type          = type,
                         .path          = entry.path(),
                         .pathHash      = std::hash< fs::path >{}( entry.path() ),
@@ -69,66 +89,106 @@ namespace
 }
 }
 
-RTGL1::FolderObserver::FolderObserver( const fs::path &ovrdFolder )
+RTGL1::FolderObserver::FolderObserver( const fs::path& ovrdFolder )
 {
-    foldersToCheck = {
-        ovrdFolder / DATABASE_FOLDER,
-        ovrdFolder / SCENES_FOLDER,
-        ovrdFolder / SHADERS_FOLDER,
-        ovrdFolder / TEXTURES_FOLDER,
-        ovrdFolder / TEXTURES_FOLDER_DEV,
-        ovrdFolder / REPLACEMENTS_FOLDER,
+    auto folders = std::vector{
+        ovrdFolder / DATABASE_FOLDER,     //
+        ovrdFolder / SCENES_FOLDER,       //
+        ovrdFolder / SHADERS_FOLDER,      //
+        ovrdFolder / TEXTURES_FOLDER,     //
+        ovrdFolder / TEXTURES_FOLDER_DEV, //
+        ovrdFolder / REPLACEMENTS_FOLDER, //
     };
+
+    m_asyncChecker = std::async(
+        std::launch::async,
+        [ this ](                                                      //
+            const std::vector< std::filesystem::path > foldersToCheck, //
+            std::stop_token                            token           //
+        ) {
+            auto s_lastCheck    = std::optional< Clock::time_point >{};
+            auto s_prevAllFiles = std::deque< DependentFile >{};
+
+            while( !token.stop_requested() )
+            {
+                std::this_thread::sleep_for( CHECK_FREQUENCY );
+
+                auto curAllFiles = std::deque< DependentFile >{};
+                auto changed     = std::vector< std::pair< FileType, std::filesystem::path > >{};
+                {
+                    for( const fs::path& f : foldersToCheck )
+                    {
+                        InsertAllFolderFiles( curAllFiles, f );
+                    }
+
+                    if( s_lastCheck )
+                    {
+                        for( const auto& cur : curAllFiles )
+                        {
+                            bool foundInPrev = false;
+
+                            for( const auto& prev : s_prevAllFiles )
+                            {
+                                // if file previously existed
+                                if( cur.pathHash == prev.pathHash && cur.path == prev.path )
+                                {
+                                    // if was changed
+                                    if( cur.lastWriteTime != prev.lastWriteTime )
+                                    {
+                                        changed.emplace_back( cur.type, cur.path );
+                                    }
+
+                                    foundInPrev = true;
+                                    break;
+                                }
+                            }
+
+                            // if new file
+                            if( !foundInPrev )
+                            {
+                                changed.emplace_back( cur.type, cur.path );
+                            }
+                        }
+                    }
+                }
+
+                {
+                    auto l = std::lock_guard{ this->m_mutex };
+
+                    for( auto& f : changed )
+                    {
+                        bool alreadyContains =
+                            std::ranges::find_if( this->m_changedFiles, [ &f ]( const auto& o ) {
+                                return o.second == f.second;
+                            } ) != this->m_changedFiles.end();
+
+                        if( !alreadyContains )
+                        {
+                            this->m_changedFiles.emplace_back( std::move( f ) );
+                        }
+                    }
+                }
+
+                s_prevAllFiles = std::move( curAllFiles );
+                s_lastCheck    = Clock::now();
+            }
+        },
+        std::move( folders ),
+        m_asyncStopSource.get_token() );
+}
+
+RTGL1::FolderObserver::~FolderObserver()
+{
+    m_asyncStopSource.request_stop();
 }
 
 void RTGL1::FolderObserver::RecheckFiles()
 {
-    if( lastCheck )
+    auto l = std::lock_guard{ this->m_mutex };
+
+    for( const auto& [ type, path ] : this->m_changedFiles )
     {
-        if( Clock::now() - lastCheck.value() < CHECK_FREQUENCY )
-        {
-            return;
-        }
+        CallSubsbribers( &IFileDependency::OnFileChanged, type, path );
     }
-
-
-    std::deque< DependentFile > curAllFiles;
-    for( const fs::path& f : foldersToCheck )
-    {
-        InsertAllFolderFiles( curAllFiles, f );
-    }
-
-
-    if( lastCheck )
-    {
-        for( const auto& cur : curAllFiles )
-        {
-            bool foundInPrev = false;
-
-            for( const auto& prev : prevAllFiles )
-            {
-                // if file previously existed
-                if( cur.pathHash == prev.pathHash && cur.path == prev.path )
-                {
-                    // if was changed
-                    if( cur.lastWriteTime != prev.lastWriteTime )
-                    {
-                        CallSubsbribers( &IFileDependency::OnFileChanged, cur.type, cur.path );
-                    }
-
-                    foundInPrev = true;
-                    break;
-                }
-            }
-
-            // if new file
-            if( !foundInPrev )
-            {
-                CallSubsbribers( &IFileDependency::OnFileChanged, cur.type, cur.path );
-            }
-        }
-    }
-
-    prevAllFiles = std::move( curAllFiles );
-    lastCheck    = Clock::now();
+    this->m_changedFiles.clear();
 }

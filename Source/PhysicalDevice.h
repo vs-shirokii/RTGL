@@ -37,10 +37,18 @@ public:
     PhysicalDevice&  operator=( PhysicalDevice&& other ) noexcept = delete;
 
     VkPhysicalDevice Get() const;
-    uint32_t         GetMemoryTypeIndex( uint32_t memoryTypeBits, VkFlags requirementsMask ) const;
+
+    auto GetMemoryTypeIndex( uint32_t memoryTypeBits, VkFlags requirementsMask ) const
+        -> std::optional< uint32_t >;
+
     const VkPhysicalDeviceMemoryProperties&                   GetMemoryProperties() const;
     const VkPhysicalDeviceRayTracingPipelinePropertiesKHR&    GetRTPipelineProperties() const;
     const VkPhysicalDeviceAccelerationStructurePropertiesKHR& GetASProperties() const;
+
+    auto GetLUID() const -> std::optional< uint64_t >;
+
+    bool SupportsRayQuery() const { return supportsRayQuery; }
+    bool SupportsPositionFetch() const { return supportsPositionFetch; }
 
 private:
     // selected physical device
@@ -48,6 +56,9 @@ private:
     VkPhysicalDeviceMemoryProperties                   memoryProperties;
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR    rtPipelineProperties;
     VkPhysicalDeviceAccelerationStructurePropertiesKHR asProperties;
+
+    bool supportsRayQuery{ false };
+    bool supportsPositionFetch{ false };
 };
 
 }

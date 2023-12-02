@@ -20,7 +20,11 @@
 
 #pragma once
 
+#include "RTGL1/RTGL1.h"
+
+#include <cassert>
 #include <format>
+#include <functional>
 #include <string_view>
 
 // TODO: fmt instead of std::format? for compile-time checks
@@ -35,6 +39,7 @@ namespace debug
         extern DebugPrintFn g_print;
 
         extern RgMessageSeverityFlags g_printSeverity;
+        extern bool                   g_breakOnError;
 
         inline void Print( RgMessageSeverityFlags severity, std::string_view msg )
         {
@@ -48,12 +53,37 @@ namespace debug
                 g_print( msg, severity );
             }
 
-            if( severity & RG_MESSAGE_SEVERITY_ERROR )
+#ifdef WIN32
+#ifndef NDEBUG
+            if( g_breakOnError && ( severity & RG_MESSAGE_SEVERITY_ERROR ) )
             {
-                assert( 0 && "Found RG_MESSAGE_SEVERITY_ERROR" );
+                auto str = std::format( "{}{}\n"
+                                        "\n\'Cancel\' to suppress all dialog boxes."
+                                        "\n\'Try Again\' to cause a breakpoint."
+                                        "\n\'Continue\' to skip this one message.",
+                                        msg,
+                                        msg.ends_with( '.' ) ? "" : "." );
+
+                int r = MessageBoxA( nullptr,
+                                     str.c_str(), // null-terminated
+                                     "RTGL1 Error Message",
+                                     MB_CANCELTRYCONTINUE | MB_DEFBUTTON3 | MB_ICONERROR );
+                if( r == IDTRYAGAIN )
+                {
+                    if( IsDebuggerPresent() )
+                    {
+                        DebugBreak();
+                    }
+                }
+                else if( r == IDCANCEL )
+                {
+                    g_breakOnError = false;
+                }
             }
+#endif
+#endif
         }
-        
+
         template< typename... Args >
         void Print( RgMessageSeverityFlags severity, std::string_view msg, Args&&... args )
         {
@@ -62,8 +92,7 @@ namespace debug
                 return;
             }
 
-            auto str =
-                std::vformat( msg, std::make_format_args( std::forward< Args >( args )... ) );
+            auto str = std::vformat( msg, std::make_format_args( args... ) );
 
             Print( severity, std::string_view( str ) );
         }

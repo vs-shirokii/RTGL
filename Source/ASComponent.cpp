@@ -20,8 +20,23 @@
 
 #include "ASComponent.h"
 
+namespace
+{
+VkDeviceAddress FetchASAddress( VkDevice device, VkAccelerationStructureKHR as )
+{
+    assert( device != VK_NULL_HANDLE );
+    assert( as != VK_NULL_HANDLE );
+
+    auto addressInfo = VkAccelerationStructureDeviceAddressInfoKHR{
+        .sType                 = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
+        .accelerationStructure = as,
+    };
+    return RTGL1::svkGetAccelerationStructureDeviceAddressKHR( device, &addressInfo );
+}
+}
+
 RTGL1::ASComponent::ASComponent( VkDevice _device, const char* _debugName )
-    : device{ _device }, as{ VK_NULL_HANDLE }, asSize{ 0 }, debugName{ _debugName }
+    : device{ _device }, as{ VK_NULL_HANDLE }, asSize{ 0 }, asAddress{ 0 }, debugName{ _debugName }
 {
 }
 
@@ -66,15 +81,23 @@ void RTGL1::ASComponent::DestroyAS()
         as = VK_NULL_HANDLE;
     }
     asSize = 0;
+    asAddress = 0;
 }
 
-void RTGL1::ASComponent::RecreateIfNotValid(
-    const VkAccelerationStructureBuildSizesInfoKHR& buildSizes, ChunkedStackAllocator& allocator )
+bool RTGL1::ASComponent::RecreateIfNotValid(
+    const VkAccelerationStructureBuildSizesInfoKHR& buildSizes,
+    ChunkedStackAllocator&                          allocator,
+    bool                                            resetAllocOnCreate )
 {
     if( !as || asSize < buildSizes.accelerationStructureSize )
     {
         // destroy
         DestroyAS();
+
+        if( resetAllocOnCreate )
+        {
+            allocator.Reset();
+        }
 
         // get range in common buffer, and create
         const auto allocation = allocator.Push( buildSizes.accelerationStructureSize );
@@ -82,29 +105,9 @@ void RTGL1::ASComponent::RecreateIfNotValid(
         as = CreateAS(
             allocation.buffer, allocation.offsetInBuffer, buildSizes.accelerationStructureSize );
         asSize = buildSizes.accelerationStructureSize;
+        asAddress = FetchASAddress( device, as );
+
+        return true;
     }
-}
-
-VkAccelerationStructureKHR RTGL1::ASComponent::GetAS() const
-{
-    assert( as );
-    return as;
-}
-
-VkDeviceAddress RTGL1::ASComponent::GetASAddress() const
-{
-    assert( as );
-    return GetASAddress( as );
-}
-
-VkDeviceAddress RTGL1::ASComponent::GetASAddress( VkAccelerationStructureKHR as ) const
-{
-    assert( device != VK_NULL_HANDLE );
-    assert( as != VK_NULL_HANDLE );
-
-    VkAccelerationStructureDeviceAddressInfoKHR addressInfo = {};
-    addressInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
-    addressInfo.accelerationStructure = as;
-
-    return svkGetAccelerationStructureDeviceAddressKHR( device, &addressInfo );
+    return false;
 }

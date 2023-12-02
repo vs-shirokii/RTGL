@@ -13,3 +13,6 @@
 [submodule "Source/glm"]
 	path = Source/glm
 	url = https://github.com/g-truc/glm
+[submodule "Source/DX12"]
+	path = Source/DX12
+	url = https://github.com/microsoft/DirectX-Headers.git

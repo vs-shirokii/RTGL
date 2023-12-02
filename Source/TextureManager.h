@@ -29,7 +29,6 @@
 #include "IFileDependency.h"
 #include "ImageLoader.h"
 #include "ImageLoaderDev.h"
-#include "JsonParser.h"
 #include "Material.h"
 #include "MemoryAllocator.h"
 #include "SamplerManager.h"
@@ -53,9 +52,9 @@ public:
                     std::shared_ptr< CommandBufferManager > cmdManager,
                     const std::filesystem::path&            waterNormalTexturePath,
                     const std::filesystem::path&            dirtMaskTexturePath,
+                    const std::filesystem::path&            sceneBuildingTexturePath,
                     RgTextureSwizzling                      pbrSwizzling,
-                    bool                                    forceNormalMapFilterLinear,
-                    const LibraryConfig&                    config );
+                    bool                                    forceNormalMapFilterLinear );
     ~TextureManager() override;
 
     TextureManager( const TextureManager& other )                = delete;
@@ -76,13 +75,13 @@ public:
                             const RgOriginalTextureInfo& info,
                             const std::filesystem::path& ovrdFolder );
 
-    bool TryCreateImportedMaterial( VkCommandBuffer                     cmd,
-                                    uint32_t                            frameIndex,
-                                    const std::string&                  materialName,
-                                    std::span< std::filesystem::path >  fullPaths,
-                                    std::span< SamplerManager::Handle > samplers,
-                                    RgTextureSwizzling                  customPbrSwizzling,
-                                    bool                                isReplacement );
+    bool TryCreateImportedMaterial( VkCommandBuffer                           cmd,
+                                    uint32_t                                  frameIndex,
+                                    const std::string&                        materialName,
+                                    std::span< const std::filesystem::path >  fullPaths,
+                                    std::span< const SamplerManager::Handle > samplers,
+                                    RgTextureSwizzling                        customPbrSwizzling,
+                                    bool                                      isReplacement );
     void FreeAllImportedMaterials( uint32_t frameIndex, bool freeReplacements );
 
     bool TryDestroyMaterial( uint32_t frameIndex, const char* materialName );
@@ -93,6 +92,7 @@ public:
 
     auto GetWaterNormalTextureIndex() const -> uint32_t;
     auto GetDirtMaskTextureIndex() const -> uint32_t;
+    auto GetSceneBuildingTextureIndex() const -> uint32_t;
 
     auto GetMaterialTextures( const char* materialName ) const -> MaterialTextures;
 
@@ -105,9 +105,10 @@ public:
 
     struct ExportResult
     {
-        std::string          relativePath;
+        std::string          relativePath{};
         RgSamplerAddressMode addressModeU{ RG_SAMPLER_ADDRESS_MODE_REPEAT };
         RgSamplerAddressMode addressModeV{ RG_SAMPLER_ADDRESS_MODE_REPEAT };
+        RgSamplerFilter      filter{ RG_SAMPLER_FILTER_AUTO };
     };
 
     auto ExportMaterialTextures( const char*                  materialName,
@@ -138,12 +139,15 @@ private:
     uint32_t CreateDirtMaskTexture( VkCommandBuffer              cmd,
                                     uint32_t                     frameIndex,
                                     const std::filesystem::path& filepath );
+    uint32_t CreateSceneBuildingTexture( VkCommandBuffer              cmd,
+                                         uint32_t                     frameIndex,
+                                         const std::filesystem::path& filepath );
 
     void MakeMaterial( VkCommandBuffer                                  cmd,
                        uint32_t                                         frameIndex,
                        std::string_view                                 materialName,
                        std::span< TextureOverrides >                    ovrd,
-                       std::span< SamplerManager::Handle >              samplers,
+                       std::span< const SamplerManager::Handle >        samplers,
                        std::span< std::optional< RgTextureSwizzling > > swizzlings );
 
     uint32_t PrepareTexture( VkCommandBuffer                                 cmd,
@@ -228,6 +232,7 @@ private:
 
     uint32_t waterNormalTextureIndex;
     uint32_t dirtMaskTextureIndex;
+    uint32_t sceneBuildingTextureIndex;
 
     RgSamplerFilter currentDynamicSamplerFilter;
 

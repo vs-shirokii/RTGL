@@ -18,12 +18,19 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+// For indirect sample
+//#extension GL_EXT_shader_16bit_storage : require
+//#extension GL_EXT_shader_explicit_arithmetic_types : require
+
 layout (constant_id = 0) const uint maxAlbedoLayerCount = 0;
 layout (constant_id = 1) const uint lightmapLayerIndex = 3;
 #define MATERIAL_MAX_ALBEDO_LAYERS maxAlbedoLayerCount
 #define MATERIAL_LIGHTMAP_LAYER_INDEX lightmapLayerIndex
 
 #define FORCE_EVALBRDF_GGX_LOOSE
+
+
+#ifndef RT_FORCE_COMPUTE
 
 #define DESC_SET_TLAS 0
 #define DESC_SET_FRAMEBUFFERS 1
@@ -39,7 +46,36 @@ layout (constant_id = 1) const uint lightmapLayerIndex = 3;
 #include "RaygenCommon.h"
 #include "ReservoirIndirect.h"
 
+#else // RT_FORCE_COMPUTE
 
+    #define DESC_SET_FRAMEBUFFERS 1
+    #define DESC_SET_GLOBAL_UNIFORM 2
+    #define DESC_SET_RESTIR_INDIRECT 10
+    #define LIGHT_SAMPLE_METHOD (LIGHT_SAMPLE_METHOD_INDIR)
+    #include "ShaderCommonGLSLFunc.h"
+    #include "Surface.inl"
+    #include "Light.h"
+    #include "ReservoirIndirect.h"
+    layout( local_size_x = COMPUTE_INDIRECT_FINAL_GROUP_SIZE_X,
+            local_size_y = COMPUTE_INDIRECT_FINAL_GROUP_SIZE_Y,
+            local_size_z = 1 ) in;
+
+#endif // !RT_FORCE_COMPUTE
+
+
+#define OPTIMIZE_MEM 1
+
+bool useDiffuse( const float roughness )
+{
+    return roughness >= FAKE_ROUGH_SPECULAR_THRESHOLD;
+}
+
+float getDiffuseWeight( float roughness )
+{
+    return smoothstep( MIN_GGX_ROUGHNESS,
+                       FAKE_ROUGH_SPECULAR_THRESHOLD + FAKE_ROUGH_SPECULAR_LENGTH,
+                       roughness );
+}
 
 // v -- direction to viewer
 // n -- surface normal
@@ -48,17 +84,26 @@ vec3 getSpecularBounce(const uint seed, uint bounceIndex,
                        const vec3 v, 
                        out float oneOverSourcePdf)
 {
-    const vec2 u = rndBlueNoise8( seed, RANDOM_SALT_SPEC_BOUNCE( bounceIndex ) ).xy;
+#if OPTIMIZE_MEM
+    const vec2 u = rnd8_4( seed, RANDOM_SALT_SPEC_BOUNCE( bounceIndex ) ).xy;
+#else
+    const vec2 u = rndBlueNoise16_2( seed, RANDOM_SALT_SPEC_BOUNCE( bounceIndex ) );
+#endif
     return sampleSmithGGX( n, v, roughness, u[ 0 ], u[ 1 ], oneOverSourcePdf );
 }
 
 // n -- surface normal
 vec3 getDiffuseBounce(const uint seed, uint bounceIndex, const vec3 n, out float oneOverSourcePdf)
 {
-    const vec2 u = rndBlueNoise8( seed, RANDOM_SALT_DIFF_BOUNCE( bounceIndex ) ).xy;
+#if OPTIMIZE_MEM
+    const vec2 u = rnd8_4( seed, RANDOM_SALT_DIFF_BOUNCE( bounceIndex ) ).xy;
+#else
+    const vec2 u = rndBlueNoise16_2( seed, RANDOM_SALT_DIFF_BOUNCE( bounceIndex ) );
+#endif
     return sampleLambertian( n, u[ 0 ], u[ 1 ], oneOverSourcePdf );
 }
 
+#ifndef RT_FORCE_COMPUTE
 
 #define FIRST_BOUNCE_MIP_BIAS 0
 #define SECOND_BOUNCE_MIP_BIAS 32
@@ -106,17 +151,28 @@ SampleIndirect processIndirect( const uint seed, const Surface surf, out float o
 {
     vec3 bounceDir;
 
-#if 1
-    bounceDir = getSpecularBounce( seed,
-                                   1,
-                                   surf.normal,
-                                   surf.roughness,
-                                   surf.specularColor,
-                                   surf.toViewerDir,
-                                   oneOverSourcePdf );
-#else
-    bounceDir = getDiffuseBounce( seed, 1, surf.normal, oneOverSourcePdf );
-#endif
+    if( useDiffuse( surf.roughness ) )
+    {
+        bounceDir = getDiffuseBounce( seed, 1, surf.normal, oneOverSourcePdf );
+    }
+    else
+    {
+        bounceDir = getSpecularBounce( seed,
+                                    1,
+                                    surf.normal,
+                                    surf.roughness,
+                                    surf.specularColor,
+                                    surf.toViewerDir,
+                                    oneOverSourcePdf );
+
+        // swap to the common domain
+        float oneOverDiffusePdf;
+        {
+            float z           = dot( bounceDir, surf.normal );
+            oneOverDiffusePdf = z / M_PI;
+        }
+        oneOverSourcePdf *= oneOverDiffusePdf;
+    }
 
     vec3 emis;
     const Surface hitSurf = traceBounce(surf.position + surf.normal * 0.01, 
@@ -129,14 +185,13 @@ SampleIndirect processIndirect( const uint seed, const Surface surf, out float o
 
     if (hitSurf.isSky)
     {
-        SampleIndirect s;
-        s.position  = surf.position + bounceDir * MAX_RAY_LENGTH;
-        s.normal    = -bounceDir;
-        s.radiance  = getSky(bounceDir);
-        
+        SampleIndirect s = createSampleIndirect( //
+            surf.position + bounceDir * MAX_RAY_LENGTH,
+            -bounceDir,
+            getSky( bounceDir ) );
         return s;
     }
-    
+
     // calculate direct diffuse illumination in a hit position
     vec3 diffuse = processDirectIllumination(seed, hitSurf, 1);
 
@@ -152,36 +207,39 @@ SampleIndirect processIndirect( const uint seed, const Surface surf, out float o
                                               oneOverPdf_Second);
     }
 
-    SampleIndirect s;
-    s.position  = hitSurf.position;
-    s.normal    = hitSurf.normal;
-    s.radiance  = (emis + diffuse) * hitSurf.albedo;
-
+    SampleIndirect s = createSampleIndirect( //
+        hitSurf.position,
+        hitSurf.normal,
+        ( emis + diffuse ) * hitSurf.albedo );
     return s;
 }
+#endif // !RT_FORCE_COMPUTE
 
-void shade(const Surface surf, const SampleIndirect indir, float oneOverPdf,
-           out vec3 diffuse, out vec3 specular)
+vec3 shade(const Surface surf, const SampleIndirect indir, float oneOverPdf)
 {
-    vec3 l = safeNormalize(indir.position - surf.position);
+    vec3  l  = safeNormalize2( unpackSampleIndirectPosition( indir ) - surf.position, vec3( 0 ) );
     float nl = dot(surf.normal, l);
 
     if (nl <= 0)
     {
-        diffuse = specular = vec3(0);
-        return;
+        return vec3(0);
     }
 
-    diffuse  = nl * indir.radiance * evalBRDFLambertian(1.0);
-    specular = nl * indir.radiance * evalBRDFSmithGGX(surf.normal, surf.toViewerDir, l, surf.roughness, surf.specularColor);
+    const vec3 radiance = decodeE5B9G9R9( indir.radianceE5 );
 
-    diffuse  *= oneOverPdf;
-    specular *= oneOverPdf;
+    if( useDiffuse( surf.roughness ) )
+    {
+        return oneOverPdf * nl * radiance * evalBRDFLambertian(1.0);
+    }
+    else
+    {
+        return oneOverPdf * nl * radiance * evalBRDFSmithGGX(surf.normal, surf.toViewerDir, l, surf.roughness, surf.specularColor);
+    }
 }
 
 float targetPdfForIndirectSample(const SampleIndirect s)
 {
-    return getLuminance(s.radiance);
+    return getLuminance( decodeE5B9G9R9( s.radianceE5 ) );
 }
 
 bool testSurfaceForReuseIndirect(
@@ -198,20 +256,13 @@ bool testSurfaceForReuseIndirect(
         (dot(curNormal, otherNormal) > NormalThreshold);
 }
 
-float getDiffuseWeight( float roughness )
-{
-    return smoothstep( MIN_GGX_ROUGHNESS,
-                       FAKE_ROUGH_SPECULAR_THRESHOLD + FAKE_ROUGH_SPECULAR_LENGTH,
-                       roughness );
-}
-
 
 
 #define TEMPORAL_SAMPLES_INDIR    1
-#define TEMPORAL_RADIUS_INDIR_MAX 2.0
+#define TEMPORAL_RADIUS_INDIR_MAX 8.0
 
-#define SPATIAL_SAMPLES_INDIR 6
-#define SPATIAL_RADIUS_INDIR  mix( 8.0, 32.0, clamp( globalUniform.renderHeight / 1080.0, 0.0, 1.0 ) ) 
+#define SPATIAL_SAMPLES_INDIR 2
+#define SPATIAL_RADIUS_INDIR  mix( 2.0, 8.0, clamp( globalUniform.renderHeight / 1080.0, 0.0, 1.0 ) ) 
 
 #define DEBUG_TRACE_BIAS_CORRECT_RAY 0
 
@@ -256,12 +307,18 @@ ReservoirIndirect loadInitialSampleAsReservoir( const ivec2 pix )
 
 void main()
 {
+#ifndef RT_FORCE_COMPUTE
     const ivec2 pix  = ivec2( gl_LaunchIDEXT.xy );
+#else
+    const ivec2 pix = ivec2( gl_GlobalInvocationID.xy );
+#endif
     const uint  seed = getRandomSeed( pix, globalUniform.frameId );
     uint        salt = RANDOM_SALT_RESAMPLE_INDIRECT_BASE;
 
     Surface surf = fetchGbufferSurface( pix );
+#ifndef RT_FORCE_COMPUTE
     surf.position += surf.toViewerDir * RAY_ORIGIN_LEAK_BIAS;
+#endif
 
     if( surf.isSky )
     {
@@ -289,7 +346,8 @@ void main()
             vec2 rndOffset = rnd8_4( seed, salt++ ).xy * 2.0 - 1.0;
             rndOffset *= square( getDiffuseWeight( surf.roughness ) );
 
-            pp = ivec2( floor( posPrev + rndOffset * TEMPORAL_RADIUS_INDIR_MAX ) );
+            pp = ivec2( floor( posPrev +
+                               rndOffset * ( pixIndex == 0 ? 0.5 : TEMPORAL_RADIUS_INDIR_MAX ) ) );
         }
 
         {
@@ -315,7 +373,6 @@ void main()
             // if there's too much difference, don't use a temporal sample
             if( antilagAlpha_Indir > 0.25 )
             {
-                spatialSamplesCount++;
                 continue;
             }
         }
@@ -326,6 +383,8 @@ void main()
 
         float rnd = rnd16( seed, salt++ );
         updateCombinedReservoirIndirect( combined, temporal, rnd );
+
+        break;
     }
 
 
@@ -338,7 +397,11 @@ void main()
             // TODO: need low discrepancy noise
             ivec2 pp;
             {
-                vec2 rndOffset = rnd8_4( seed, salt++ ).xy * 2.0 - 1.0;
+#if OPTIMIZE_MEM
+                vec2 rndOffset = rnd16_2( seed, salt++ ) * 2.0 - 1.0;
+#else
+                vec2 rndOffset = rndBlueNoise16_2( seed, salt++ ) * 2.0 - 1.0;
+#endif
                 pp = pix + ivec2( rndOffset * SPATIAL_RADIUS_INDIR );
             }
 
@@ -365,8 +428,8 @@ void main()
                 const vec3 x1_r = surf.position;
                 const vec3 x1_q = texelFetch( framebufSurfacePosition_Sampler, pp, 0 ).xyz;
 
-                const vec3 x2_q = reservoir_q.selected.position;
-                const vec3 n2_q = reservoir_q.selected.normal;
+                const vec3 x2_q = unpackSampleIndirectPosition( reservoir_q.selected );
+                const vec3 n2_q = decodeNormal( reservoir_q.selected.normalPacked );
 
                 const DirectionAndLength phi_r = calcDirectionAndLengthSafe( x2_q, x1_r );
                 const DirectionAndLength phi_q = calcDirectionAndLengthSafe( x2_q, x1_q );
@@ -390,8 +453,11 @@ void main()
                 targetPdf_curSurf =
                     targetPdfForIndirectSample( reservoir_q.selected ) * oneOverJacobian;
             }
-
+#if OPTIMIZE_MEM
             float rnd = rnd16( seed, salt++ );
+#else
+            float rnd = rndBlueNoise32( seed, salt++ );
+#endif
             updateCombinedReservoirIndirect_newSurf(
                 combined, reservoir_q, targetPdf_curSurf, rnd );
 
@@ -408,15 +474,15 @@ void main()
 
 
 
-    vec3 diffuse, specular;
-    shade( surf, combined.selected, calcSelectedSampleWeightIndirect( combined ), diffuse, specular );
+    const vec3 indirRadiance =
+        shade( surf, combined.selected, calcSelectedSampleWeightIndirect( combined ) );
 
-    const vec3 surfToHitPoint = combined.selected.position - surf.position;
+    const vec3 surfToHitPoint = unpackSampleIndirectPosition( combined.selected ) - surf.position;
 
     {
         const vec3 direct = texelFetchUnfilteredSpecular( pix );
         // save indirect hit distance, if brighter than the direct light
-        if( getLuminance( direct ) < getLuminance( specular ) )
+        if( getLuminance( direct ) < getLuminance( indirRadiance ) )
         {
             imageStore(
                 framebufViewDirection, pix, vec4( -surf.toViewerDir, length( surfToHitPoint ) ) );
@@ -425,11 +491,11 @@ void main()
 
         // demodulate for denoising
         imageStoreUnfilteredSpecular( pix,
-                                      direct + demodulateSpecular( specular, surf.specularColor ) );
+                                      direct + demodulateSpecular( indirRadiance, surf.specularColor ) );
     }
 
     {
-        imageStoreUnfilteredIndir( pix, diffuse );
+        imageStoreUnfilteredIndir( pix, indirRadiance );
     }
 }
 #endif // RT_RAYGEN_INDIRECT_FINAL

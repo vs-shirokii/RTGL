@@ -22,7 +22,7 @@
 
 #include "Common.h"
 #include "CommandBufferManager.h"
-#include "Swapchain.h"
+#include "DebugWindows_Swapchain.h"
 
 struct GLFWwindow;
 
@@ -46,18 +46,18 @@ public:
     DebugWindows& operator=( DebugWindows&& other ) noexcept = delete;
 
     // TODO: remove
-    void Init( std::shared_ptr< DebugWindows > self );
+    void Init( const std::shared_ptr< DebugWindows >& self );
 
-    bool PrepareForFrame( uint32_t frameIndex );
+    bool PrepareForFrame( uint32_t frameIndex, bool vsync );
     void SubmitForFrame( VkCommandBuffer cmd, uint32_t frameIndex );
     void OnQueuePresent( VkResult queuePresentResult );
 
-    void OnSwapchainCreate( const Swapchain* pSwapchain ) override;
+    void OnSwapchainCreate( const DebugWindows_Swapchain* pSwapchain ) override;
     void OnSwapchainDestroy() override;
 
     VkSwapchainKHR GetSwapchainHandle() const;
     uint32_t       GetSwapchainCurrentImageIndex() const;
-    VkSemaphore    GetSwapchainImageAvailableSemaphore( uint32_t frameIndex ) const;
+    VkSemaphore    GetSwapchainImageAvailableSemaphore_Binary( uint32_t frameIndex ) const;
 
     void SetAlwaysOnTop( bool onTop );
     bool IsMinimized() const { return isMinimized; }
@@ -65,10 +65,10 @@ public:
 private:
     VkDevice device;
 
-    GLFWwindow*                  customWindow;
-    VkSurfaceKHR                 customSurface;
-    std::unique_ptr< Swapchain > customSwapchain;
-    VkSemaphore                  swapchainImageAvailable[ MAX_FRAMES_IN_FLIGHT ];
+    GLFWwindow*                               customWindow;
+    VkSurfaceKHR                              customSurface;
+    std::unique_ptr< DebugWindows_Swapchain > customSwapchain;
+    VkSemaphore                               swapchainImageAvailable[ MAX_FRAMES_IN_FLIGHT ];
 
     VkDescriptorPool             descPool;
     VkRenderPass                 renderPass;

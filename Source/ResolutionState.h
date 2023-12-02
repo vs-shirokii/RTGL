@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace RTGL1
 {
 

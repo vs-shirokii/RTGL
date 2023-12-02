@@ -69,7 +69,7 @@ Surface fetchGbufferSurface(const ivec2 pix)
     return s;
 }
 
-Surface fetchGbufferSurface_NoAlbedoViewDir_Prev(const ivec2 pix)
+Surface fetchGbufferSurface_Prev(const ivec2 pix)
 {
     Surface s;
     s.isSky = false;
@@ -85,7 +85,7 @@ Surface fetchGbufferSurface_NoAlbedoViewDir_Prev(const ivec2 pix)
         s.roughness             = metallicRoughness[1];
     }
     s.normal                    = texelFetchNormal_Prev(pix);
-    s.toViewerDir               = vec3(0.0);
+    s.toViewerDir               = -texelFetch(framebufViewDirection_Prev_Sampler, pix, 0).xyz;
     return s;
 }
 #endif // CHECKERBOARD_FULL_WIDTH && CHECKERBOARD_FULL_HEIGHT

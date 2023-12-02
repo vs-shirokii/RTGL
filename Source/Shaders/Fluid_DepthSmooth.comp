@@ -1,0 +1,178 @@
+/*
+
+MIT License
+
+Copyright (c) 2024 V.Shirokii
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+*/
+
+#version 460
+
+#define DESC_SET_FRAMEBUFFERS 0
+#include "ShaderCommonGLSLFunc.h"
+
+layout( local_size_x = COMPUTE_EFFECT_GROUP_SIZE_X,
+        local_size_y = COMPUTE_EFFECT_GROUP_SIZE_Y,
+        local_size_z = 1 ) in;
+
+layout( constant_id = 0 ) const uint g_iteration = 0;
+
+layout( push_constant ) uniform FluidSmoothPush_T
+{
+    uint  renderWidth;
+    uint  renderHeight;
+    float zNear;
+    float zFar;
+}
+push;
+
+const float SKY_THRESHOLD = 0.99999;
+
+void saveResult( const ivec2 pix, const vec3 normal, const float depth )
+{
+    if( g_iteration % 2 == 0 )
+    {
+        imageStore( framebufDepthFluidTemp, pix, vec4( depth ) );
+        imageStore( framebufFluidNormalTemp, pix, uvec4( encodeNormal( normal ) ) );
+    }
+    else
+    {
+        imageStore( framebufDepthFluid, pix, vec4( depth ) );
+        imageStore( framebufFluidNormal, pix, uvec4( encodeNormal( normal ) ) );
+    }
+}
+
+float linearize_depth( float d, float zNear, float zFar )
+{
+    return zNear * zFar / ( zFar + d * ( zNear - zFar ) );
+}
+
+float linearize_depth_wld( float d )
+{
+    return linearize_depth( d, push.zNear, push.zFar );
+}
+
+float linearize_depth_01( float d )
+{
+    return linearize_depth_wld( d ) / push.zFar;
+}
+
+void main()
+{
+    const ivec2 pix = ivec2( gl_GlobalInvocationID.x, gl_GlobalInvocationID.y );
+    if( pix.x >= push.renderWidth || pix.y >= push.renderHeight )
+    {
+        return;
+    }
+
+    float center_d = 0;
+    if( g_iteration % 2 == 0 )
+    {
+        center_d = imageLoad( framebufDepthFluid, pix ).r;
+    }
+    else
+    {
+        center_d = imageLoad( framebufDepthFluidTemp, pix ).r;
+    }
+
+    if( center_d >= SKY_THRESHOLD )
+    {
+        saveResult( pix, vec3( 0, 0, 1 ), center_d );
+        return;
+    }
+
+    vec3 center_n = vec3( 0 );
+    if( g_iteration % 2 == 0 )
+    {
+        center_n = decodeNormal( imageLoad( framebufFluidNormal, pix ).r );
+    }
+    else
+    {
+        center_n = decodeNormal( imageLoad( framebufFluidNormalTemp, pix ).r );
+    }
+
+    vec3  sum_n      = center_n;
+    float sum_d      = center_d;
+    float sum_weight = 1;
+
+
+    const float BLUR_SCALE         = 1;
+    const float BLUR_DEPTH_FALLOFF = 1;
+    const int   MAX_RADIUS         = g_iteration % 2 == 0 ? 16 : 14;
+
+    const int radius = clamp( int( MAX_RADIUS * ( 1 - linearize_depth_01( center_d ) ) ), //
+                              1,
+                              MAX_RADIUS );
+
+    for( int t = -radius; t <= radius; t++ )
+    {
+        const int i = ( g_iteration % 2 == 0 ? t : 0 );
+        const int j = ( g_iteration % 2 == 0 ? 0 : t );
+
+        if( i == j )
+        {
+            continue;
+        }
+
+        const ivec2 p = pix + ivec2( i, j );
+
+        if( p.x < 0 || p.x >= push.renderWidth || //
+            p.y < 0 || p.y >= push.renderHeight )
+        {
+            continue;
+        }
+
+        float dd;
+        vec3  dn;
+        if( g_iteration % 2 == 0 )
+        {
+            dd = imageLoad( framebufDepthFluid, p ).r;
+            dn = decodeNormal( imageLoad( framebufFluidNormal, p ).r );
+        }
+        else
+        {
+            dd = imageLoad( framebufDepthFluidTemp, p ).r;
+            dn = decodeNormal( imageLoad( framebufFluidNormalTemp, p ).r );
+        }
+
+        // spatial domain
+        float r = 0.5 / ( abs( i ) + abs( j ) ) * BLUR_SCALE;
+        float w = exp( -r * r );
+
+        // range domain
+        float r2 =
+            abs( linearize_depth_01( dd ) - linearize_depth_01( center_d ) ) * BLUR_DEPTH_FALLOFF;
+        float g = exp( -r2 * r2 );
+
+#if 0
+        g *= dd < SKY_THRESHOLD ? 1.0 : 0.0;
+#endif
+
+        sum_d += dd * w * g;
+        sum_n += dn * w * g;
+
+        sum_weight += w * g;
+    }
+    sum_d /= sum_weight;
+    sum_n = safeNormalize2( sum_n, center_n );
+
+    saveResult( pix, sum_n, sum_d );
+}

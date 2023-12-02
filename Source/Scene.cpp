@@ -18,20 +18,42 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#define GLM_FORCE_QUAT_DATA_XYZW 1
+
 #include "Scene.h"
 
 #include "CmdLabel.h"
 #include "GeomInfoManager.h"
 #include "GltfImporter.h"
+#include "Matrix.h"
 #include "RgException.h"
 #include "UniqueID.h"
 
 #include "Generated/ShaderCommonC.h"
 
+#include <glm/gtc/quaternion.hpp>
+
+#include <future>
 #include <ranges>
 
 namespace
 {
+
+template< typename T, typename... Args >
+struct has_constructor
+{
+    template< typename U, typename = decltype( U( std::declval< Args >()... ) ) >
+    static std::true_type test( int );
+
+    template< typename >
+    static std::false_type test( ... );
+
+    static constexpr bool value = decltype( test< T >( 0 ) )::value;
+};
+
+template< typename T, typename... Args >
+inline constexpr bool has_constructor_v = has_constructor< T, Args... >::value;
+
 template< bool WithSeparateFolder = true >
 auto MakeGltfPath( const std::filesystem::path& base, std::string_view meshName )
     -> std::filesystem::path
@@ -201,9 +223,284 @@ RTGL1::Scene::Scene( VkDevice                                _device,
         std::make_shared< VertexPreprocessing >( _device, _uniform, *asManager, _shaderManager );
 }
 
+namespace RTGL1
+{
+namespace
+{
+    Camera MakeCamera( const RgCameraInfo& info )
+    {
+        auto cameraInfo = Camera{
+            .aspect      = info.aspect,
+            .fovYRadians = info.fovYRadians,
+            .cameraNear  = info.cameraNear,
+            .cameraFar   = info.cameraFar,
+        };
+        {
+            static_assert( sizeof cameraInfo.projection == 16 * sizeof( float ) );
+            static_assert( sizeof cameraInfo.view == 16 * sizeof( float ) );
+            static_assert( sizeof cameraInfo.projectionInverse == 16 * sizeof( float ) );
+            static_assert( sizeof cameraInfo.viewInverse == 16 * sizeof( float ) );
+            static_assert( sizeof info.position == 3 * sizeof( float ) );
+            static_assert( sizeof info.right == 3 * sizeof( float ) );
+            static_assert( sizeof info.up == 3 * sizeof( float ) );
+
+            Matrix::MakeViewMatrix( cameraInfo.view, info.position, info.right, info.up );
+            Matrix::MakeProjectionMatrix( cameraInfo.projection,
+                                          cameraInfo.aspect,
+                                          cameraInfo.fovYRadians,
+                                          cameraInfo.cameraNear,
+                                          cameraInfo.cameraFar );
+        }
+        Matrix::Inverse( cameraInfo.viewInverse, cameraInfo.view );
+        Matrix::Inverse( cameraInfo.projectionInverse, cameraInfo.projection );
+        return cameraInfo;
+    }
+
+    template< typename T >
+    T linear_interp( const T& a, const T& b, float t ) = delete;
+
+    template <>
+    float linear_interp( const float& a, const float& b, float t )
+    {
+        return std::lerp( a, b, t );
+    }
+
+    template<>
+    RgFloat3D linear_interp( const RgFloat3D& a, const RgFloat3D& b, float t )
+    {
+        return RgFloat3D{
+            std::lerp( a.data[ 0 ], b.data[ 0 ], t ),
+            std::lerp( a.data[ 1 ], b.data[ 1 ], t ),
+            std::lerp( a.data[ 2 ], b.data[ 2 ], t ),
+        };
+    }
+
+    template<>
+    RgQuaternion linear_interp( const RgQuaternion& a, const RgQuaternion& b, float t )
+    {
+        static_assert( GLM_FORCE_QUAT_DATA_XYZW );
+        static_assert( sizeof( glm::quat ) == sizeof( RgQuaternion ) );
+
+        const auto& qa = *reinterpret_cast< const glm::quat* >( a.data );
+        const auto& qb = *reinterpret_cast< const glm::quat* >( b.data );
+
+        glm::quat result = glm::slerp( qa, qb, t );
+        return *reinterpret_cast< RgQuaternion* >( &result );
+    }
+
+    RgFloat3D ToRgFloat3D( const glm::vec3& a )
+    {
+        return { a.x, a.y, a.z };
+    }
+
+    auto QuatToUpRightVectors( const RgQuaternion& q ) -> std::pair< RgFloat3D, RgFloat3D >
+    {
+        static_assert( GLM_FORCE_QUAT_DATA_XYZW );
+        static_assert( sizeof( glm::quat ) == sizeof( RgQuaternion ) );
+
+        const auto& qa = *reinterpret_cast< const glm::quat* >( q.data );
+
+        glm::mat3 tr = mat3_cast( qa );
+
+        return {
+            ToRgFloat3D( tr[ 1 ] ), // up
+            ToRgFloat3D( tr[ 0 ] ), // right
+        };
+    }
+
+    RgCameraInfo MakeCameraFromAnim( const RgCameraInfo&                  base,
+                                     const std::optional< RgFloat3D >&    pos,
+                                     const std::optional< RgQuaternion >& quat,
+                                     const std::optional< float >&        fovYRadians )
+    {
+        auto cam = RgCameraInfo{ base };
+        if( pos )
+        {
+            cam.position = *pos;
+        }
+        if( quat )
+        {
+            const auto [ vup, vright ] = QuatToUpRightVectors( *quat );
+
+            cam.up    = vup;
+            cam.right = vright;
+        }
+        if( fovYRadians && ( *fovYRadians ) > 0.01f )
+        {
+            cam.fovYRadians = *fovYRadians;
+        }
+        return cam;
+    }
+
+    template< typename T >
+    std::optional< T > SampleAnimationChannel( const AnimationChannel< T >& chan, float t )
+    {
+        if( chan.frames.empty() )
+        {
+            return std::nullopt;
+        }
+
+        for( size_t i = 0; i < chan.frames.size() - 1; i++ )
+        {
+            const AnimationFrame< T >& a = chan.frames[ i ];
+            const AnimationFrame< T >& b = chan.frames[ i + 1 ];
+
+            const float t0 = a.seconds;
+            const float t1 = b.seconds;
+
+            if( t0 <= t && t <= t1 )
+            {
+                if( a.interpolation == ANIMATION_INTERPOLATION_STEP )
+                {
+                    return a.value;
+                }
+                if( b.interpolation == ANIMATION_INTERPOLATION_STEP )
+                {
+                    return b.value;
+                }
+
+                // TODO: cubic
+                assert( a.interpolation == ANIMATION_INTERPOLATION_LINEAR );
+
+                const float factor = t0 < t1 ? ( t - t0 ) / ( t1 - t0 ) : 0;
+
+                return linear_interp( a.value, b.value, factor );
+            }
+        }
+
+        if( t < chan.frames.front().seconds )
+        {
+            return chan.frames.front().value;
+        }
+        return chan.frames.back().value;
+    }
+
+    RgCameraInfo SampleAnimation( const AnimationData& anim, const RgCameraInfo& base, float t )
+    {
+        auto pos  = SampleAnimationChannel( anim.position, t );
+        auto quat = SampleAnimationChannel( anim.quaternion, t );
+        auto fovy = SampleAnimationChannel( anim.fovYRadians, t );
+
+        return MakeCameraFromAnim( base, pos, quat, fovy );
+    }
+
+    RgTransform SampleAnimationObj( const AnimationData& anim, const RgTransform& base, float t )
+    {
+        static auto l_column_length = []( const RgTransform& tr, int column ) {
+            return Utils::Length( RgFloat3D{
+                tr.matrix[ 0 ][ column ],
+                tr.matrix[ 1 ][ column ],
+                tr.matrix[ 2 ][ column ],
+            } );
+        };
+
+        const auto pos  = SampleAnimationChannel( anim.position, t );
+        const auto quat = SampleAnimationChannel( anim.quaternion, t );
+
+        const float scale[] = {
+            l_column_length( base, 0 ),
+            l_column_length( base, 1 ),
+            l_column_length( base, 2 ),
+        };
+
+        auto r = RgTransform{ base };
+
+        if( pos )
+        {
+            r.matrix[ 0 ][ 3 ] = pos->data[ 0 ];
+            r.matrix[ 1 ][ 3 ] = pos->data[ 1 ];
+            r.matrix[ 2 ][ 3 ] = pos->data[ 2 ];
+        }
+
+        if( quat )
+        {
+            const auto [ vup, vright ] = QuatToUpRightVectors( *quat );
+            const auto vforward        = Utils::Cross( vright, vup );
+
+            // clang-format off
+            r.matrix[ 0 ][ 0 ] = vright.data[ 0 ]; r.matrix[ 0 ][ 1 ] = vup.data[ 0 ]; r.matrix[ 0 ][ 2 ] = vforward.data[ 0 ];
+            r.matrix[ 1 ][ 0 ] = vright.data[ 1 ]; r.matrix[ 1 ][ 1 ] = vup.data[ 1 ]; r.matrix[ 1 ][ 2 ] = vforward.data[ 1 ];
+            r.matrix[ 2 ][ 0 ] = vright.data[ 2 ]; r.matrix[ 2 ][ 1 ] = vup.data[ 2 ]; r.matrix[ 2 ][ 2 ] = vforward.data[ 2 ];
+            // clang-format on
+
+            // do not lose the original scale
+            // clang-format off
+            r.matrix[ 0 ][ 0 ] *= scale[ 0 ]; r.matrix[ 0 ][ 1 ] *= scale[ 1 ]; r.matrix[ 0 ][ 2 ] *= scale[ 2 ];
+            r.matrix[ 1 ][ 0 ] *= scale[ 0 ]; r.matrix[ 1 ][ 1 ] *= scale[ 1 ]; r.matrix[ 1 ][ 2 ] *= scale[ 2 ];
+            r.matrix[ 2 ][ 0 ] *= scale[ 0 ]; r.matrix[ 2 ][ 1 ] *= scale[ 1 ]; r.matrix[ 2 ][ 2 ] *= scale[ 2 ];
+            // clang-format on
+        }
+
+        return r;
+    }
+}
+}
+
+void RTGL1::Scene::AddDefaultCamera( const RgCameraInfo& info )
+{
+    // NOTE: if there are pointers, need to make deep copies
+    assert( !info.pView );
+    assert( !info.pNext || pnext::cast< RgCameraInfoReadbackEXT >( info.pNext ) );
+
+    cameraInfo_Default = info;
+}
+
+const RTGL1::Camera& RTGL1::Scene::GetCamera( float fallbackAspect )
+{
+    if( !curFrameCamera )
+    {
+        auto l_make = [ & ]() {
+            if( cameraInfo_Imported && cameraInfo_Default )
+            {
+                auto modified = RgCameraInfo{ *cameraInfo_Default };
+                {
+                    const auto imp = SampleAnimation( m_cameraInfo_ImportedAnim,
+                                                      *cameraInfo_Imported,
+                                                      m_staticSceneAnimationTime );
+
+                    modified.fovYRadians = imp.fovYRadians;
+                    modified.position    = imp.position;
+                    modified.up          = imp.up;
+                    modified.right       = imp.right;
+                }
+                return MakeCamera( modified );
+            }
+            if( cameraInfo_Default )
+            {
+                return MakeCamera( *cameraInfo_Default );
+            }
+            if( cameraInfo_Imported )
+            {
+                auto modified = SampleAnimation(
+                    m_cameraInfo_ImportedAnim, *cameraInfo_Imported, m_staticSceneAnimationTime );
+                {
+                    modified.aspect = fallbackAspect;
+                }
+                return MakeCamera( modified );
+            }
+
+            debug::Warning( "No camera provided via API, nor through .gltf" );
+            return MakeCamera( RgCameraInfo{
+                .sType       = RG_STRUCTURE_TYPE_CAMERA_INFO,
+                .position    = { 0, 0, 0 },
+                .up          = { 0, 1, 0 },
+                .right       = { 1, 0, 0 },
+                .fovYRadians = Utils::DegToRad( 75 ),
+                .aspect      = 16.0f / 9.0f,
+                .cameraNear  = 0.1f,
+                .cameraFar   = 1000,
+            } );
+        };
+
+        curFrameCamera = l_make();
+    }
+    return *curFrameCamera;
+}
+
 void RTGL1::Scene::PrepareForFrame( VkCommandBuffer cmd,
                                     uint32_t        frameIndex,
-                                    bool            _ignoreExternalGeometry )
+                                    bool            _ignoreExternalGeometry,
+                                    float           staticSceneAnimationTime )
 {
     assert( !makingDynamic );
     assert( !makingStatic );
@@ -214,13 +511,25 @@ void RTGL1::Scene::PrepareForFrame( VkCommandBuffer cmd,
     makingDynamic = asManager->BeginDynamicGeometry( cmd, frameIndex );
     dynamicUniqueIDs.clear();
     alreadyReplacedUniqueObjectIDs.clear();
+    lastDynamicSun_uniqueId = std::nullopt;
+
+    curFrameCamera     = {};
+    cameraInfo_Default = {};
+
+    m_staticSceneAnimationTime = staticSceneAnimationTime;
+
+    // SHIPPING_HACK
+    for( const auto& [ obj, basetransf, anim ] : m_obj_ImportedAnim )
+    {
+        asManager->Hack_PatchGeomInfoTransformForStatic(
+            obj, SampleAnimationObj( anim, basetransf, m_staticSceneAnimationTime ) );
+    }
 }
 
 void RTGL1::Scene::SubmitForFrame( VkCommandBuffer                         cmd,
                                    uint32_t                                frameIndex,
                                    const std::shared_ptr< GlobalUniform >& uniform,
                                    uint32_t uniformData_rayCullMaskWorld,
-                                   bool     allowGeometryWithSkyFlag,
                                    bool     disableRTGeometry )
 {
     // always submit dynamic geometry on the frame ending
@@ -238,7 +547,6 @@ void RTGL1::Scene::SubmitForFrame( VkCommandBuffer                         cmd,
     asManager->BuildTLAS( cmd,
                           frameIndex,
                           uniformData_rayCullMaskWorld,
-                          allowGeometryWithSkyFlag,
                           disableRTGeometry );
 }
 
@@ -349,6 +657,14 @@ RTGL1::UploadResult RTGL1::Scene::UploadPrimitive( uint32_t                   fr
                     hashCombine( localLight.base.uniqueID, mesh.uniqueObjectID );
                 localLight.base.isExportable = false;
 
+                if( localLight.additional && ( localLight.additional->flags &
+                                               RG_LIGHT_ADDITIONAL_APPLY_PARENT_MESH_INTENSITY ) )
+                {
+                    std::visit( [ mult = mesh.localLightsIntensity ]( auto& ext ) //
+                                { ext.intensity *= mult; },
+                                localLight.extension );
+                }
+
                 UploadLight( frameIndex, localLight, lightManager, false, &mesh.transform );
             }
 
@@ -394,6 +710,11 @@ RTGL1::UploadResult RTGL1::Scene::UploadLight( uint32_t           frameIndex,
     if( !isStatic )
     {
         lightManager.Add( frameIndex, light, transform );
+
+        if( std::holds_alternative< RgLightDirectionalEXT >( light.extension ) )
+        {
+            lastDynamicSun_uniqueId = light.base.uniqueID;
+        }
     }
 
     return isStatic ? ( isExportable ? UploadResult::ExportableStatic : UploadResult::Static )
@@ -407,7 +728,7 @@ void RTGL1::Scene::SubmitStaticLights( uint32_t          frameIndex,
 {
     for( const LightCopy& l : staticLights )
     {
-        // SHIPPING HACK - BEGIN: tint sun if underwater
+        // SHIPPING_HACK begin - tint sun if underwater
         if( isUnderwater )
         {
             if( auto sun = std::get_if< RgLightDirectionalEXT >( &l.extension ) )
@@ -424,7 +745,7 @@ void RTGL1::Scene::SubmitStaticLights( uint32_t          frameIndex,
                 continue;
             }
         }
-        // SHIPPING HACK - END
+        // SHIPPING_HACK end
 
         lightManager.Add( frameIndex, l );
     }
@@ -502,8 +823,7 @@ bool RTGL1::Scene::InsertLightInfo( bool isStatic, const LightCopy& light )
 
 void RTGL1::Scene::NewScene( VkCommandBuffer              cmd,
                              uint32_t                     frameIndex,
-                             const RgTransform&           worldTransform,
-                             float                        worldScale,
+                             const ImportExportParams&    params,
                              const std::filesystem::path& staticSceneGltfPath,
                              const std::filesystem::path* replacementsFolder,
                              TextureManager&              textureManager,
@@ -515,6 +835,9 @@ void RTGL1::Scene::NewScene( VkCommandBuffer              cmd,
     staticUniqueIDs.clear();
     staticMeshNames.clear();
     staticLights.clear();
+    cameraInfo_Imported = {};
+    m_cameraInfo_ImportedAnim = {};
+    m_obj_ImportedAnim        = {};
 
     {
         textureManager.FreeAllImportedMaterials( frameIndex, reimportReplacements );
@@ -530,55 +853,89 @@ void RTGL1::Scene::NewScene( VkCommandBuffer              cmd,
         debug::Verbose( "Reading replacements..." );
         const auto gltfs = GetGltfFilesSortedAlphabetically( *replacementsFolder );
 
-        // reverse alphabetical -- last ones have more priority
-        for( const auto& path : std::ranges::reverse_view{ gltfs } )
+        auto allImported = std::vector< std::future< std::unique_ptr< WholeModelFile > > >{};
         {
-            if( auto i = GltfImporter{ path, worldTransform, worldScale } )
+            // reverse alphabetical -- last ones have more priority
+            for( const auto& p : std::ranges::reverse_view{ gltfs } )
             {
-                auto wholeGltf = i.ParseFile( cmd, frameIndex, textureManager, true, textureMeta );
-
-                if( !wholeGltf.lights.empty() )
-                {
-                    debug::Warning( "Ignoring non-attached lights from \'{}\'", path.string() );
-                }
-
-                for( auto& [ meshName, meshSrc ] : wholeGltf.models )
-                {
-                    auto [ iter, isNew ] = replacements.emplace( meshName, std::move( meshSrc ) );
-                    auto& mesh           = iter->second;
-
-                    if( isNew )
+                allImported.push_back( std::async(
+                    std::launch::async,
+                    [ & ](
+                        const std::filesystem::path& path ) -> std::unique_ptr< WholeModelFile > //
                     {
-                        for( uint32_t index = 0; index < iter->second.primitives.size(); index++ )
+                        if( auto i = GltfImporter{ path, params, textureMeta, true } )
                         {
-                            MakeMeshPrimitiveInfoAndProcess(
-                                mesh.primitives[ index ],
-                                index,
-                                [ & ]( const RgMeshPrimitiveInfo& prim ) {
-                                    asManager->CacheReplacement(
-                                        std::string_view{ meshName }, prim, index );
-                                } );
-
-                            // save up some memory by not storing - as we uploaded already
-                            mesh.primitives[ index ].vertices.clear();
-                            mesh.primitives[ index ].indices.clear();
+                            return std::make_unique< WholeModelFile >( i.Move() );
                         }
+                        return {};
+                    },
+                    p ) );
+            }
+        }
 
-                        if( mesh.primitives.empty() && mesh.localLights.empty() )
-                        {
-                            debug::Warning( "Replacement is empty, it doesn't have "
-                                            "any primitives or lights: \'{}\' - \'{}\'",
-                                            meshName,
-                                            path.string() );
-                        }
+        for( auto &ff : allImported )
+        {
+            auto wholeGltf = ff.valid() //
+                                 ? ff.get()
+                                 : std::unique_ptr< WholeModelFile >{};
+
+            if( !wholeGltf )
+            {
+                continue;
+            }
+            auto path = std::filesystem::path{ "<TODO: GET NAME>" };
+
+            if( !wholeGltf->lights.empty() )
+            {
+                debug::Warning( "Ignoring non-attached lights from \'{}\'", path.string() );
+            }
+
+            for( const auto& mat : wholeGltf->materials )
+            {
+                textureManager.TryCreateImportedMaterial( cmd,
+                                                          frameIndex,
+                                                          mat.pTextureName,
+                                                          mat.fullPaths,
+                                                          mat.samplers,
+                                                          mat.pbrSwizzling,
+                                                          mat.isReplacement );
+            }
+
+            for( auto& [ meshName, meshSrc ] : wholeGltf->models )
+            {
+                auto [ iter, isNew ] = replacements.emplace( meshName, std::move( meshSrc ) );
+
+                if( isNew )
+                {
+                    WholeModelFile::RawModelData& m = iter->second;
+
+                    for( uint32_t index = 0; index < m.primitives.size(); index++ )
+                    {
+                        MakeMeshPrimitiveInfoAndProcess(
+                            m.primitives[ index ], index, [ & ]( const RgMeshPrimitiveInfo& prim ) {
+                                asManager->CacheReplacement(
+                                    std::string_view{ meshName }, prim, index );
+                            } );
+
+                        // save up some memory by not storing - as we uploaded already
+                        m.primitives[ index ].vertices = {};
+                        m.primitives[ index ].indices  = {};
                     }
-                    else
+
+                    if( m.primitives.empty() && m.localLights.empty() )
                     {
-                        debug::Warning( "Ignoring a replacement as it was already read "
-                                        "from another .gltf file. \'{}\' - \'{}\'",
+                        debug::Warning( "Replacement is empty, it doesn't have "
+                                        "any primitives or lights: \'{}\' - \'{}\'",
                                         meshName,
                                         path.string() );
                     }
+                }
+                else
+                {
+                    debug::Warning( "Ignoring a replacement as it was already read "
+                                    "from another .gltf file. \'{}\' - \'{}\'",
+                                    meshName,
+                                    path.string() );
                 }
             }
         }
@@ -587,11 +944,69 @@ void RTGL1::Scene::NewScene( VkCommandBuffer              cmd,
 
     asManager->MarkReplacementsRegionEnd( makingStatic );
 
-    if( auto staticScene = GltfImporter{ staticSceneGltfPath, worldTransform, worldScale } )
+    // SHIPPING_HACK begin
+    m_primitivesToUpdateTextures.clear();
+    auto trackTextureToReplace = rgl::string_set{};
+    // SHIPPING_HACK end
+
+    if( auto staticScene = GltfImporter{ staticSceneGltfPath, params, textureMeta, false } )
     {
+        WholeModelFile sceneFile = staticScene.Move();
+
         debug::Verbose( "Starting new static scene..." );
-        const auto sceneFile =
-            staticScene.ParseFile( cmd, frameIndex, textureManager, false, textureMeta );
+
+        if( auto patchScene = GltfImporter{
+                AddSuffix( staticSceneGltfPath, SCENE_PATCH_SUFFIX ), params, textureMeta, false } )
+        {
+            WholeModelFile patch = patchScene.Move();
+
+            sceneFile.materials.insert( sceneFile.materials.end(),
+                                        std::make_move_iterator( patch.materials.begin() ),
+                                        std::make_move_iterator( patch.materials.end() ) );
+
+            for( auto& [ name, mdl ] : patch.models )
+            {
+                auto f = sceneFile.models.find( name );
+                if( f != sceneFile.models.end() )
+                {
+                    if( !Utils::AreAlmostSameTr( f->second.meshTransform, mdl.meshTransform ) )
+                    {
+                        debug::Warning(
+                            "Patch file contains node \'{}\' with one transform, but the base gltf "
+                            "file contains a node with same name which has ANOTHER transform. "
+                            "Expect incorrect patch file meshes. Base gltf file: {}",
+                            name,
+                            staticSceneGltfPath.string() );
+                    }
+
+                    f->second.primitives.insert( f->second.primitives.end(),
+                                                 std::make_move_iterator( mdl.primitives.begin() ),
+                                                 std::make_move_iterator( mdl.primitives.end() ) );
+                }
+                else
+                {
+                    sceneFile.models.emplace( std::move( name ), std::move( mdl ) );
+                }
+            }
+        }
+
+        for( const auto& mat : sceneFile.materials )
+        {
+            textureManager.TryCreateImportedMaterial( cmd,
+                                                      frameIndex,
+                                                      mat.pTextureName,
+                                                      mat.fullPaths,
+                                                      mat.samplers,
+                                                      mat.pbrSwizzling,
+                                                      mat.isReplacement );
+
+            // SHIPPING_HACK begin
+            if( mat.trackOriginalTexture && !mat.pTextureName.empty() )
+            {
+                trackTextureToReplace.insert( mat.pTextureName );
+            }
+            // SHIPPING_HACK end
+        }
 
         for( const auto& [ name, m ] : sceneFile.models )
         {
@@ -603,8 +1018,36 @@ void RTGL1::Scene::NewScene( VkCommandBuffer              cmd,
                     m.primitives[ i ],
                     i, //
                     [ & ]( const RgMeshPrimitiveInfo& prim ) {
-                        this->UploadPrimitive(
+                        UploadResult ur = this->UploadPrimitive(
                             frameIndex, mesh, prim, textureManager, lightManager, true );
+
+                        // SHIPPING_HACK begin
+                        if( ( ur == UploadResult::ExportableStatic ||
+                              ur == UploadResult::Static ) &&
+                            !Utils::IsCstrEmpty( prim.pTextureName ) &&
+                            trackTextureToReplace.contains( prim.pTextureName ) )
+                        {
+                            const auto uniqueId = PrimitiveUniqueID{ mesh, prim };
+                            static_assert( has_constructor_v< PrimitiveUniqueID,
+                                                              const RgMeshInfo&,
+                                                              const RgMeshPrimitiveInfo& >,
+                                           "Change PrimitiveUniqueID constructor here" );
+
+                            m_primitivesToUpdateTextures[ prim.pTextureName ].push_back( uniqueId );
+                        }
+                        // SHIPPING_HACK end
+                        // SHIPPING_HACK begin
+                        if( ur == UploadResult::Static && !IsAnimDataEmpty( m.animobj ) )
+                        {
+                            const auto uniqueId = PrimitiveUniqueID{ mesh, prim };
+                            static_assert( has_constructor_v< PrimitiveUniqueID,
+                                                              const RgMeshInfo&,
+                                                              const RgMeshPrimitiveInfo& >,
+                                           "Change PrimitiveUniqueID constructor here" );
+
+                            m_obj_ImportedAnim.emplace_back( uniqueId, mesh.transform, m.animobj );
+                        }
+                        // SHIPPING_HACK end
                     } );
 
                 if( !m.localLights.empty() )
@@ -615,6 +1058,16 @@ void RTGL1::Scene::NewScene( VkCommandBuffer              cmd,
                                     staticScene.FilePath() );
                 }
             }
+        }
+
+        // camera
+        if( sceneFile.camera )
+        {
+            cameraInfo_Imported = *( sceneFile.camera );
+        }
+        if( !IsAnimDataEmpty( sceneFile.animcamera ) )
+        {
+            m_cameraInfo_ImportedAnim = std::move( sceneFile.animcamera );
         }
 
         // global lights
@@ -652,26 +1105,11 @@ const std::shared_ptr< RTGL1::VertexPreprocessing >& RTGL1::Scene::GetVertexPrep
     return vertPreproc;
 }
 
-std::optional< uint64_t > RTGL1::Scene::TryGetVolumetricLight(
-    const RgDrawFrameIlluminationParams& params ) const
+auto RTGL1::Scene::TryGetVolumetricLight( const LightManager& lightManager,
+                                          const RgFloat3D&    cameraPos ) const
+    -> std::optional< uint64_t >
 {
-    auto lightstyles = std::span( params.pLightstyleValues, params.lightstyleValuesCount );
-
-    if( auto best = LightManager::TryGetVolumetricLight( staticLights, lightstyles ) )
-    {
-        return best;
-    }
-
-    // if nothing, just try find sun
-    for( const auto& l : staticLights )
-    {
-        if( auto sun = std::get_if< RgLightDirectionalEXT >( &l.extension ) )
-        {
-            return l.base.uniqueID;
-        }
-    }
-
-    return std::nullopt;
+    return lightManager.TryGetVolumetricLight( cameraPos, staticLights, lastDynamicSun_uniqueId );
 }
 
 bool RTGL1::Scene::StaticMeshExists( const RgMeshInfo& mesh ) const
@@ -696,91 +1134,146 @@ bool RTGL1::Scene::StaticLightExists( const LightCopy& light ) const
     return !staticLights.empty();
 }
 
-RTGL1::SceneImportExport::SceneImportExport( std::filesystem::path _scenesFolder,
-                                             std::filesystem::path _replacementsFolder,
-                                             const RgFloat3D&      _worldUp,
-                                             const RgFloat3D&      _worldForward,
-                                             const float&          _worldScale )
+namespace
+{
+float OneIfNonZero( float v )
+{
+    return v < std::numeric_limits< float >::epsilon() ? 1.0f : v;
+}
+}
+
+RTGL1::SceneImportExport::SceneImportExport( std::filesystem::path       _scenesFolder,
+                                             std::filesystem::path       _replacementsFolder,
+                                             const RgInstanceCreateInfo& _info )
     : scenesFolder{ std::move( _scenesFolder ) }
     , replacementsFolder{ std::move( _replacementsFolder ) }
-    , reimportRequested{ false }            // reread when new scene appears
-    , reimportReplacementsRequested{ true } // should reread initially
-    , worldUp{ Utils::SafeNormalize( _worldUp, { 0, 1, 0 } ) }
-    , worldForward{ Utils::SafeNormalize( _worldForward, { 0, 0, 1 } ) }
-    , worldScale{ std::max( 0.0f, _worldScale ) }
+    , reimportStatic{ false }      // reread when new scene appears
+    , reimportReplacements{ true } // should reread initially
+    , reimportStaticInNextFrame{ false }
+    , worldUp{ Utils::SafeNormalize( _info.worldUp, { 0, 1, 0 } ) }
+    , worldForward{ Utils::SafeNormalize( _info.worldForward, { 0, 0, 1 } ) }
+    , worldScale{ std::max( 0.0f, _info.worldScale ) }
+    , importedLightIntensityScaleDirectional{ OneIfNonZero(
+          _info.importedLightIntensityScaleDirectional ) }
+    , importedLightIntensityScaleSphere{ OneIfNonZero( _info.importedLightIntensityScaleSphere ) }
+    , importedLightIntensityScaleSpot{ OneIfNonZero( _info.importedLightIntensityScaleSpot ) }
 {
 }
 
 void RTGL1::SceneImportExport::RequestReimport()
 {
-    reimportRequested = true;
+    reimportStatic = true;
 }
 
 void RTGL1::SceneImportExport::RequestReplacementsReimport()
 {
-    reimportReplacementsRequested = true;
+    reimportReplacements = true;
 }
 
-void RTGL1::SceneImportExport::PrepareForFrame()
+namespace RTGL1
 {
+bool g_showAutoExportPlaque = false;
+}
+
+void RTGL1::SceneImportExport::PrepareForFrame( std::string_view mapName,
+                                                bool             allowSceneAutoExport )
+{
+    // import
+
+    if( reimportStaticInNextFrame )
+    {
+        reimportStatic            = true;
+        reimportStaticInNextFrame = false;
+    }
+
+    if( currentMap != mapName )
+    {
+        currentMap     = mapName;
+        reimportStatic = true;
+
+        if( allowSceneAutoExport && !currentMap.empty() )
+        {
+            if( !exists( MakeGltfPath( scenesFolder, GetImportMapName() ) ) )
+            {
+                exportRequested           = true;
+                reimportStatic            = false;
+                reimportStaticInNextFrame = true;
+
+                g_showAutoExportPlaque = true;
+            }
+        }
+    }
+
+    // export scene
+
     if( exportRequested )
     {
         assert( !sceneExporter );
-        sceneExporter =
-            std::make_unique< GltfExporter >( MakeWorldTransform(), GetWorldScale(), true );
+        sceneExporter   = std::make_unique< GltfExporter >( MakeImportExportParams(), true );
         exportRequested = false;
     }
+
+    // export replacements
 
     if( exportReplacementsRequest == ExportState::OneFrame )
     {
         assert( !replacementsExporter );
-        replacementsExporter =
-            std::make_unique< GltfExporter >( MakeWorldTransform(), GetWorldScale(), false );
+        replacementsExporter = std::make_unique< GltfExporter >( MakeImportExportParams(), false );
     }
     else if( exportReplacementsRequest == ExportState::Recording )
     {
         if( !replacementsExporter )
         {
             replacementsExporter =
-                std::make_unique< GltfExporter >( MakeWorldTransform(), GetWorldScale(), false );
+                std::make_unique< GltfExporter >( MakeImportExportParams(), false );
         }
     }
 }
 
-void RTGL1::SceneImportExport::CheckForNewScene( std::string_view    mapName,
-                                                 VkCommandBuffer     cmd,
-                                                 uint32_t            frameIndex,
-                                                 Scene&              scene,
-                                                 TextureManager&     textureManager,
-                                                 TextureMetaManager& textureMeta,
-                                                 LightManager&       lightManager )
+void RTGL1::SceneImportExport::TryImportIfNew( VkCommandBuffer           cmd,
+                                               uint32_t                  frameIndex,
+                                               Scene&                    scene,
+                                               TextureManager&           textureManager,
+                                               TextureMetaManager&       textureMeta,
+                                               LightManager&             lightManager,
+                                               RgStaticSceneStatusFlags* out_staticSceneStatus )
 {
-    // ensure valid state
-    {
-        if( currentMap != mapName )
-        {
-            currentMap        = mapName;
-            reimportRequested = true;
-        }
-    }
+    const bool newSceneRequested = reimportStatic || reimportStaticInNextFrame;
 
-    if( reimportReplacementsRequested || reimportRequested )
+    if( reimportReplacements || reimportStatic )
     {
         // before importer, as it relies on texture properties
         textureMeta.RereadFromFiles( GetImportMapName() );
 
         scene.NewScene( cmd,
                         frameIndex,
-                        MakeWorldTransform(),
-                        GetWorldScale(),
+                        MakeImportExportParams(),
                         MakeGltfPath( scenesFolder, GetImportMapName() ),
-                        reimportReplacementsRequested ? &replacementsFolder : nullptr,
+                        reimportReplacements ? &replacementsFolder : nullptr,
                         textureManager,
                         textureMeta,
                         lightManager );
 
-        reimportReplacementsRequested = false;
-        reimportRequested             = false;
+        reimportReplacements = false;
+        reimportStatic       = false;
+    }
+
+    if( out_staticSceneStatus )
+    {
+        *out_staticSceneStatus = 0;
+
+        if( scene.StaticSceneExists() )
+        {
+            ( *out_staticSceneStatus ) |= RG_STATIC_SCENE_STATUS_LOADED;
+        }
+        if( newSceneRequested )
+        {
+            ( *out_staticSceneStatus ) |= RG_STATIC_SCENE_STATUS_NEW_SCENE_STARTED;
+        }
+        if( sceneExporter )
+        {
+            ( *out_staticSceneStatus ) |= RG_STATIC_SCENE_STATUS_EXPORT_STARTED;
+        }
     }
 }
 
@@ -884,6 +1377,17 @@ float RTGL1::SceneImportExport::GetWorldScale() const
 
     assert( worldScale >= 0.0f );
     return worldScale;
+}
+
+auto RTGL1::SceneImportExport::MakeImportExportParams() const -> RTGL1::ImportExportParams
+{
+    return ImportExportParams{
+        .worldTransform                         = MakeWorldTransform(),
+        .oneGameUnitInMeters                    = GetWorldScale(),
+        .importedLightIntensityScaleDirectional = importedLightIntensityScaleDirectional,
+        .importedLightIntensityScaleSphere      = importedLightIntensityScaleSphere,
+        .importedLightIntensityScaleSpot        = importedLightIntensityScaleSpot,
+    };
 }
 
 auto RTGL1::SceneImportExport::MakeWorldTransform() const -> RgTransform

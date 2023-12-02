@@ -29,6 +29,21 @@
 
 using namespace RTGL1;
 
+
+namespace RTGL1
+{
+extern bool g_supportsPositionFetch;
+
+namespace
+{
+    VkBuildAccelerationStructureFlagsKHR AdditionalFlags()
+    {
+        return g_supportsPositionFetch ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_DATA_ACCESS_KHR : 0;
+    }
+}
+}
+
+
 ASBuilder::ASBuilder( std::shared_ptr< ChunkedStackAllocator > _commonScratchBuffer )
     : scratchBuffer( std::move( _commonScratchBuffer ) )
 {
@@ -53,7 +68,7 @@ auto ASBuilder::GetBuildSizes( VkDevice                                         
     auto buildInfo = VkAccelerationStructureBuildGeometryInfoKHR{
         .sType         = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
         .type          = type,
-        .flags         = flags,
+        .flags         = flags | AdditionalFlags(),
         .geometryCount = static_cast< uint32_t >( geometries.size() ),
         .pGeometries   = geometries.data(),
         .ppGeometries  = nullptr,
@@ -104,7 +119,7 @@ void ASBuilder::AddBLAS( VkAccelerationStructureKHR                             
     auto buildInfo = VkAccelerationStructureBuildGeometryInfoKHR{
         .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
         .type  = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR,
-        .flags = flags,
+        .flags = flags | AdditionalFlags(),
         .mode  = update ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR
                         : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR,
         .srcAccelerationStructure = update ? as : VK_NULL_HANDLE,
@@ -166,7 +181,7 @@ void ASBuilder::AddTLAS( VkAccelerationStructureKHR                      as,
     VkAccelerationStructureBuildGeometryInfoKHR buildInfo = {
         .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR,
         .type  = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR,
-        .flags = flags,
+        .flags = flags | AdditionalFlags(),
         .mode  = update ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR
                         : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR,
         .srcAccelerationStructure = update ? as : VK_NULL_HANDLE,

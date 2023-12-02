@@ -34,10 +34,11 @@ layout(push_constant) uniform CasPush_BT
     uvec4 con1;
 } push;
 
-    // CAS impl
-    #define A_GPU 1
-    #define A_GLSL 1
-    #include "CAS/ffx_a.h"
+// CAS impl
+#define A_GPU 1
+#define A_GLSL 1
+#define CAS_RTGL1_HDRHACK_BEGIN 1
+#include "CAS/ffx_a.h"
 
     // CAS should operate in linear space 
     AF3 loadInput(const ASU2 p) 
@@ -69,7 +70,10 @@ layout(push_constant) uniform CasPush_BT
         return loadInput(p);
     }
     void CasInput(inout AF1 r,inout AF1 g,inout AF1 b){}
-    #include "CAS/ffx_cas.h"
+#include "CAS/ffx_cas.h"
+#ifndef CAS_RTGL1_HDRHACK_END
+#error ffx_cas.h must be unbound for HDR. RTGL1's custom ffx_cas.h defines CAS_RTGL1_HDRHACK_END
+#endif
 
 void applyCas()
 {

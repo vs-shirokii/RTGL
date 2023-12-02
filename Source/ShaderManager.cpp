@@ -25,12 +25,20 @@
 #include <cstring>
 #include "RgException.h"
 
+#include "Generated/ShaderCommonC.h"
+
 using namespace RTGL1;
+
+enum
+{
+    USES_RAY_QUERY_OR_POSITION_FETCH = 1,
+};
 
 struct ShaderModuleDefinition
 {
-    std::string_view      name{};
-    std::string_view      filename{};
+    const char*           name{};
+    const char*           filename{};
+    uint32_t              flags{ 0 };
     // will be parsed from filename once
     VkShaderStageFlagBits stage{ VK_SHADER_STAGE_ALL };
 };
@@ -44,7 +52,7 @@ static ShaderModuleDefinition G_SHADERS[] =
     { "RGenReflRefr",               "RtRaygenReflRefr.rgen.spv"             },
     { "RGenDirect",                 "RtRaygenDirect.rgen.spv"               },
     { "RGenIndirectInit",           "RtRaygenIndirectInit.rgen.spv"         },
-    { "RGenIndirectFinal",          "RtRaygenIndirectFinal.rgen.spv"        },
+    { "CmIndirectFinal",            "RtRaygenIndirectFinal.comp.spv"        },
     { "RGenGradients",              "RtGradients.rgen.spv"                  },
     { "RInitialReservoirs",         "RtInitialReservoirs.rgen.spv"          },
     { "RVolumetric",                "RtVolumetric.rgen.spv"                 },
@@ -52,13 +60,21 @@ static ShaderModuleDefinition G_SHADERS[] =
     { "RMissShadow",                "RtMissShadowCheck.rmiss.spv"           },
     { "RClsOpaque",                 "RtClsOpaque.rchit.spv"                 },
     { "RAlphaTest",                 "RtAlphaTest.rahit.spv"                 },
+#if LIGHT_GRID_ENABLED
     { "CLightGridBuild",            "CmLightGridBuild.comp.spv"             },
+#endif
     { "CPrepareFinal",              "CmPrepareFinal.comp.spv"               },
     { "CLuminanceHistogram",        "CmLuminanceHistogram.comp.spv"         },
     { "CLuminanceAvg",              "CmLuminanceAvg.comp.spv"               },
     { "CVolumetricProcess",         "CmVolumetricProcess.comp.spv"          },
     { "ScatterAccum",               "CmScatterAccum.comp.spv"               },
-    { "FragWorld",                  "RsWorld.frag.spv"                      },
+    { "Fluid_Generate",             "Fluid_Generate.comp.spv"               },
+    { "Fluid_Particles",            "Fluid_Particles.comp.spv"              , USES_RAY_QUERY_OR_POSITION_FETCH },
+    { "Fluid_VisualizeVert",        "Fluid_Visualize.vert.spv"              },
+    { "Fluid_VisualizeFrag",        "Fluid_Visualize.frag.spv"              },
+    { "Fluid_DepthSmooth",          "Fluid_DepthSmooth.comp.spv"            },
+    { "FragWorld",                  "RsWorld_RT.frag.spv"                   },
+    { "FragWorldClassic",           "RsWorld_Classic.frag.spv"              },
     { "FragSky",                    "RsSky.frag.spv"                        },
     { "FragSwapchain",              "RsSwapchain.frag.spv"                  },
     { "VertDefault",                "RsRasterizer.vert.spv"                 },
@@ -75,6 +91,7 @@ static ShaderModuleDefinition G_SHADERS[] =
     { "CBloomDownsample",           "CmBloomDownsample.comp.spv"            },
     { "CBloomUpsample",             "CmBloomUpsample.comp.spv"              },
     { "CBloomApply",                "CmBloomApply.comp.spv"                 },
+    { "CBloomPreload",              "CmBloomPreload.comp.spv"               },
     { "CCheckerboard",              "CmCheckerboard.comp.spv"               },
     { "CCas",                       "CmCas.comp.spv"                        },
     { "VertLensFlare",              "RsRasterizerLensFlare.vert.spv"        },
@@ -92,16 +109,22 @@ static ShaderModuleDefinition G_SHADERS[] =
     { "EffectColorTint",            "EfColorTint.comp.spv"                  },
     { "EffectTeleport",             "EfTeleport.comp.spv"                   },
     { "EffectHueShift",             "EfHueShift.comp.spv"                   },
+    { "EffectNightVision",          "EfNightVision.comp.spv"                },
     { "EffectCrtDemodulateEncode",  "EfCrtDemodulateEncode.comp.spv"        },
     { "EffectCrtDecode",            "EfCrtDecode.comp.spv"                  },
     { "EffectVHS",                  "EfVHS.comp.spv"                        },
     { "EffectDither",               "EfDither.comp.spv"                     },
+    { "EffectHDRPrepare",           "EfHDRPrepare.comp.spv"                 },
 };
 
 // clang-format on
 
-ShaderManager::ShaderManager( VkDevice _device, std::filesystem::path _shaderFolderPath )
-    : device( _device ), shaderFolderPath( std::move( _shaderFolderPath ) )
+ShaderManager::ShaderManager( VkDevice              _device,
+                              std::filesystem::path _shaderFolderPath,
+                              bool                  _supportsRayQueryAndPositionFetch )
+    : device( _device )
+    , shaderFolderPath( std::move( _shaderFolderPath ) )
+    , supportsRayQueryAndPositionFetch( _supportsRayQueryAndPositionFetch )
 {
     LoadShaderModules();
 }
@@ -127,8 +150,19 @@ void ShaderManager::LoadShaderModules()
 {
     for( auto& s : G_SHADERS )
     {
-        assert( !s.filename.empty() );
-        assert( !s.name.empty() );
+        assert( strlen( s.filename ) > 0 );
+        assert( strlen( s.name ) > 0 );
+
+        if( s.flags & USES_RAY_QUERY_OR_POSITION_FETCH )
+        {
+            if( !supportsRayQueryAndPositionFetch )
+            {
+                debug::Warning(
+                    "Skipping \'{}\' shader, as ray query or position fetch is not supported",
+                    s.filename );
+                continue;
+            }
+        }
 
         if( s.stage == VK_SHADER_STAGE_ALL )
         {
@@ -139,7 +173,7 @@ void ShaderManager::LoadShaderModules()
         auto path = shaderFolderPath / s.filename;
 
         VkShaderModule m = LoadModuleFromFile( path.c_str() );
-        SET_DEBUG_NAME( device, m, VK_OBJECT_TYPE_SHADER_MODULE, s.name.data() );
+        SET_DEBUG_NAME( device, m, VK_OBJECT_TYPE_SHADER_MODULE, s.name );
 
         modules[ s.name ] = { m, s.stage };
     }
@@ -252,7 +286,10 @@ VkShaderStageFlagBits ShaderManager::GetStageByExtension( std::string_view name 
 
 void ShaderManager::Subscribe( std::shared_ptr< IShaderDependency > subscriber )
 {
-    subscribers.emplace_back( subscriber );
+    if( subscriber )
+    {
+        subscribers.emplace_back( subscriber );
+    }
 }
 
 void ShaderManager::NotifySubscribersAboutReload()
@@ -264,4 +301,9 @@ void ShaderManager::NotifySubscribersAboutReload()
             s->OnShaderReload( this );
         }
     }
+
+    auto ifExpired = []( const std::weak_ptr< IShaderDependency >& ws ) {
+        return ws.expired();
+    };
+    erase_if( subscribers, ifExpired );
 }

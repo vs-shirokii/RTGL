@@ -21,15 +21,12 @@
 #ifndef EXPOSURE_H_
 #define EXPOSURE_H_
 
-#ifndef DESC_SET_TONEMAPPING
-    #error DESC_SET_TONEMAPPING is required
-#endif
-
 float getManualEV100( float aperture, float shutterTime, float iso )
 {
     return log2( square( aperture ) / shutterTime * 100.0 / iso );
 }
 
+#ifdef DESC_SET_TONEMAPPING
 float getAutoEV100()
 {
     const float lumAverage = max( 0.0, tonemapping.avgLuminance );
@@ -43,6 +40,7 @@ float getCurrentEV100()
     bool manual = false;
     return manual ? getManualEV100( 1.0 / 8.0, 1.0 / 500.0, 100 ) : getAutoEV100();
 }
+#endif
 
 float ev100ToLuminousExposure( float ev100 )
 {

@@ -46,12 +46,14 @@
 #include "UserFunction.h"
 #include "Bloom.h"
 #include "Sharpening.h"
-#include "DLSS.h"
+#include "DLSS2.h"
+#include "DLSS3_DX12.h"
 #include "RenderResolutionHelper.h"
 #include "EffectWipe.h"
 #include "EffectSimple_Instances.h"
 #include "LightGrid.h"
 #include "FSR2.h"
+#include "FSR3_DX12.h"
 #include "FrameState.h"
 #include "PortalList.h"
 #include "RestirBuffers.h"
@@ -62,6 +64,7 @@
 #include "TextureMeta.h"
 #include "SceneMeta.h"
 #include "DrawFrameInfo.h"
+#include "Fluid.h"
 #include "VulkanDevice_Dev.h"
 // clang-format on
 
@@ -84,6 +87,7 @@ public:
 
     void UploadMeshPrimitive( const RgMeshInfo* pMesh, const RgMeshPrimitiveInfo* pPrimitive );
     void UploadLensFlare( const RgLensFlareInfo* pInfo );
+    void SpawnFluid( const RgSpawnFluidInfo* pInfo );
 
     void UploadCamera( const RgCameraInfo* pInfo );
 
@@ -97,27 +101,17 @@ public:
     void DrawFrame( const RgDrawFrameInfo* pInfo );
 
 
-    bool IsSuspended() const;
-    bool IsUpscaleTechniqueAvailable( RgRenderUpscaleTechnique technique ) const;
+    bool IsUpscaleTechniqueAvailable( RgRenderUpscaleTechnique technique,
+                                      RgFrameGenerationMode    frameGeneration,
+                                      const char**             ppFailureReason ) const;
+
+    bool              IsDXGIAvailable( const char** ppFailureReason ) const;
+    RgFeatureFlags    GetSupportedFeatures() const;
+    RgUtilMemoryUsage RequestMemoryUsage() const;
 
     RgPrimitiveVertex* ScratchAllocForVertices( uint32_t count );
     void               ScratchFree( const RgPrimitiveVertex* pPointer );
-
-    inline void ScratchGetIndices( RgUtilImScratchTopology topology,
-                                   uint32_t                vertexCount,
-                                   const uint32_t**        ppOutIndices,
-                                   uint32_t*               pOutIndexCount );
-    inline void ImScratchClear();
-    inline void ImScratchStart( RgUtilImScratchTopology topology );
-    inline void ImScratchEnd();
-    inline void ImScratchVertex( const float& x, const float& y, const float& z );
-    inline void ImScratchNormal( const float& x, const float& y, const float& z );
-    inline void ImScratchTexCoord( const float& u, const float& v );
-    inline void ImScratchTexCoord_Layer1( const float& u, const float& v );
-    inline void ImScratchTexCoord_Layer2( const float& u, const float& v );
-    inline void ImScratchTexCoord_Layer3( const float& u, const float& v );
-    inline void ImScratchColor( const RgColor4DPacked32& color );
-    inline void ImScratchSetToPrimitive( RgMeshPrimitiveInfo* pTarget );
+    ScratchImmediate&  ScratchIm() { return scratchImmediate; }
 
 
     void Print( std::string_view msg, RgMessageSeverityFlags severity ) const;
@@ -127,7 +121,7 @@ private:
     void CreateInstance( const RgInstanceCreateInfo& info );
     void CreateDevice();
     void CreateSyncPrimitives();
-    void ValidateCreateInfo( const RgInstanceCreateInfo* pInfo ) const;
+    void ValidateAndOverrideCreateInfo( const RgInstanceCreateInfo* pInfo ) const;
 
     void DestroyInstance();
     void DestroyDevice();
@@ -136,18 +130,21 @@ private:
     void FillUniform( ShGlobalUniform* gu, const RgDrawFrameInfo& drawInfo ) const;
 
     VkCommandBuffer BeginFrame( const RgStartFrameInfo& info );
-    void            Render( VkCommandBuffer cmd, const RgDrawFrameInfo& drawInfo );
-    void            EndFrame( VkCommandBuffer cmd );
+    auto            Render( VkCommandBuffer &cmd, const RgDrawFrameInfo& drawInfo ) -> FramebufferImageIndex;
+    void            EndFrame( VkCommandBuffer cmd, FramebufferImageIndex rendered );
+
+    void DrawEndUserWarnings();
 
 private:
     bool Dev_IsDevmodeInitialized() const;
     void Dev_Draw() const;
-    void Dev_Override( RgStartFrameInfo& info ) const;
+    void Dev_Override( RgStartFrameInfo&                   info,
+                       RgStartFrameRenderResolutionParams& resolution,
+                       RgStartFrameFluidParams&            fluid ) const;
     void Dev_Override( RgCameraInfo& info ) const;
-    void Dev_Override( RgDrawFrameRenderResolutionParams& resolution,
-                       RgDrawFrameIlluminationParams&     illumination,
+    void Dev_Override( RgDrawFrameIlluminationParams&     illumination,
                        RgDrawFrameTonemappingParams&      tonemappingp,
-                       RgDrawFrameLightmapParams&         lightmap ) const;
+                       RgDrawFrameTexturesParams&         textures ) const;
     void Dev_TryBreak( const char* pTextureName, bool isImageUpload );
 
 private:
@@ -159,14 +156,18 @@ private:
 
     // incremented every frame
     uint32_t frameId;
+    uint64_t timelineFrame{ 1 };
 
     VkFence     frameFences[ MAX_FRAMES_IN_FLIGHT ]              = {};
-    VkSemaphore imageAvailableSemaphores[ MAX_FRAMES_IN_FLIGHT ] = {};
-    VkSemaphore renderFinishedSemaphores[ MAX_FRAMES_IN_FLIGHT ] = {};
+    VkSemaphore debugFinishedSemaphores[ MAX_FRAMES_IN_FLIGHT ]  = {};
     VkSemaphore inFrameSemaphores[ MAX_FRAMES_IN_FLIGHT ]        = {};
+    VkSemaphore vkswapchainAvailableSemaphores[ MAX_FRAMES_IN_FLIGHT ] = {};
+    VkSemaphore emulatedSemaphores[ MAX_FRAMES_IN_FLIGHT ]       = {};
 
     bool    waitForOutOfFrameFence;
     VkFence outOfFrameFences[ MAX_FRAMES_IN_FLIGHT ] = {};
+
+    bool m_supportsRayQueryAndPositionFetch{ false };
 
     std::shared_ptr< PhysicalDevice > physDevice;
     std::shared_ptr< Queues >         queues;
@@ -179,6 +180,7 @@ private:
     std::shared_ptr< Framebuffers >  framebuffers;
     std::shared_ptr< RestirBuffers > restirBuffers;
     std::shared_ptr< Volumetric >    volumetric;
+    std::shared_ptr< Fluid >         fluid;
 
     std::shared_ptr< GlobalUniform >     uniform;
     std::shared_ptr< Scene >             scene;
@@ -196,13 +198,16 @@ private:
     std::shared_ptr< ImageComposition >          imageComposition;
     std::shared_ptr< Bloom >                     bloom;
     std::shared_ptr< FSR2 >                      amdFsr2;
-    std::shared_ptr< DLSS >                      nvDlss;
+    std::shared_ptr< FSR3_DX12 >                 amdFsr3dx12;
+    std::shared_ptr< DLSS2 >                     nvDlss2;
+    std::shared_ptr< DLSS3_DX12 >                nvDlss3dx12;
     std::shared_ptr< Sharpening >                sharpening;
     std::shared_ptr< EffectWipe >                effectWipe;
     std::shared_ptr< EffectRadialBlur >          effectRadialBlur;
     std::shared_ptr< EffectChromaticAberration > effectChromaticAberration;
     std::shared_ptr< EffectInverseBW >           effectInverseBW;
     std::shared_ptr< EffectHueShift >            effectHueShift;
+    std::shared_ptr< EffectNightVision >         effectNightVision;
     std::shared_ptr< EffectDistortedSides >      effectDistortedSides;
     std::shared_ptr< EffectWaves >               effectWaves;
     std::shared_ptr< EffectColorTint >           effectColorTint;
@@ -211,6 +216,7 @@ private:
     std::shared_ptr< EffectCrtDecode >           effectCrtDecode;
     std::shared_ptr< EffectVHS >                 effectVHS;
     std::shared_ptr< EffectDither >              effectDither;
+    std::shared_ptr< EffectHDRPrepare >          effectHDRPrepare;
 
     std::shared_ptr< SamplerManager >     worldSamplerManager;
     std::shared_ptr< SamplerManager >     genericSamplerManager;
@@ -222,24 +228,13 @@ private:
 
     std::filesystem::path ovrdFolder;
 
-    LibraryConfig                     libconfig;
     VkDebugUtilsMessengerEXT          debugMessenger;
     std::unique_ptr< UserPrint >      userPrint;
     std::shared_ptr< DebugWindows >   debugWindows;
     ScratchImmediate                  scratchImmediate;
     std::unique_ptr< FolderObserver > observer;
-
-    struct CameraInfo
-    {
-        float view[ 16 ]{};
-        float projection[ 16 ]{};
-        float viewInverse[ 16 ]{};
-        float projectionInverse[ 16 ]{};
-        float aspect{ 16.0 / 9.0f };
-        float fovYRadians{ 1.0f };
-        float cameraNear{ 0.1f };
-        float cameraFar{ 1000.0f };
-    } cameraInfo{};
+    
+    float lightmapScreenCoverage{ 0 };
 
     // TODO: remove; used to not allocate on each call
     std::vector< PositionNormal > tempStorageInit;
@@ -248,79 +243,22 @@ private:
     std::unique_ptr< Devmode > devmode;
 
     bool rayCullBackFacingTriangles;
-    bool allowGeometryWithSkyFlag;
 
     RenderResolutionHelper renderResolution;
 
     double previousFrameTime;
     double currentFrameTime;
+
+    mutable std::pair< double, RgUtilMemoryUsage > cachedMemoryUsage{};
+
+    const std::string appGuid;
+
+    std::optional< RgExtent2D > m_pixelated{};
+    FramebufferImageIndex       m_prevAccum{ FB_IMAGE_INDEX_UPSCALED_PONG };
+    bool                        m_skipGeneratedFrame{ false };
+
+    RgFloat3D fluidGravity{ 0, -9.8f, 0 };
+    RgFloat3D fluidColor{ 1, 1, 1 };
 };
 
-}
-
-
-inline void RTGL1::VulkanDevice::ScratchGetIndices( RgUtilImScratchTopology topology,
-                                                    uint32_t                vertexCount,
-                                                    const uint32_t**        ppOutIndices,
-                                                    uint32_t*               pOutIndexCount )
-{
-    const auto indices = scratchImmediate.GetIndices( topology, vertexCount );
-
-    *ppOutIndices   = indices.data();
-    *pOutIndexCount = uint32_t( indices.size() );
-}
-
-inline void RTGL1::VulkanDevice::ImScratchClear()
-{
-    scratchImmediate.Clear();
-}
-
-inline void RTGL1::VulkanDevice::ImScratchStart( RgUtilImScratchTopology topology )
-{
-    scratchImmediate.StartPrimitive( topology );
-}
-
-inline void RTGL1::VulkanDevice::ImScratchEnd()
-{
-    scratchImmediate.EndPrimitive();
-}
-
-inline void RTGL1::VulkanDevice::ImScratchVertex( const float& x, const float& y, const float& z )
-{
-    scratchImmediate.Vertex( x, y, z );
-}
-
-inline void RTGL1::VulkanDevice::ImScratchNormal( const float& x, const float& y, const float& z )
-{
-    scratchImmediate.Normal( x, y, z );
-}
-
-inline void RTGL1::VulkanDevice::ImScratchTexCoord( const float& u, const float& v )
-{
-    scratchImmediate.TexCoord( u, v );
-}
-
-inline void RTGL1::VulkanDevice::ImScratchTexCoord_Layer1( const float& u, const float& v )
-{
-    scratchImmediate.TexCoord_Layer1( u, v );
-}
-
-inline void RTGL1::VulkanDevice::ImScratchTexCoord_Layer2( const float& u, const float& v )
-{
-    scratchImmediate.TexCoord_Layer2( u, v );
-}
-
-inline void RTGL1::VulkanDevice::ImScratchTexCoord_Layer3( const float& u, const float& v )
-{
-    scratchImmediate.TexCoord_Layer3( u, v );
-}
-
-inline void RTGL1::VulkanDevice::ImScratchColor( const RgColor4DPacked32& color )
-{
-    scratchImmediate.Color( color );
-}
-
-inline void RTGL1::VulkanDevice::ImScratchSetToPrimitive( RgMeshPrimitiveInfo* pTarget )
-{
-    scratchImmediate.SetToPrimitive( pTarget );
 }

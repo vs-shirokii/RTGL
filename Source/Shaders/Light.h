@@ -21,18 +21,20 @@
 #ifndef LIGHT_H_
 #define LIGHT_H_
 
+#include "Utils.h"
+
 struct DirectionalLight
 {
-    vec3 direction;
+    vec3  color;
     float angularRadius;
-    vec3 color;
+    vec3  direction;
 };
 
 struct SphereLight
 {
-    vec3 center;
+    vec3  color;
     float radius;
-    vec3 color;
+    vec3  center;
 };
 
 struct TriangleLight
@@ -45,20 +47,20 @@ struct TriangleLight
 
 struct SpotLight
 {
-    vec3 center;
+    vec3  color;
     float radius;
-    vec3 direction;
+    vec3  center;
     float cosAngleInner;
-    vec3 color;
+    vec3  direction;
     float cosAngleOuter;
 };
 
 DirectionalLight decodeAsDirectionalLight(const ShLightEncoded encoded)
 {
     DirectionalLight l;
-    l.direction = encoded.data_0.xyz;
-    l.angularRadius = encoded.data_0.w;
-    l.color = encoded.color;
+    l.color         = decodeE5B9G9R9( encoded.colorE5 );
+    l.direction     = vec3( encoded.ldata0, encoded.ldata1, encoded.ldata2 );
+    l.angularRadius = encoded.ldata3;
 
     return l;
 }
@@ -66,15 +68,23 @@ DirectionalLight decodeAsDirectionalLight(const ShLightEncoded encoded)
 SphereLight decodeAsSphereLight(const ShLightEncoded encoded)
 {
     SphereLight l;
-    l.center = encoded.data_0.xyz;
-    l.radius = encoded.data_0.w;
-    l.color = encoded.color;
+    l.color  = decodeE5B9G9R9( encoded.colorE5 );
+    l.center = vec3( encoded.ldata0, encoded.ldata1, encoded.ldata2 );
+    {
+        const vec2 rn = unpackHalf2x16( floatBitsToUint( encoded.ldata3 ) );
+
+        l.radius = rn[ 0 ];
+        l.color *= rn[ 1 ]; // additional multiplier as e5 encoding might not preserve large values
+    }
 
     return l;
 }
 
+#if TRIANGLE_LIGHTS
 TriangleLight decodeAsTriangleLight(const ShLightEncoded encoded)
 {
+    #error Refine decoding, as it's obsolete for TriangleLight
+
     TriangleLight l;
     l.position[0] = encoded.data_0.xyz;
     l.position[1] = encoded.data_1.xyz;
@@ -93,17 +103,29 @@ TriangleLight decodeAsTriangleLight(const ShLightEncoded encoded)
 
     return l;
 }
+#endif
 
 SpotLight decodeAsSpotLight(const ShLightEncoded encoded)
 {
     SpotLight l;
-    l.center = encoded.data_0.xyz;
-    l.radius = encoded.data_0.w;
-    l.direction = encoded.data_1.xyz;
-    l.color = encoded.color;
-    l.cosAngleInner = encoded.data_2.x;
-    l.cosAngleOuter = encoded.data_2.y;
-    
+    l.color  = decodeE5B9G9R9( encoded.colorE5 );
+    l.radius = 0.05; // HARDCODED
+    {
+        vec4 p0 = vec4( unpackHalf2x16( floatBitsToUint( encoded.ldata0 ) ),
+                        unpackHalf2x16( floatBitsToUint( encoded.ldata1 ) ) );
+
+        l.center = p0.xyz;
+        l.color *= p0.w; // additional multiplier as e5 encoding might not preserve large values
+    }
+    {
+        const uint dt = floatBitsToUint( encoded.ldata3 );
+
+        l.direction = vec3( unpackHalf2x16( floatBitsToUint( encoded.ldata2 ) ), //
+                            unpackHalf2x16( dt ).y );
+
+        l.cosAngleInner = float( ( dt >> 8u ) & 255u ) / 255.0;
+        l.cosAngleOuter = float( ( dt ) & 255u ) / 255.0;
+    }
     return l;
 }
 
@@ -139,7 +161,8 @@ float getGeometryFactorClamped(const vec3 lightNormal, const vec3 lightToSurface
 
 float safeSolidAngle(float a)
 {
-    return a > 0.0 && !isnan(a) && !isinf(a) ? clamp(a, 0.0, 4.0 * M_PI) : 0.0;
+    const float s = !isnan( a ) && !isinf( a ) ? a : 0.0;
+    return clamp( s, 0.0, 4.0 * M_PI );
 }
 
 float calcSolidAngleForSphere(float sphereRadius, float distanceToSphereCenter)
@@ -294,8 +317,10 @@ float getLightWeight(const ShLightEncoded encoded, const vec3 cellCenter, float 
     {
         case LIGHT_TYPE_DIRECTIONAL:    return getDirectionalLightWeight(decodeAsDirectionalLight   (encoded), cellCenter, cellRadius);
         case LIGHT_TYPE_SPHERE:         return getSphereLightWeight     (decodeAsSphereLight        (encoded), cellCenter, cellRadius);
-        case LIGHT_TYPE_TRIANGLE:       return getTriangleLightWeight   (decodeAsTriangleLight      (encoded), cellCenter, cellRadius);
         case LIGHT_TYPE_SPOT:           return getSpotLightWeight       (decodeAsSpotLight          (encoded), cellCenter, cellRadius);
+#if TRIANGLE_LIGHTS
+        case LIGHT_TYPE_TRIANGLE:       return getTriangleLightWeight   (decodeAsTriangleLight      (encoded), cellCenter, cellRadius);
+#endif
         default:                        return 0.0;
     }
 }
@@ -306,8 +331,10 @@ LightSample sampleLight(const ShLightEncoded encoded, const vec3 surfPosition, c
     {
         case LIGHT_TYPE_DIRECTIONAL:    return sampleDirectionalLight   (decodeAsDirectionalLight   (encoded), surfPosition, pointRnd);
         case LIGHT_TYPE_SPHERE:         return sampleSphereLight        (decodeAsSphereLight        (encoded), surfPosition, pointRnd);
-        case LIGHT_TYPE_TRIANGLE:       return sampleTriangleLight      (decodeAsTriangleLight      (encoded), surfPosition, pointRnd);
         case LIGHT_TYPE_SPOT:           return sampleSpotLight          (decodeAsSpotLight          (encoded), surfPosition, pointRnd);
+#if TRIANGLE_LIGHTS
+        case LIGHT_TYPE_TRIANGLE:       return sampleTriangleLight      (decodeAsTriangleLight      (encoded), surfPosition, pointRnd);
+#endif
         default:                        return emptyLightSample();
     }
 }

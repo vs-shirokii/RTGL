@@ -107,13 +107,12 @@ void main()
     // (f) get shading sample from current frame
     const uint oldSeed = getRandomSeed(prevShadingPix, globalUniform.frameId - 1);
 
-    Surface prevSurf = fetchGbufferSurface_NoAlbedoViewDir_Prev(prevShadingPix);
+    Surface prevSurf = fetchGbufferSurface_Prev(prevShadingPix);
 
     // get exact position from visibility buffer, and fix up prevSurf
     // to account subpix imprecision of G-buffer's surfacePosition
     const vec4 visBufPrev = texelFetch(framebufVisibilityBuffer_Prev_Sampler, prevShadingPix, 0);
     const bool matchedSurface = unpackPrevVisibilityBuffer(visBufPrev, prevSurf.position);
-    prevSurf.toViewerDir = normalize(globalUniform.cameraPositionPrev.xyz - prevSurf.position);
 
     vec2 forwardProjectedLuminance = vec2(0.0);
 
@@ -151,7 +150,7 @@ void main()
 
         // if it's bright enough, don't drop history
         float brightness = getLuminance( texelFetchIndirAccum_Prev( prevShadingPix ) );
-        gradSample *= 1.0 - smoothstep( 1.0, 10.0, brightness );
+        gradSample *= 1.0 - smoothstep( 0.0, 0.5, brightness );
 
         gradDIS[ 1 ] = getAntilagAlpha( gradSample, normFactor );
     }

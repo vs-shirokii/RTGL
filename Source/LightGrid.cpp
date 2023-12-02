@@ -31,10 +31,13 @@ RTGL1::LightGrid::LightGrid(
     const std::shared_ptr<BlueNoise> &_blueNoise,
     const std::shared_ptr<LightManager> &_lightManager
 )
+#if LIGHT_GRID_ENABLED_
     : device(_device)
     , pipelineLayout(VK_NULL_HANDLE)
     , gridBuildPipeline(VK_NULL_HANDLE)
+#endif
 {
+#if LIGHT_GRID_ENABLED_
     VkDescriptorSetLayout setLayouts[] =
     {
         _uniform->GetDescSetLayout(),
@@ -54,12 +57,15 @@ RTGL1::LightGrid::LightGrid(
 
 
     CreatePipelines(_shaderManager.get());
+#endif
 }
 
 RTGL1::LightGrid::~LightGrid()
 {
+#if LIGHT_GRID_ENABLED_
     vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
     DestroyPipelines();
+#endif
 }
 
 void RTGL1::LightGrid::Build(
@@ -68,6 +74,7 @@ void RTGL1::LightGrid::Build(
     const std::shared_ptr<BlueNoise> &blueNoise,
     const std::shared_ptr<LightManager> &lightManager)
 {
+#if LIGHT_GRID_ENABLED_
     CmdLabel label(cmd, "Light grid build");
 
 
@@ -91,16 +98,20 @@ void RTGL1::LightGrid::Build(
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, gridBuildPipeline);
     vkCmdDispatch(cmd, wgCountX, 1, 1);
+#endif
 }
 
 void RTGL1::LightGrid::OnShaderReload(const ShaderManager* shaderManager)
 {
+#if LIGHT_GRID_ENABLED_
     DestroyPipelines();
     CreatePipelines(shaderManager);
+#endif
 }
 
 void RTGL1::LightGrid::CreatePipelines(const ShaderManager* shaderManager)
 {
+#if LIGHT_GRID_ENABLED_
     VkComputePipelineCreateInfo plInfo = {};
     plInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     plInfo.layout = pipelineLayout;
@@ -110,11 +121,13 @@ void RTGL1::LightGrid::CreatePipelines(const ShaderManager* shaderManager)
     VK_CHECKERROR(r);
 
     SET_DEBUG_NAME(device, gridBuildPipeline, VK_OBJECT_TYPE_PIPELINE, "Light grid build pipeline");
+#endif
 }
 
 void RTGL1::LightGrid::DestroyPipelines()
 {
+#if LIGHT_GRID_ENABLED_
     vkDestroyPipeline(device, gridBuildPipeline, nullptr);
     gridBuildPipeline = VK_NULL_HANDLE;
-
+#endif
 }

@@ -64,7 +64,7 @@ using MeshesToTheirPrimitives =
 class GltfExporter
 {
 public:
-    explicit GltfExporter( const RgTransform& worldTransform, float oneGameUnitInMeters, bool allowDuplicates );
+    explicit GltfExporter( const ImportExportParams &params, bool allowDuplicates );
     ~GltfExporter() = default;
 
     GltfExporter( const GltfExporter& other )                = delete;
@@ -93,8 +93,7 @@ private:
     std::set< std::string >  sceneMaterials;
     std::vector< LightCopy > sceneLights;
 
-    RgTransform worldTransform;
-    float       oneGameUnitInMeters;
-    bool        allowDuplicates;
+    ImportExportParams params;
+    bool               allowDuplicates;
 };
 }

@@ -24,16 +24,48 @@
 #include "Matrix.h"
 #include "RenderResolutionHelper.h"
 #include "RgException.h"
+#include "DX12_CopyFramebuf.h"
+#include "DX12_Interop.h"
 #include "Utils.h"
 
 #include "Generated/ShaderCommonC.h"
 
 #include <algorithm>
 #include <cstring>
+#include <d3d12.h>
+#include <d3dx12.h>
+
+namespace RTGL1
+{
+namespace
+{
+    SwapchainType MakeSwapchainType( const RgStartFrameRenderResolutionParams& resolution )
+    {
+        if( resolution.frameGeneration != RG_FRAME_GENERATION_MODE_OFF )
+        {
+            switch( resolution.upscaleTechnique )
+            {
+                case RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2:
+                    return SWAPCHAIN_TYPE_FRAME_GENERATION_FSR3;
+
+                case RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS:
+                    return SWAPCHAIN_TYPE_FRAME_GENERATION_DLSS3;
+
+                default: break;
+            }
+        }
+        return resolution.preferDxgiPresent ? SWAPCHAIN_TYPE_DXGI //
+                                            : SWAPCHAIN_TYPE_VULKAN_NATIVE;
+    }
+}
+}
 
 VkCommandBuffer RTGL1::VulkanDevice::BeginFrame( const RgStartFrameInfo& info )
 {
     uint32_t frameIndex = currentFrameState.IncrementFrameIndexAndGet();
+    timelineFrame++;
+
+    assert( timelineFrame % dxgi::MAX_FRAMES_IN_FLIGHT_DX12 == frameIndex % MAX_FRAMES_IN_FLIGHT );
 
     if( !waitForOutOfFrameFence )
     {
@@ -46,12 +78,26 @@ VkCommandBuffer RTGL1::VulkanDevice::BeginFrame( const RgStartFrameInfo& info )
             device, frameFences[ frameIndex ], outOfFrameFences[ frameIndex ] );
     }
 
-    swapchain->RequestVsync( info.vsync );
-    swapchain->AcquireImage( imageAvailableSemaphores[ frameIndex ] );
+    if( swapchain->WithDXGI() )
+    {
+        auto present = Semaphores_GetVkDx12Shared( dxgi::SHARED_SEM_PRESENT_COPY )
+                           .value_or( dxgi::SharedSemaphore{} );
+        dxgi::WaitAndPrepareForFrame( present.d3d12fence, present.d3d12fenceEvent, timelineFrame );
+    }
 
 
-    VkSemaphore semaphoreToWaitOnSubmit = imageAvailableSemaphores[ frameIndex ];
+    const auto& resolution = pnext::get< RgStartFrameRenderResolutionParams >( info );
+    const auto& fluidInfo  = pnext::get< RgStartFrameFluidParams >( info );
 
+    swapchain->AcquireImage( info.vsync,
+                             info.hdr,
+                             MakeSwapchainType( resolution ),
+                             vkswapchainAvailableSemaphores[ frameIndex ] );
+    m_skipGeneratedFrame =
+        ( resolution.frameGeneration == RG_FRAME_GENERATION_MODE_WITHOUT_GENERATED );
+
+
+    VkSemaphore semaphoreToWaitOnSubmit = VK_NULL_HANDLE;
 
     // if out-of-frame cmd exist, submit it
     {
@@ -62,11 +108,11 @@ VkCommandBuffer RTGL1::VulkanDevice::BeginFrame( const RgStartFrameInfo& info )
             // Signal outOfFrameFences, but for the next frame
             // because we can't reset cmd pool with cmds (in this case
             // it's preFrameCmd) that are in use.
-            cmdManager->Submit( preFrameCmd,
-                                semaphoreToWaitOnSubmit,
-                                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                                inFrameSemaphores[ frameIndex ],
-                                outOfFrameFences[ ( frameIndex + 1 ) % MAX_FRAMES_IN_FLIGHT ] );
+            cmdManager->Submit_Binary( //
+                preFrameCmd,
+                {},
+                inFrameSemaphores[ frameIndex ],
+                outOfFrameFences[ ( frameIndex + 1 ) % MAX_FRAMES_IN_FLIGHT ] );
 
             // should wait other semaphore in this case
             semaphoreToWaitOnSubmit = inFrameSemaphores[ frameIndex ];
@@ -86,8 +132,25 @@ VkCommandBuffer RTGL1::VulkanDevice::BeginFrame( const RgStartFrameInfo& info )
         shaderManager->ReloadShaders();
         devmode->reloadShaders = false;
     }
-    sceneImportExport->PrepareForFrame();
+    sceneImportExport->PrepareForFrame( Utils::SafeCstr( info.pMapName ), info.allowMapAutoExport );
 
+    {
+        renderResolution.Setup( resolution,
+                                swapchain->GetWidth(),
+                                swapchain->GetHeight(),
+                                amdFsr2.get(),
+                                swapchain->WithFSR3FrameGeneration() ? amdFsr3dx12.get() : nullptr,
+                                nvDlss2.get(),
+                                swapchain->WithDLSS3FrameGeneration() ? nvDlss3dx12.get()
+                                                                      : nullptr );
+
+        framebuffers->PrepareForSize( renderResolution.GetResolutionState(),
+                                      ( swapchain->WithDXGI() ) );
+
+        m_pixelated = resolution.pixelizedRenderSizeEnable
+                          ? std::optional{ resolution.pixelizedRenderSize }
+                          : std::nullopt;
+    }
 
     // reset cmds for current frame index
     cmdManager->PrepareForFrame( frameIndex );
@@ -98,11 +161,34 @@ VkCommandBuffer RTGL1::VulkanDevice::BeginFrame( const RgStartFrameInfo& info )
     textureManager->PrepareForFrame( frameIndex );
     cubemapManager->PrepareForFrame( frameIndex );
     rasterizer->PrepareForFrame( frameIndex );
+    {
+        if( m_supportsRayQueryAndPositionFetch && fluidInfo.enabled && !fluid )
+        {
+            fluid = std::make_shared< Fluid >( device, //
+                                               cmdManager,
+                                               memAllocator,
+                                               framebuffers,
+                                               *shaderManager,
+                                               scene->GetASManager()->GetTLASDescSetLayout(),
+                                               fluidInfo.particleBudget,
+                                               fluidInfo.particleRadius );
+            shaderManager->Subscribe( fluid );
+            framebuffers->Subscribe( fluid );
+            fluid->OnFramebuffersSizeChange( renderResolution.GetResolutionState() );
+        }
+        else if( !fluidInfo.enabled && fluid )
+        {
+            fluid.reset();
+        }
+        fluidGravity = fluidInfo.gravity;
+        fluidColor   = fluidInfo.color;
+    }
     if( debugWindows )
     {
-        if( !debugWindows->PrepareForFrame( frameIndex ) )
+        if( !debugWindows->PrepareForFrame( frameIndex, info.vsync ) )
         {
             debugWindows.reset();
+            observer.reset();
         }
     }
     if( devmode )
@@ -115,26 +201,41 @@ VkCommandBuffer RTGL1::VulkanDevice::BeginFrame( const RgStartFrameInfo& info )
 
     textureManager->TryHotReload( cmd, frameIndex );
     lightManager->PrepareForFrame( cmd, frameIndex );
+    lightManager->SetLightstyles( info );
     scene->PrepareForFrame( cmd,
                             frameIndex,
                             info.ignoreExternalGeometry ||
-                                ( devmode && devmode->ignoreExternalGeometry ) );
+                                ( devmode && devmode->ignoreExternalGeometry ),
+                            info.staticSceneAnimationTime );
 
     {
-        sceneImportExport->CheckForNewScene( Utils::SafeCstr( info.pMapName ),
-                                             cmd,
-                                             frameIndex,
-                                             *scene,
-                                             *textureManager,
-                                             *textureMetaManager,
-                                             *lightManager );
+        sceneImportExport->TryImportIfNew( cmd,
+                                           frameIndex,
+                                           *scene,
+                                           *textureManager,
+                                           *textureMetaManager,
+                                           *lightManager,
+                                           info.pResultStaticSceneStatus );
+
         scene->SubmitStaticLights(
             frameIndex,
             *lightManager,
-            // SHIPPING HACK
+            // SHIPPING_HACK
             uniform->GetData()->volumeAllowTintUnderwater &&
                 uniform->GetData()->cameraMediaType == RG_MEDIA_TYPE_WATER,
             Utils::PackColorFromFloat( uniform->GetData()->volumeUnderwaterColor ) );
+    }
+
+    {
+        lightmapScreenCoverage = info.lightmapScreenCoverage < 0.01f ? 0.0f
+                                 : info.lightmapScreenCoverage > 0.99f
+                                     ? 1.0f
+                                     : info.lightmapScreenCoverage;
+    }
+
+    if( fluid )
+    {
+        fluid->PrepareForFrame( fluidInfo.reset );
     }
 
     return cmd;
@@ -145,8 +246,9 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
 {
     const float IdentityMat4x4[ 16 ] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
 
-    const float aspect = static_cast< float >( renderResolution.Width() ) /
-                         static_cast< float >( renderResolution.Height() );
+    const float aspect = renderResolution.Aspect();
+
+    const auto& cameraInfo = scene->GetCamera( renderResolution.Aspect() );
 
     {
         memcpy( gu->viewPrev, gu->view, 16 * sizeof( float ) );
@@ -159,9 +261,13 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
         memcpy( gu->invProjection, cameraInfo.projectionInverse, 16 * sizeof( float ) );
 
         memcpy( gu->cameraPositionPrev, gu->cameraPosition, 3 * sizeof( float ) );
-        gu->cameraPosition[ 0 ] = gu->invView[ 12 ];
-        gu->cameraPosition[ 1 ] = gu->invView[ 13 ];
-        gu->cameraPosition[ 2 ] = gu->invView[ 14 ];
+
+        auto p = MakeCameraPosition( cameraInfo );
+        {
+            gu->cameraPosition[ 0 ] = p.data[ 0 ];
+            gu->cameraPosition[ 1 ] = p.data[ 1 ];
+            gu->cameraPosition[ 2 ] = p.data[ 2 ];
+        }
     }
 
     {
@@ -180,11 +286,26 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
         gu->upscaledRenderWidth  = static_cast< float >( renderResolution.UpscaledWidth() );
         gu->upscaledRenderHeight = static_cast< float >( renderResolution.UpscaledHeight() );
 
-        RgFloat2D jitter = renderResolution.IsNvDlssEnabled()
-                               ? HaltonSequence::GetJitter_Halton23( frameId )
-                           : renderResolution.IsAmdFsr2Enabled()
-                               ? FSR2::GetJitter( renderResolution.GetResolutionState(), frameId )
-                               : RgFloat2D{ 0, 0 };
+        RgFloat2D jitter = { 0, 0 };
+        if( renderResolution.IsNvDlssEnabled() )
+        {
+            jitter = HaltonSequence::GetJitter_Halton23( frameId );
+        }
+        else if( renderResolution.IsAmdFsr2Enabled() )
+        {
+            if( amdFsr3dx12 )
+            {
+                jitter = amdFsr3dx12->GetJitter( renderResolution.GetResolutionState(), frameId );
+            }
+            else if( amdFsr2 )
+            {
+                jitter = amdFsr2->GetJitter( renderResolution.GetResolutionState(), frameId );
+            }
+            else
+            {
+                assert( 0 );
+            }
+        }
 
         gu->jitterX = jitter.data[ 0 ];
         gu->jitterY = jitter.data[ 1 ];
@@ -271,6 +392,7 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
         gu->emissionMapBoost       = std::max( params.emissionMapBoost, 0.0f );
         gu->emissionMaxScreenColor = std::max( params.emissionMaxScreenColor, 0.0f );
         gu->minRoughness           = std::clamp( params.minRoughness, 0.0f, 1.0f );
+        gu->parallaxMaxDepth       = std::max( params.heightMapDepth, 0.0f );
     }
 
     {
@@ -291,10 +413,10 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
     {
         const auto& params = pnext::get< RgDrawFrameBloomParams >( drawInfo );
 
-        gu->bloomThreshold          = std::max( params.inputThreshold, 0.0f );
-        gu->bloomIntensity          = std::max( params.bloomIntensity, 0.0f );
-        gu->bloomEmissionMultiplier = std::max( params.bloomEmissionMultiplier, 0.0f );
-        gu->lensDirtIntensity       = std::max( params.lensDirtIntensity, 0.0f );
+        gu->bloomThreshold    = std::max( params.inputThreshold, 0.0f );
+        gu->bloomIntensity    = 0.2f * std::max( params.bloomIntensity, 0.0f );
+        gu->bloomEV           = std::max( params.inputEV, 0.0f );
+        gu->lensDirtIntensity = std::max( params.lensDirtIntensity, 0.0f );
     }
 
     {
@@ -336,55 +458,13 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
     gu->primaryRayMinDist = clamp( cameraInfo.cameraNear, 0.001f, gu->rayLength );
 
     {
-        gu->rayCullMaskWorld = 0;
+        gu->rayCullMaskWorld =
+            INSTANCE_MASK_WORLD_0 | INSTANCE_MASK_WORLD_1 | INSTANCE_MASK_WORLD_2;
 
-        if( drawInfo.rayCullMaskWorld & RG_DRAW_FRAME_RAY_CULL_WORLD_0_BIT )
-        {
-            gu->rayCullMaskWorld |= INSTANCE_MASK_WORLD_0;
-        }
-
-        if( drawInfo.rayCullMaskWorld & RG_DRAW_FRAME_RAY_CULL_WORLD_1_BIT )
-        {
-            gu->rayCullMaskWorld |= INSTANCE_MASK_WORLD_1;
-        }
-
-        if( drawInfo.rayCullMaskWorld & RG_DRAW_FRAME_RAY_CULL_WORLD_2_BIT )
-        {
-            if( allowGeometryWithSkyFlag )
-            {
-                throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT,
-                                   "RG_DRAW_FRAME_RAY_CULL_WORLD_2_BIT cannot be used, as "
-                                   "RgInstanceCreateInfo::allowGeometryWithSkyFlag was true" );
-            }
-
-            gu->rayCullMaskWorld |= INSTANCE_MASK_WORLD_2;
-        }
-
-#if RAYCULLMASK_SKY_IS_WORLD2
-        if( drawInfo.rayCullMaskWorld & RG_DRAW_FRAME_RAY_CULL_SKY_BIT )
-        {
-            if( !allowGeometryWithSkyFlag )
-            {
-                throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT,
-                                   "RG_DRAW_FRAME_RAY_CULL_SKY_BIT cannot be used, as "
-                                   "RgInstanceCreateInfo::allowGeometryWithSkyFlag was false" );
-            }
-
-            gu->rayCullMaskWorld |= INSTANCE_MASK_WORLD_2;
-        }
-#else
-    #error Handle RG_DRAW_FRAME_RAY_CULL_SKY_BIT, if there is no WORLD_2
-#endif
-
-
-        if( allowGeometryWithSkyFlag )
-        {
-            gu->rayCullMaskWorld_Shadow = gu->rayCullMaskWorld & ( ~INSTANCE_MASK_WORLD_2 );
-        }
-        else
-        {
-            gu->rayCullMaskWorld_Shadow = gu->rayCullMaskWorld;
-        }
+        // skip shadows for:
+        // WORLD_1 - 'no shadows' geometry
+        // WORLD_2 - 'sky' geometry
+        gu->rayCullMaskWorld_Shadow = INSTANCE_MASK_WORLD_0;
     }
 
     gu->waterNormalTextureIndex = textureManager->GetWaterNormalTextureIndex();
@@ -395,12 +475,11 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
 
     RG_SET_VEC3_A( gu->worldUpVector, sceneImportExport->GetWorldUp().data );
 
-    {
-        const auto& params = pnext::get< RgDrawFrameLightmapParams >( drawInfo );
+    gu->lightmapScreenCoverage = lightmapScreenCoverage;
 
-        gu->lightmapScreenCoverage = params.lightmapScreenCoverage < 0.01f
-                                         ? 0
-                                         : std::clamp( params.lightmapScreenCoverage, 0.0f, 1.0f );
+    {
+        gu->fluidEnabled = fluid && fluid->Active();
+        RG_SET_VEC3_A( gu->fluidColor, fluidColor.data );
     }
 
     {
@@ -425,10 +504,14 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
             RG_SET_VEC3_A( gu->volumeAmbient, params.ambientColor.data );
             RG_MAX_VEC3( gu->volumeAmbient, 0.0f );
 
+#if ILLUMINATION_VOLUME
             gu->illumVolumeEnable = params.useIlluminationVolume;
+#else
+            gu->illumVolumeEnable = 0;
+#endif
 
-            if( auto uniqueId = scene->TryGetVolumetricLight(
-                    pnext::get< RgDrawFrameIlluminationParams >( drawInfo ) ) )
+            if( auto uniqueId = scene->TryGetVolumetricLight( *lightManager,
+                                                              MakeCameraPosition( cameraInfo ) ) )
             {
                 gu->volumeLightSourceIndex = lightManager->GetLightIndexForShaders(
                     currentFrameState.GetFrameIndex(), &uniqueId.value() );
@@ -473,19 +556,30 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
     }
 
     gu->antiFireflyEnabled = devmode ? devmode->antiFirefly : true;
+
+    if( swapchain->IsHDREnabled() )
+    {
+        gu->hdrDisplay = swapchain->IsST2084ColorSpace() ? HDR_DISPLAY_ST2084 : HDR_DISPLAY_LINEAR;
+    }
+    else
+    {
+        gu->hdrDisplay = HDR_DISPLAY_NONE;
+    }
 }
 
-void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& drawInfo )
+auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& drawInfo )
+    -> FramebufferImageIndex
 {
     // end of "Prepare for frame" label
     EndCmdLabel( cmd );
 
 
     const uint32_t frameIndex = currentFrameState.GetFrameIndex();
+    const double   timeDelta  = std::max< double >( currentFrameTime - previousFrameTime, 0.0001 );
+    const bool     resetHistory = drawInfo.resetHistory;
 
 
-    sceneImportExport->TryExport( *textureManager, ovrdFolder );
-
+    const auto& cameraInfo = scene->GetCamera( renderResolution.Aspect() );
 
     bool mipLodBiasUpdated =
         worldSamplerManager->TryChangeMipLodBias( frameIndex, renderResolution.GetMipLodBias() );
@@ -495,7 +589,6 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
         frameIndex, pnext::get< RgDrawFrameTexturesParams >( drawInfo ), mipLodBiasUpdated );
     cubemapManager->SubmitDescriptors( frameIndex );
 
-    lightManager->SetLightstyles( pnext::get< RgDrawFrameIlluminationParams >( drawInfo ) );
     lightManager->SubmitForFrame( cmd, frameIndex );
 
     uniform->Upload( cmd, frameIndex );
@@ -505,12 +598,22 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
                            frameIndex,
                            uniform,
                            uniform->GetData()->rayCullMaskWorld,
-                           allowGeometryWithSkyFlag,
                            drawInfo.disableRayTracedGeometry );
 
+    if( drawInfo.presentPrevFrame )
+    {
+        return m_prevAccum;
+    }
 
-    framebuffers->PrepareForSize( renderResolution.GetResolutionState() );
-
+    if( auto w = pnext::get< RgDrawFramePostEffectsParams >( drawInfo ).pWipe )
+    {
+        effectWipe->CopyToWipeEffectSourceIfNeeded( cmd, //
+                                                    frameIndex,
+                                                    *framebuffers,
+                                                    m_prevAccum,
+                                                    renderResolution.GetResolutionState(),
+                                                    w );
+    }
 
     if( !drawInfo.disableRasterization )
     {
@@ -530,6 +633,17 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
                 jitter,
                 renderResolution );
         }
+
+        if( fluid && !( devmode && devmode->fluidStopVisualize ) )
+        {
+            fluid->Visualize( cmd,
+                              frameIndex,
+                              cameraInfo.view,
+                              cameraInfo.projection,
+                              renderResolution,
+                              cameraInfo.cameraNear,
+                              cameraInfo.cameraFar );
+        }
     }
 
 
@@ -539,25 +653,24 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
         portalList->SubmitForFrame( cmd, frameIndex );
 
         float volumetricMaxHistoryLen =
-            pnext::get< RgDrawFrameRenderResolutionParams >( drawInfo ).resetUpscalerHistory
-                ? 0
-                : pnext::get< RgDrawFrameVolumetricParams >( drawInfo ).maxHistoryLength;
+            resetHistory ? 0
+                         : pnext::get< RgDrawFrameVolumetricParams >( drawInfo ).maxHistoryLength;
 
-        const auto params = pathTracer->Bind( cmd,
-                                              frameIndex,
-                                              renderResolution.Width(),
-                                              renderResolution.Height(),
-                                              *scene,
-                                              *uniform,
-                                              *textureManager,
-                                              framebuffers,
-                                              restirBuffers,
-                                              *blueNoise,
-                                              *lightManager,
-                                              *cubemapManager,
-                                              *rasterizer->GetRenderCubemap(),
-                                              *portalList,
-                                              *volumetric );
+        const auto params = pathTracer->BindRayTracing( cmd,
+                                                        frameIndex,
+                                                        renderResolution.Width(),
+                                                        renderResolution.Height(),
+                                                        *scene,
+                                                        *uniform,
+                                                        *textureManager,
+                                                        framebuffers,
+                                                        restirBuffers,
+                                                        *blueNoise,
+                                                        *lightManager,
+                                                        *cubemapManager,
+                                                        *rasterizer->GetRenderCubemap(),
+                                                        *portalList,
+                                                        *volumetric );
 
         pathTracer->TracePrimaryRays( params );
 
@@ -582,7 +695,31 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
         pathTracer->TraceIndirectllumination( params );
         pathTracer->TraceVolumetric( params );
 
+        if( fluid )
+        {
+            fluid->Simulate( cmd,
+                             frameIndex,
+                             scene->GetASManager()->GetTLASDescSet( frameIndex ),
+                             float( timeDelta ),
+                             fluidGravity );
+        }
+
         pathTracer->CalculateGradientsSamples( params );
+        pathTracer->FinalizeIndirectIllumination_Compute( cmd,
+                                                          frameIndex,
+                                                          renderResolution.Width(),
+                                                          renderResolution.Height(),
+                                                          *scene,
+                                                          *uniform,
+                                                          *textureManager,
+                                                          *framebuffers,
+                                                          *restirBuffers,
+                                                          *blueNoise,
+                                                          *lightManager,
+                                                          *cubemapManager,
+                                                          *rasterizer->GetRenderCubemap(),
+                                                          *portalList,
+                                                          *volumetric );
         denoiser->Denoise( cmd, frameIndex, uniform );
         volumetric->ProcessScattering(
             cmd, frameIndex, *uniform, *blueNoise, *framebuffers, volumetricMaxHistoryLen );
@@ -604,7 +741,8 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
                                       cameraInfo.view,
                                       cameraInfo.projection,
                                       jitter,
-                                      renderResolution );
+                                      renderResolution,
+                                      lightmapScreenCoverage );
     }
 
     imageComposition->Finalize( cmd,
@@ -613,62 +751,207 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
                                 *tonemapping,
                                 pnext::get< RgDrawFrameTonemappingParams >( drawInfo ) );
 
-
-    bool enableBloom = pnext::get< RgDrawFrameBloomParams >( drawInfo ).bloomIntensity > 0.0f;
-    if( enableBloom )
+    FramebufferImageIndex accum       = FB_IMAGE_INDEX_FINAL;
+    bool                  needHudOnly = false;
     {
-        bloom->Prepare( cmd, frameIndex, *uniform, *tonemapping );
-    }
+        auto l_todx12 = [ this, frameIndex ]( VkCommandBuffer vkcmd,
+                                              auto& technique ) -> ID3D12GraphicsCommandList* {
+            if( !dxgi::HasDX12Instance() )
+            {
+                return nullptr;
+            }
+            technique.CopyVkInputsToDX12( vkcmd, //
+                                          frameIndex,
+                                          *framebuffers,
+                                          renderResolution.GetResolutionState() );
 
+            const VkSemaphore initFrameFinished = currentFrameState.GetSemaphoreForWaitAndRemove();
 
-    FramebufferImageIndex accum = FramebufferImageIndex::FB_IMAGE_INDEX_FINAL;
-    {
-        const auto& resolution = pnext::get< RgDrawFrameRenderResolutionParams >( drawInfo );
+            auto vktodx12 = Semaphores_GetVkDx12Shared( dxgi::SHARED_SEM_FSR3_IN );
+            if( !vktodx12 )
+            {
+                return nullptr;
+            }
 
-        double timeDelta = std::max< double >( currentFrameTime - previousFrameTime, 0.0001 );
+            cmdManager->Submit_Timeline( //
+                vkcmd,
+                nullptr,
+                ToWait{ initFrameFinished, SEMAPHORE_IS_BINARY },
+                ToSignal{ vktodx12->vksemaphore, timelineFrame } );
+
+            ID3D12CommandQueue* dx12queue = dxgi::GetD3D12CommandQueue();
+            if( !dx12queue )
+            {
+                return nullptr;
+            }
+            HRESULT hr = dx12queue->Wait( vktodx12->d3d12fence, timelineFrame );
+            assert( SUCCEEDED( hr ) );
+
+            return dxgi::CreateD3D12CommandList( frameIndex );
+        };
+        auto l_tovk = [ this, frameIndex ]( ID3D12GraphicsCommandList* dx12cmd,
+                                            auto& technique ) -> VkCommandBuffer {
+            if( !dx12cmd || !dxgi::HasDX12Instance() )
+            {
+                currentFrameState.SetSemaphore( nullptr );
+                return cmdManager->StartGraphicsCmd();
+            }
+            HRESULT hr = dx12cmd->Close();
+            assert( SUCCEEDED( hr ) );
+
+            auto dx12tovk = Semaphores_GetVkDx12Shared( dxgi::SHARED_SEM_FSR3_OUT );
+            if( !dx12tovk )
+            {
+                return nullptr;
+            }
+
+            ID3D12CommandQueue* dx12queue = dxgi::GetD3D12CommandQueue();
+            if( !dx12queue )
+            {
+                return nullptr;
+            }
+            ID3D12CommandList* p = dx12cmd;
+            dx12queue->ExecuteCommandLists( 1, &p );
+            hr = dx12queue->Signal( dx12tovk->d3d12fence, timelineFrame );
+
+            // next cmd should wait for DX12
+            currentFrameState.SetSemaphore( SUCCEEDED( hr ) ? dx12tovk->vksemaphore : nullptr );
+            auto vkcmd = cmdManager->StartGraphicsCmd();
+
+            technique.CopyDX12OutputToVk( vkcmd, //
+                                          frameIndex,
+                                          *framebuffers,
+                                          renderResolution.GetResolutionState() );
+            return vkcmd;
+        };
 
         // upscale finalized image
         if( renderResolution.IsNvDlssEnabled() )
         {
-            accum = nvDlss->Apply( cmd,
-                                   frameIndex,
-                                   *framebuffers,
-                                   renderResolution,
-                                   jitter,
-                                   timeDelta,
-                                   resolution.resetUpscalerHistory );
+            if( nvDlss3dx12 && swapchain->WithDLSS3FrameGeneration() )
+            {
+                ID3D12GraphicsCommandList* dx12cmd = l_todx12( cmd, *nvDlss3dx12 );
+
+                if( auto u = nvDlss3dx12->Apply( dx12cmd,
+                                                 frameIndex,
+                                                 *framebuffers,
+                                                 renderResolution,
+                                                 jitter,
+                                                 timeDelta,
+                                                 resetHistory,
+                                                 cameraInfo,
+                                                 frameId,
+                                                 m_skipGeneratedFrame ) )
+                {
+                    accum = *u;
+                    needHudOnly = false; // providing FB_IMAGE_INDEX_HUD_ONLY to DLSS3 doesn't work
+                }
+                else
+                {
+                    swapchain->MarkAsFailed( SWAPCHAIN_TYPE_FRAME_GENERATION_DLSS3 );
+                }
+
+                cmd = l_tovk( dx12cmd, *nvDlss3dx12 );
+            }
+            else if( nvDlss2 )
+            {
+                accum = nvDlss2->Apply( cmd,
+                                        frameIndex,
+                                        *framebuffers,
+                                        renderResolution,
+                                        jitter,
+                                        timeDelta,
+                                        resetHistory );
+            }
+            else
+            {
+                assert( 0 );
+            }
         }
         else if( renderResolution.IsAmdFsr2Enabled() )
         {
-            accum = amdFsr2->Apply( cmd,
-                                    frameIndex,
-                                    framebuffers,
-                                    renderResolution,
-                                    jitter,
-                                    timeDelta,
-                                    cameraInfo.cameraNear,
-                                    cameraInfo.cameraFar,
-                                    cameraInfo.fovYRadians,
-                                    resolution.resetUpscalerHistory,
-                                    sceneImportExport->GetWorldScale() );
+            if( amdFsr3dx12 && swapchain->WithFSR3FrameGeneration() )
+            {
+                ID3D12GraphicsCommandList* dx12cmd = l_todx12( cmd, *amdFsr3dx12 );
+
+                if( auto u = amdFsr3dx12->Apply( dx12cmd,
+                                                 frameIndex,
+                                                 *framebuffers,
+                                                 renderResolution,
+                                                 jitter,
+                                                 timeDelta,
+                                                 cameraInfo.cameraNear,
+                                                 cameraInfo.cameraFar,
+                                                 cameraInfo.fovYRadians,
+                                                 resetHistory,
+                                                 sceneImportExport->GetWorldScale(),
+                                                 m_skipGeneratedFrame ) )
+                {
+                    accum = *u;
+                    needHudOnly = true;
+                }
+                else
+                {
+                    swapchain->MarkAsFailed( SWAPCHAIN_TYPE_FRAME_GENERATION_FSR3 );
+                }
+
+                cmd = l_tovk( dx12cmd, *amdFsr3dx12 );
+            }
+            else if( amdFsr2 )
+            {
+                accum = amdFsr2->Apply( cmd,
+                                        frameIndex,
+                                        *framebuffers,
+                                        renderResolution,
+                                        jitter,
+                                        timeDelta,
+                                        cameraInfo.cameraNear,
+                                        cameraInfo.cameraFar,
+                                        cameraInfo.fovYRadians,
+                                        resetHistory,
+                                        sceneImportExport->GetWorldScale() );
+            }
+            else
+            {
+                assert( 0 );
+            }
         }
 
-        accum = framebuffers->BlitForEffects(
-            cmd,
-            frameIndex,
-            accum,
-            renderResolution.GetBlitFilter(),
-            resolution.pixelizedRenderSizeEnable ? &resolution.pixelizedRenderSize : nullptr );
+        if( lightmapScreenCoverage > 0 && !drawInfo.disableRasterization )
+        {
+            rasterizer->DrawClassic(
+                cmd,
+                frameIndex,
+                accum,
+                *textureManager,
+                *uniform,
+                *tonemapping,
+                *volumetric,
+                cameraInfo.view,
+                cameraInfo.projection,
+                renderResolution,
+                lightmapScreenCoverage,
+                pnext::get< RgDrawFrameSkyParams >( drawInfo ).skyViewerPosition );
+        }
+
+        accum = framebuffers->BlitForEffects( cmd,
+                                              frameIndex,
+                                              accum,
+                                              renderResolution.GetBlitFilter(),
+                                              m_pixelated ? &m_pixelated.value() : nullptr );
     }
 
 
-    const CommonnlyUsedEffectArguments args = { cmd,
-                                                frameIndex,
-                                                framebuffers,
-                                                uniform,
-                                                renderResolution.UpscaledWidth(),
-                                                renderResolution.UpscaledHeight(),
-                                                float( currentFrameTime ) };
+    const auto args = CommonnlyUsedEffectArguments{
+        .cmd          = cmd,
+        .frameIndex   = frameIndex,
+        .framebuffers = framebuffers,
+        .uniform      = uniform,
+        .width        = renderResolution.UpscaledWidth(),
+        .height       = renderResolution.UpscaledHeight(),
+        .currentTime  = float( currentFrameTime ),
+    };
+
     {
         if( renderResolution.IsDedicatedSharpeningEnabled() )
         {
@@ -681,85 +964,93 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
                                        renderResolution.GetSharpeningTechnique(),
                                        renderResolution.GetSharpeningIntensity() );
         }
-        if( enableBloom )
+
+        if( pnext::get< RgDrawFrameBloomParams >( drawInfo ).bloomIntensity > 0.0f )
         {
             accum = bloom->Apply( cmd,
                                   frameIndex,
                                   *uniform,
+                                  *tonemapping,
                                   *textureManager,
                                   renderResolution.UpscaledWidth(),
                                   renderResolution.UpscaledHeight(),
                                   accum );
         }
 
+        auto l_applyIf = [ &args ]( auto&                 effect,
+                                    auto&                 setupArg,
+                                    FramebufferImageIndex input ) -> FramebufferImageIndex {
+            return effect->Setup( args, setupArg ) ? effect->Apply( args, input ) : input;
+        };
+
         const auto& postef = pnext::get< RgDrawFramePostEffectsParams >( drawInfo );
 
-        if( effectTeleport->Setup( args, postef.pTeleport ) )
-        {
-            accum = effectTeleport->Apply( args, accum );
-        }
-        if( effectColorTint->Setup( args, postef.pColorTint ) )
-        {
-            accum = effectColorTint->Apply( args, accum );
-        }
-        if( effectInverseBW->Setup( args, postef.pInverseBlackAndWhite ) )
-        {
-            accum = effectInverseBW->Apply( args, accum );
-        }
-        if( effectHueShift->Setup( args, postef.pHueShift ) )
-        {
-            accum = effectHueShift->Apply( args, accum );
-        }
-        if( effectChromaticAberration->Setup( args, postef.pChromaticAberration ) )
-        {
-            accum = effectChromaticAberration->Apply( args, accum );
-        }
-        if( effectDistortedSides->Setup( args, postef.pDistortedSides ) )
-        {
-            accum = effectDistortedSides->Apply( args, accum );
-        }
-        if( effectWaves->Setup( args, postef.pWaves ) )
-        {
-            accum = effectWaves->Apply( args, accum );
-        }
-        if( effectRadialBlur->Setup( args, postef.pRadialBlur ) )
-        {
-            accum = effectRadialBlur->Apply( args, accum );
-        }
-        if( effectVHS->Setup( args, postef.pVHS ) )
-        {
-            accum = effectVHS->Apply( args, accum );
-        }
-        if( effectDither->Setup( args, postef.pDither ) )
-        {
-            accum = effectDither->Apply( args, accum );
-        }
+        accum = l_applyIf( effectTeleport, postef.pTeleport, accum );
+        accum = l_applyIf( effectColorTint, postef.pColorTint, accum );
+        accum = l_applyIf( effectInverseBW, postef.pInverseBlackAndWhite, accum );
+        accum = l_applyIf( effectHueShift, postef.pHueShift, accum );
+        accum = l_applyIf( effectNightVision, postef.pNightVision, accum );
+        accum = l_applyIf( effectChromaticAberration, postef.pChromaticAberration, accum );
+        accum = l_applyIf( effectDistortedSides, postef.pDistortedSides, accum );
+        accum = l_applyIf( effectWaves, postef.pWaves, accum );
+        accum = l_applyIf( effectRadialBlur, postef.pRadialBlur, accum );
+        accum = l_applyIf( effectVHS, postef.pVHS, accum );
     }
 
     // draw geometry such as HUD into an upscaled framebuf
     if( !drawInfo.disableRasterization )
     {
-        framebuffers->BarrierOne(
-            cmd, frameIndex, accum, RTGL1::Framebuffers::BarrierType::Storage );
+        if( !needHudOnly )
+        {
+            framebuffers->BarrierOne(
+                cmd, frameIndex, accum, RTGL1::Framebuffers::BarrierType::Storage );
 
-        rasterizer->DrawToSwapchain( cmd,
-                                     frameIndex,
-                                     accum,
-                                     *textureManager,
-                                     uniform->GetData()->view,
-                                     uniform->GetData()->projection,
-                                     renderResolution.UpscaledWidth(),
-                                     renderResolution.UpscaledHeight() );
+            rasterizer->DrawToSwapchain( cmd,
+                                         frameIndex,
+                                         accum,
+                                         *textureManager,
+                                         uniform->GetData()->view,
+                                         uniform->GetData()->projection,
+                                         renderResolution.UpscaledWidth(),
+                                         renderResolution.UpscaledHeight(),
+                                         swapchain->IsHDREnabled() );
+        }
+        else
+        {
+            rasterizer->DrawToSwapchain( cmd,
+                                         frameIndex,
+                                         FB_IMAGE_INDEX_HUD_ONLY,
+                                         *textureManager,
+                                         uniform->GetData()->view,
+                                         uniform->GetData()->projection,
+                                         renderResolution.UpscaledWidth(),
+                                         renderResolution.UpscaledHeight(),
+                                         swapchain->IsHDREnabled() );
+
+            FramebufferImageIndex todx12[] = { FB_IMAGE_INDEX_HUD_ONLY };
+            Framebuf_CopyVkToDX12( cmd,
+                                   frameIndex,
+                                   *framebuffers,
+                                   renderResolution.UpscaledWidth(),
+                                   renderResolution.UpscaledHeight(),
+                                   todx12 );
+        }
     }
 
     // post-effect that work on swapchain geometry too
     {
         const auto& postef = pnext::get< RgDrawFramePostEffectsParams >( drawInfo );
 
-        if( effectWipe->Setup( args, postef.pWipe, swapchain, frameId ) )
+        if( effectWipe->Setup( args, postef.pWipe, frameId ) )
         {
-            accum = effectWipe->Apply( args, blueNoise, accum );
+            accum = effectWipe->Apply( args, *blueNoise, accum );
         }
+
+        if( effectDither->Setup( args, postef.pDither ) )
+        {
+            accum = effectDither->Apply( args, accum );
+        }
+
         if( postef.pCRT != nullptr && postef.pCRT->isActive )
         {
             effectCrtDemodulateEncode->Setup( args );
@@ -770,68 +1061,265 @@ void RTGL1::VulkanDevice::Render( VkCommandBuffer cmd, const RgDrawFrameInfo& dr
         }
     }
 
-    // blit result image to present on a surface
-    framebuffers->PresentToSwapchain(
-        cmd, frameIndex, swapchain, accum, VK_FILTER_NEAREST, drawInfo.presentPrevFrame );
-
-    if( debugWindows )
+    // convert scene HDR to a present HDR compatible space,
+    // or apply a tonemapping to fit into LDR
     {
-        debugWindows->SubmitForFrame( cmd, frameIndex );
+        const auto& tnmp = pnext::get< RgDrawFrameTonemappingParams >( drawInfo );
+
+        VkDescriptorSet lpmDescSet =
+            imageComposition->SetupLpmParams( cmd, frameIndex, tnmp, swapchain->IsHDREnabled() );
+        effectHDRPrepare->Setup( args, tnmp );
+
+        VkDescriptorSet descSets[] = {
+            args.framebuffers->GetDescSet( args.frameIndex ),
+            args.uniform->GetDescSet( args.frameIndex ),
+            lpmDescSet,
+        };
+        accum = effectHDRPrepare->Apply( descSets, args, accum );
     }
+
+    m_prevAccum = accum;
+    return accum;
 }
 
-void RTGL1::VulkanDevice::EndFrame( VkCommandBuffer cmd )
+#if 0
+namespace
 {
-    uint32_t frameIndex     = currentFrameState.GetFrameIndex();
-    uint32_t swapchainCount = debugWindows && !debugWindows->IsMinimized() ? 2 : 1;
+void WaitTimelineAndSignalBinary( VkQueue     q,
+                                  VkSemaphore towait_timeline,
+                                  uint64_t    towait_value,
+                                  VkSemaphore tosignal_binary )
+{
+    VkPipelineStageFlags s = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 
-    VkSwapchainKHR swapchains[] = {
-        swapchain->GetHandle(),
-        debugWindows ? debugWindows->GetSwapchainHandle() : VK_NULL_HANDLE,
-    };
-    uint32_t swapchainIndices[] = {
-        swapchain->GetCurrentImageIndex(),
-        debugWindows ? debugWindows->GetSwapchainCurrentImageIndex() : 0,
-    };
-    VkSemaphore semaphoresToWait[] = {
-        currentFrameState.GetSemaphoreForWaitAndRemove(),
-        debugWindows ? debugWindows->GetSwapchainImageAvailableSemaphore( frameIndex )
-                     : VK_NULL_HANDLE,
-    };
-    VkPipelineStageFlags stagesToWait[] = {
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-    };
-    VkResult results[ 2 ] = {};
-
-    // submit command buffer, but wait until presentation engine has completed using image
-    cmdManager->Submit( cmd,
-                        semaphoresToWait,
-                        stagesToWait,
-                        swapchainCount,
-                        renderFinishedSemaphores[ frameIndex ],
-                        frameFences[ frameIndex ] );
-
-    // present to surfaces after finishing the rendering
-    VkPresentInfoKHR presentInfo = {
-        .sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-        .waitSemaphoreCount = 1,
-        .pWaitSemaphores    = &renderFinishedSemaphores[ frameIndex ],
-        .swapchainCount     = swapchainCount,
-        .pSwapchains        = swapchains,
-        .pImageIndices      = swapchainIndices,
-        .pResults           = results,
+    auto timeline = VkTimelineSemaphoreSubmitInfo{
+        .sType                     = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+        .pNext                     = nullptr,
+        .waitSemaphoreValueCount   = 1,
+        .pWaitSemaphoreValues      = &towait_value,
+        .signalSemaphoreValueCount = 0,
+        .pSignalSemaphoreValues    = nullptr,
     };
 
-    VkResult r = vkQueuePresentKHR( queues->GetGraphics(), &presentInfo );
+    auto info = VkSubmitInfo{
+        .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .pNext                = &timeline,
+        .waitSemaphoreCount   = 1,
+        .pWaitSemaphores      = &towait_timeline,
+        .pWaitDstStageMask    = &s,
+        .commandBufferCount   = 0,
+        .pCommandBuffers      = nullptr,
+        .signalSemaphoreCount = 1,
+        .pSignalSemaphores    = &tosignal_binary,
+    };
 
-    swapchain->OnQueuePresent( results[ 0 ] );
-    if( debugWindows )
+    VkResult r = vkQueueSubmit( q, 1, &info, VK_NULL_HANDLE );
+    RTGL1::VK_CHECKERROR( r );
+}
+}
+#endif
+
+void RTGL1::VulkanDevice::EndFrame( VkCommandBuffer cmd, FramebufferImageIndex rendered )
+{
+    auto label = CmdLabel{ cmd, "Blit to swapchain" };
+
+    const uint32_t    frameIndex        = currentFrameState.GetFrameIndex();
+    const VkSemaphore initFrameFinished = currentFrameState.GetSemaphoreForWaitAndRemove();
+
+    // present debug window
+    if( debugWindows && !debugWindows->IsMinimized() )
     {
-        debugWindows->OnQueuePresent( results[ 1 ] );
+        VkCommandBuffer debugCmd = cmdManager->StartGraphicsCmd();
+        debugWindows->SubmitForFrame( debugCmd, frameIndex );
+
+        VkSemaphore towait[] = {
+            debugWindows->GetSwapchainImageAvailableSemaphore_Binary( frameIndex ),
+        };
+        cmdManager->Submit_Binary( //
+            debugCmd,
+            towait,
+            debugFinishedSemaphores[ frameIndex ], // signal
+            VK_NULL_HANDLE );
+
+        VkResult       r       = VK_SUCCESS;
+        VkSwapchainKHR sw      = debugWindows->GetSwapchainHandle();
+        uint32_t       swIndex = debugWindows->GetSwapchainCurrentImageIndex();
+
+        auto presentInfo = VkPresentInfoKHR{
+            .sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores    = &debugFinishedSemaphores[ frameIndex ],
+            .swapchainCount     = 1,
+            .pSwapchains        = &sw,
+            .pImageIndices      = &swIndex,
+            .pResults           = &r,
+        };
+        vkQueuePresentKHR( queues->GetGraphics(), &presentInfo );
+        debugWindows->OnQueuePresent( r );
+    }
+
+    if( nvDlss3dx12 )
+    {
+        nvDlss3dx12->Reflex_RenderEnd();
+        nvDlss3dx12->Reflex_PresentStart();
+    }
+
+
+    const auto rendered_size =
+        framebuffers->GetFramebufSize( renderResolution.GetResolutionState(), rendered );
+
+
+    // present
+    if( swapchain->WithDXGI() )
+    {
+        [ & ] {
+            ID3D12CommandQueue* dx12queue = dxgi::GetD3D12CommandQueue();
+            if( !dx12queue )
+            {
+                return;
+            }
+
+            // copy vk to dx12 buffer
+            {
+                FramebufferImageIndex fs[] = {
+                    rendered,
+                };
+                Framebuf_CopyVkToDX12( cmd, //
+                                       frameIndex,
+                                       *framebuffers,
+                                       rendered_size.width,
+                                       rendered_size.height,
+                                       fs );
+            }
+            // submit vk, and wait for vk in dx12
+            {
+                auto renderFin = Semaphores_GetVkDx12Shared( dxgi::SHARED_SEM_RENDER_FINISHED );
+                if( !renderFin )
+                {
+                    debug::Warning( "Skipping DXGI present, as Semaphores_GetVkDx12Shared failed" );
+                    return;
+                }
+
+                cmdManager->Submit_Timeline( //
+                    cmd,
+                    frameFences[ frameIndex ],
+                    ToWait{ initFrameFinished, timelineFrame },
+                    ToSignal{ renderFin->vksemaphore, timelineFrame } );
+
+                HRESULT hr = dx12queue->Wait( renderFin->d3d12fence, timelineFrame );
+                assert( SUCCEEDED( hr ) );
+            }
+
+            ID3D12GraphicsCommandList* dx12cmd = dxgi::CreateD3D12CommandList( frameIndex );
+            // blit to the swapchain's shadow buffer (copysrc)
+            {
+                uint32_t dst_w      = 0;
+                uint32_t dst_h      = 0;
+                bool     dst_tosrgb = false;
+
+                ID3D12Resource* src = dxgi::Framebuf_GetVkDx12Shared( rendered ).d3d12resource;
+                ID3D12Resource* dst = dxgi::GetSwapchainCopySrc( &dst_w, &dst_h, &dst_tosrgb );
+
+                dxgi::DispatchBlit( dx12cmd, src, dst, dst_w, dst_h, dst_tosrgb );
+            }
+            // copy from the shadow buffer to the actual swapchain image
+            {
+                ID3D12Resource* src = dxgi::GetSwapchainCopySrc();
+                ID3D12Resource* dst = dxgi::GetSwapchainBack( swapchain->GetCurrentImageIndex() );
+
+                dx12cmd->CopyResource( dst, src );
+                {
+                    D3D12_RESOURCE_BARRIER bs[] = {
+                        CD3DX12_RESOURCE_BARRIER::Transition( dst, //
+                                                              D3D12_RESOURCE_STATE_COPY_DEST,
+                                                              D3D12_RESOURCE_STATE_PRESENT ),
+                    };
+                    dx12cmd->ResourceBarrier( std::size( bs ), bs );
+                }
+            }
+            HRESULT hr = dx12cmd->Close();
+            assert( SUCCEEDED( hr ) );
+
+            // submit dx12, wait for execution, and present
+            {
+                auto present = Semaphores_GetVkDx12Shared( dxgi::SHARED_SEM_PRESENT_COPY );
+                if( !present )
+                {
+                    debug::Warning( "Skipping DXGI present, as Semaphores_GetVkDx12Shared failed" );
+                    return;
+                }
+
+                ID3D12CommandList* p = dx12cmd;
+                dx12queue->ExecuteCommandLists( 1, &p );
+                hr = dx12queue->Signal( present->d3d12fence, timelineFrame );
+                assert( SUCCEEDED( hr ) );
+
+                dxgi::Present( present->d3d12fence, timelineFrame );
+            }
+        }();
+    }
+    else
+    {
+        // copy to swapchain's back buffer
+        {
+            framebuffers->BarrierOne( cmd, frameIndex, rendered );
+
+            swapchain->BlitForPresent( cmd,
+                                       framebuffers->GetImage( rendered, frameIndex ),
+                                       rendered_size,
+                                       VK_FILTER_NEAREST,
+                                       VK_IMAGE_LAYOUT_GENERAL );
+        }
+
+        uint32_t    towait_count = 0;
+        VkSemaphore towait[ 2 ]  = {};
+        if( swapchain->Valid() )
+        {
+            towait[ towait_count++ ] = vkswapchainAvailableSemaphores[ frameIndex ];
+        }
+        if( initFrameFinished )
+        {
+            towait[ towait_count++ ] = initFrameFinished;
+        }
+
+        cmdManager->Submit_Binary( //
+            cmd,
+            std::span{ towait, towait_count },
+            emulatedSemaphores[ frameIndex ], // signal
+            frameFences[ frameIndex ] );
+
+        if( swapchain->Valid() )
+        {
+            VkResult       r       = VK_SUCCESS;
+            VkSwapchainKHR sw      = swapchain->GetHandle();
+            uint32_t       swIndex = swapchain->GetCurrentImageIndex();
+
+            // present to surfaces after finishing the rendering
+            auto presentInfo = VkPresentInfoKHR{
+                .sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+                .waitSemaphoreCount = 1,
+                .pWaitSemaphores    = &emulatedSemaphores[ frameIndex ],
+                .swapchainCount     = 1,
+                .pSwapchains        = &sw,
+                .pImageIndices      = &swIndex,
+                .pResults           = &r,
+            };
+            vkQueuePresentKHR( queues->GetGraphics(), &presentInfo );
+            swapchain->OnQueuePresent( r );
+        }
+    }
+
+    if( nvDlss3dx12 )
+    {
+        nvDlss3dx12->Reflex_PresentEnd();
     }
 
     frameId++;
+
+    if( nvDlss3dx12 )
+    {
+        nvDlss3dx12->Reflex_SimStart( frameId );
+    }
 }
 
 
@@ -863,8 +1351,18 @@ void RTGL1::VulkanDevice::StartFrame( const RgStartFrameInfo* pOriginalInfo )
     };
 
     auto startFrame_WithDevmode = [ this, startFrame_Core ]( const RgStartFrameInfo& original ) {
-        auto modified = RgStartFrameInfo{ original };
-        Dev_Override( modified );
+        auto modified            = RgStartFrameInfo{ original };
+        auto modified_Resolution = pnext::get< RgStartFrameRenderResolutionParams >( original );
+        auto modified_Fluid      = pnext::get< RgStartFrameFluidParams >( original );
+
+        // clang-format off
+        modified_Resolution .pNext = modified.pNext;
+        modified_Fluid      .pNext = &modified_Resolution;
+        modified            .pNext = &modified_Fluid;
+        // clang-format on
+
+        Dev_Override( modified, modified_Resolution, modified_Fluid );
+
         startFrame_Core( modified );
     };
 
@@ -893,6 +1391,8 @@ void RTGL1::VulkanDevice::DrawFrame( const RgDrawFrameInfo* pOriginalInfo )
         throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
     }
 
+    DrawEndUserWarnings();
+
     auto drawFrame_Core = [ this ]( const RgDrawFrameInfo& info ) {
         VkCommandBuffer cmd = currentFrameState.GetCmdBuffer();
 
@@ -904,20 +1404,30 @@ void RTGL1::VulkanDevice::DrawFrame( const RgDrawFrameInfo* pOriginalInfo )
             observer->RecheckFiles();
         }
 
-        renderResolution.Setup( pnext::get< RgDrawFrameRenderResolutionParams >( info ),
-                                swapchain->GetWidth(),
-                                swapchain->GetHeight(),
-                                nvDlss );
+        if( nvDlss3dx12 )
+        {
+            nvDlss3dx12->Reflex_SimEnd();
+            nvDlss3dx12->Reflex_RenderStart();
+        }
+
+        FramebufferImageIndex rendered;
 
         if( renderResolution.Width() > 0 && renderResolution.Height() > 0 )
         {
             FillUniform( uniform->GetData(), info );
             Dev_Draw();
-            Render( cmd, info );
+            rendered = Render( cmd, info );
+        }
+        else
+        {
+            rendered = m_prevAccum;
         }
 
-        EndFrame( cmd );
+        EndFrame( cmd, rendered );
         currentFrameState.OnEndFrame();
+
+
+        sceneImportExport->TryExport( *textureManager, ovrdFolder );
     };
 
     auto drawFrame_WithScene = [ this, &drawFrame_Core ]( const RgDrawFrameInfo& original ) {
@@ -939,21 +1449,18 @@ void RTGL1::VulkanDevice::DrawFrame( const RgDrawFrameInfo* pOriginalInfo )
 
     auto drawFrame_WithDevmode = [ this, &drawFrame_WithScene ]( const RgDrawFrameInfo& original ) {
         auto modified              = RgDrawFrameInfo{ original };
-        auto modified_Resolution   = pnext::get< RgDrawFrameRenderResolutionParams >( original );
         auto modified_Illumination = pnext::get< RgDrawFrameIlluminationParams >( original );
         auto modified_Tonemapping  = pnext::get< RgDrawFrameTonemappingParams >( original );
-        auto modified_Lightmap     = pnext::get< RgDrawFrameLightmapParams >( original );
+        auto modified_Textures     = pnext::get< RgDrawFrameTexturesParams >( original );
 
         // clang-format off
-        modified_Resolution     .pNext = modified.pNext;
-        modified_Illumination   .pNext = &modified_Resolution;
+        modified_Illumination   .pNext = modified.pNext;
         modified_Tonemapping    .pNext = &modified_Illumination;
-        modified_Lightmap       .pNext = &modified_Tonemapping;
-        modified                .pNext = &modified_Lightmap;
+        modified_Textures       .pNext = &modified_Tonemapping;
+        modified                .pNext = &modified_Textures;
         // clang-format on
 
-        Dev_Override(
-            modified_Resolution, modified_Illumination, modified_Tonemapping, modified_Lightmap );
+        Dev_Override( modified_Illumination, modified_Tonemapping, modified_Textures );
 
         drawFrame_WithScene( modified );
     };
@@ -987,8 +1494,7 @@ namespace
         if( !( primitive.flags & RG_MESH_PRIMITIVE_GLASS ) &&
             !( mesh.flags & RG_MESH_FORCE_GLASS ) &&
             !( primitive.flags & RG_MESH_PRIMITIVE_WATER ) &&
-            !( mesh.flags & RG_MESH_FORCE_WATER ) &&
-            !( primitive.flags & RG_MESH_PRIMITIVE_ACID ) )
+            !( mesh.flags & RG_MESH_FORCE_WATER ) && !( primitive.flags & RG_MESH_PRIMITIVE_ACID ) )
         {
             if( primitive.flags & RG_MESH_PRIMITIVE_TRANSLUCENT )
             {
@@ -1114,6 +1620,19 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
                                                      *lightManager,
                                                      false );
 
+            if( lightmapScreenCoverage > 0 )
+            {
+                if( !( mesh.flags & RG_MESH_FIRST_PERSON_VIEWER ) )
+                {
+                    rasterizer->Upload( currentFrameState.GetFrameIndex(),
+                                        GeometryRasterType::WORLD_CLASSIC,
+                                        mesh.transform,
+                                        prim,
+                                        nullptr,
+                                        nullptr );
+                }
+            }
+
             logDebugStat( Devmode::DebugPrimMode::RayTraced, &mesh, prim, r );
 
 
@@ -1153,25 +1672,63 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
             // TODO: remove legacy way to attach lights
             if( auto attachedLight = pnext::find< RgMeshPrimitiveAttachedLightEXT >( &prim ) )
             {
-                if( attachedLight->evenOnDynamic )
+                bool quad = ( prim.indexCount == 6 && prim.vertexCount == 4 ) ||
+                            ( prim.indexCount == 0 && prim.vertexCount == 6 );
+
+                if( attachedLight->evenOnDynamic || quad )
                 {
-                    GltfExporter::MakeLightsForPrimitiveDynamic( mesh,
-                                                                 prim,
-                                                                 sceneImportExport->GetWorldScale(),
-                                                                 tempStorageInit,
-                                                                 tempStorageLights );
+                    assert( tempStorageLights.empty() );
+
+                    if( quad )
+                    {
+                        auto center = RgFloat3D{ 0, 0, 0 };
+                        {
+                            for( uint32_t v = 0; v < prim.vertexCount; v++ )
+                            {
+                                center.data[ 0 ] += prim.pVertices[ v ].position[ 0 ];
+                                center.data[ 1 ] += prim.pVertices[ v ].position[ 1 ];
+                                center.data[ 2 ] += prim.pVertices[ v ].position[ 2 ];
+                            }
+                            center.data[ 0 ] /= float( prim.vertexCount );
+                            center.data[ 1 ] /= float( prim.vertexCount );
+                            center.data[ 2 ] /= float( prim.vertexCount );
+                        }
+
+                        center.data[ 0 ] += mesh.transform.matrix[ 0 ][ 3 ];
+                        center.data[ 1 ] += mesh.transform.matrix[ 1 ][ 3 ];
+                        center.data[ 2 ] += mesh.transform.matrix[ 2 ][ 3 ];
+
+                        tempStorageLights.emplace_back( RgLightSphericalEXT{
+                            .sType     = RG_STRUCTURE_TYPE_LIGHT_SPHERICAL_EXT,
+                            .pNext     = nullptr,
+                            .color     = attachedLight->color,
+                            .intensity = attachedLight->intensity,
+                            .position  = center,
+                            .radius    = 0.1f,
+                        } );
+                    }
+                    else
+                    {
+                        GltfExporter::MakeLightsForPrimitiveDynamic(
+                            mesh,
+                            prim,
+                            sceneImportExport->GetWorldScale(),
+                            tempStorageInit,
+                            tempStorageLights );
+                    }
 
                     auto hashCombine = []< typename T >( uint64_t seed, const T& v ) {
                         seed ^= std::hash< T >{}( v ) + 0x9e3779b9 + ( seed << 6 ) + ( seed >> 2 );
                         return seed;
                     };
 
-                    uint64_t hashBase = 0;
+                    static const uint64_t attchSalt =
+                        hashCombine( 0, std::string_view{ "attachedlight" } );
 
-                    hashBase = hashCombine(
-                        hashBase, std::string_view( Utils::SafeCstr( prim.pTextureName ) ) );
-                    hashBase = hashCombine( hashBase,
-                                            std::string_view( Utils::SafeCstr( mesh.pMeshName ) ) );
+                    // NOTE: can't use texture / mesh name, as texture can be
+                    // just 1 frame of animation sequence.. so this is more stable
+                    uint64_t hashBase{ attchSalt };
+                    hashBase = hashCombine( hashBase, mesh.uniqueObjectID );
                     hashBase = hashCombine( hashBase, prim.primitiveIndexInMesh );
 
                     uint64_t counter = 0;
@@ -1181,14 +1738,11 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
                         std::visit(
                             [ & ]< typename T >( T& specific ) {
                                 static_assert( detail::AreLinkable< T, RgLightInfo > );
-
-                                // TODO: change ID; hope that there's no collision
-                                uint64_t h32 = hashCombine( hashBase, counter ) % UINT32_MAX;
-
+                                
                                 RgLightInfo linfo = {
                                     .sType        = RG_STRUCTURE_TYPE_LIGHT_INFO,
                                     .pNext        = &specific,
-                                    .uniqueID     = h32 << 16ull,
+                                    .uniqueID     = hashCombine( hashBase, counter ),
                                     .isExportable = false,
                                 };
 
@@ -1210,6 +1764,17 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
 
     auto uploadPrimitive_WithMeta = [ this, &uploadPrimitive_Core ](
                                         const RgMeshInfo& mesh, const RgMeshPrimitiveInfo& prim ) {
+        // ignore replacement, if the scene requires
+        if( mesh.isExportable && ( mesh.flags & RG_MESH_EXPORT_AS_SEPARATE_FILE ) &&
+            !Utils::IsCstrEmpty( mesh.pMeshName ) )
+        {
+            if( sceneMetaManager->IsReplacementIgnored( sceneImportExport->GetImportMapName(),
+                                                        mesh.pMeshName ) )
+            {
+                return;
+            }
+        }
+
         auto modified = RgMeshPrimitiveInfo{ prim };
 
         auto modified_attachedLight = std::optional< RgMeshPrimitiveAttachedLightEXT >{};
@@ -1225,6 +1790,18 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
             modified_pbr = *original;
         }
 
+        if( mesh.flags & RG_MESH_FORCE_MIRROR )
+        {
+            modified.flags |= RG_MESH_PRIMITIVE_MIRROR;
+        }
+        if( mesh.flags & RG_MESH_FORCE_GLASS )
+        {
+            modified.flags |= RG_MESH_PRIMITIVE_GLASS;
+        }
+        if( mesh.flags & RG_MESH_FORCE_WATER )
+        {
+            modified.flags |= RG_MESH_PRIMITIVE_WATER;
+        }
 
         if( !textureMetaManager->Modify( modified, modified_attachedLight, modified_pbr, false ) )
         {
@@ -1233,10 +1810,6 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
 
         if( modified_attachedLight )
         {
-#if 0 // don't translate intensity from non-metric for lights specified in textures.json
-            modified_attachedLight->intensity = Utils::IntensityFromNonMetric(
-                modified_attachedLight->intensity, sceneImportExport->GetWorldScale() );
-#endif
             // insert
             modified_attachedLight.value().pNext = modified.pNext;
             modified.pNext                       = &modified_attachedLight.value();
@@ -1274,6 +1847,8 @@ void RTGL1::VulkanDevice::UploadMeshPrimitive( const RgMeshInfo*          pMesh,
             }
             else
             {
+                const auto& cameraInfo = scene->GetCamera( renderResolution.Aspect() );
+
                 const float* v = raster->pView ? raster->pView : cameraInfo.view;
                 const float* p = raster->pProjection ? raster->pProjection : cameraInfo.projection;
                 Matrix::Multiply( vp, p, v );
@@ -1353,6 +1928,23 @@ void RTGL1::VulkanDevice::UploadLensFlare( const RgLensFlareInfo* pInfo )
     }
 }
 
+void RTGL1::VulkanDevice::SpawnFluid( const RgSpawnFluidInfo* pInfo )
+{
+    if( pInfo == nullptr )
+    {
+        throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "Argument is null" );
+    }
+    if( pInfo->sType != RG_STRUCTURE_TYPE_SPAWN_FLUID_INFO )
+    {
+        throw RgException( RG_RESULT_WRONG_STRUCTURE_TYPE );
+    }
+    if( !fluid )
+    {
+        return;
+    }
+    fluid->AddSource( *pInfo );
+}
+
 void RTGL1::VulkanDevice::UploadCamera( const RgCameraInfo* pInfo )
 {
     if( pInfo == nullptr )
@@ -1373,29 +1965,13 @@ void RTGL1::VulkanDevice::UploadCamera( const RgCameraInfo* pInfo )
     }
 
     auto base = [ this ]( const RgCameraInfo& info ) {
-        cameraInfo.aspect      = info.aspect;
-        cameraInfo.fovYRadians = info.fovYRadians;
-        cameraInfo.cameraNear  = info.cameraNear;
-        cameraInfo.cameraFar   = info.cameraFar;
-
-        static_assert( sizeof cameraInfo.projection == 16 * sizeof( float ) );
-        static_assert( sizeof cameraInfo.view == 16 * sizeof( float ) );
-        static_assert( sizeof cameraInfo.projectionInverse == 16 * sizeof( float ) );
-        static_assert( sizeof cameraInfo.viewInverse == 16 * sizeof( float ) );
-        static_assert( sizeof info.position == 3 * sizeof( float ) );
-        static_assert( sizeof info.right == 3 * sizeof( float ) );
-        static_assert( sizeof info.up == 3 * sizeof( float ) );
-
-        Matrix::MakeViewMatrix( cameraInfo.view, info.position, info.right, info.up );
-        Matrix::MakeProjectionMatrix(
-            cameraInfo.projection, info.aspect, info.fovYRadians, info.cameraNear, info.cameraFar );
-
-        Matrix::Inverse( cameraInfo.viewInverse, cameraInfo.view );
-        Matrix::Inverse( cameraInfo.projectionInverse, cameraInfo.projection );
+        scene->AddDefaultCamera( info );
 
         if( auto readback =
                 pnext::find< RgCameraInfoReadbackEXT >( const_cast< RgCameraInfo* >( &info ) ) )
         {
+            const Camera& cameraInfo = scene->GetCamera( renderResolution.Aspect() );
+
             static_assert( sizeof readback->view == sizeof cameraInfo.view );
             static_assert( sizeof readback->projection == sizeof cameraInfo.projection );
             static_assert( sizeof readback->viewInverse == sizeof cameraInfo.viewInverse );
@@ -1492,17 +2068,6 @@ void RTGL1::VulkanDevice::UploadLight( const RgLightInfo* pInfo )
         }
     }
 
-    // TODO: remove? this is used to convert light values to a metric space
-    // Note: can't specify explicit type on lambda
-    std::visit( ext::overloaded{
-                    []( RgLightDirectionalEXT& ignored ) {},
-                    [ & ]( auto& l ) {
-                        l.intensity = Utils::IntensityFromNonMetric(
-                            l.intensity, sceneImportExport->GetWorldScale() );
-                    },
-                },
-                light.extension );
-
     UploadResult r =
         scene->UploadLight( currentFrameState.GetFrameIndex(), light, *lightManager, false );
 
@@ -1531,6 +2096,21 @@ void RTGL1::VulkanDevice::ProvideOriginalTexture( const RgOriginalTextureInfo* p
                                        currentFrameState.GetFrameIndex(),
                                        *pInfo,
                                        ovrdFolder );
+
+    // SHIPPING_HACK begin
+    if( !Utils::IsCstrEmpty( pInfo->pTextureName ) )
+    {
+        auto texturesToUpdateOnStaticGeom = scene->m_primitivesToUpdateTextures.find( pInfo->pTextureName );
+        if( texturesToUpdateOnStaticGeom != scene->m_primitivesToUpdateTextures.end() )
+        {
+            for( const PrimitiveUniqueID& geomUniqueId : texturesToUpdateOnStaticGeom->second )
+            {
+                scene->GetASManager()->Hack_PatchTexturesForStaticPrimitive(
+                    geomUniqueId, pInfo->pTextureName, *textureManager );
+            }
+        }
+    }
+    // SHIPPING_HACK end
 }
 
 void RTGL1::VulkanDevice::MarkOriginalTextureAsDeleted( const char* pTextureName )
@@ -1539,36 +2119,105 @@ void RTGL1::VulkanDevice::MarkOriginalTextureAsDeleted( const char* pTextureName
     cubemapManager->TryDestroyCubemap( currentFrameState.GetFrameIndex(), pTextureName );
 }
 
-bool RTGL1::VulkanDevice::IsSuspended() const
+bool RTGL1::VulkanDevice::IsUpscaleTechniqueAvailable( RgRenderUpscaleTechnique technique,
+                                                       RgFrameGenerationMode    frameGeneration,
+                                                       const char** ppFailureReason ) const
 {
-    if( !swapchain )
+    if( ppFailureReason )
     {
-        return false;
+        *ppFailureReason = nullptr;
     }
 
-    if( currentFrameState.WasFrameStarted() )
-    {
-        return false;
-    }
-
-    return !swapchain->IsExtentOptimal();
-}
-
-bool RTGL1::VulkanDevice::IsUpscaleTechniqueAvailable( RgRenderUpscaleTechnique technique ) const
-{
     switch( technique )
     {
         case RG_RENDER_UPSCALE_TECHNIQUE_NEAREST:
         case RG_RENDER_UPSCALE_TECHNIQUE_LINEAR:
-        case RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2: return true;
+            if( frameGeneration != RG_FRAME_GENERATION_MODE_OFF )
+            {
+                return false;
+            }
+            return true;
 
-        case RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS: return nvDlss->IsDlssAvailable();
 
-        default:
+        case RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2:
+            if( frameGeneration != RG_FRAME_GENERATION_MODE_OFF )
+            {
+                const char* error = swapchain->FailReason( SWAPCHAIN_TYPE_FRAME_GENERATION_FSR3 );
+                assert( error == nullptr || error[ 0 ] != '\0' );
+
+                if( ppFailureReason )
+                {
+                    *ppFailureReason = error;
+                }
+                return !error;
+            }
+            return bool( amdFsr2 );
+
+
+        case RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS: {
+            if( frameGeneration != RG_FRAME_GENERATION_MODE_OFF )
+            {
+                const char* error = swapchain->FailReason( SWAPCHAIN_TYPE_FRAME_GENERATION_DLSS3 );
+                assert( error == nullptr || error[ 0 ] != '\0' );
+
+                if( ppFailureReason )
+                {
+                    *ppFailureReason = error;
+                }
+                return !error;
+            }
+            return bool( nvDlss2 );
+        }
+
+        default: {
             throw RgException(
                 RG_RESULT_WRONG_FUNCTION_ARGUMENT,
                 "Incorrect technique was passed to rgIsRenderUpscaleTechniqueAvailable" );
+        }
     }
+}
+
+bool RTGL1::VulkanDevice::IsDXGIAvailable( const char** ppFailureReason ) const
+{
+    const char* dxgiError = swapchain->FailReason( SWAPCHAIN_TYPE_DXGI );
+    assert( dxgiError == nullptr || dxgiError[ 0 ] != '\0' );
+
+    if( ppFailureReason )
+    {
+        *ppFailureReason = dxgiError;
+    }
+    return swapchain && !dxgiError;
+}
+
+RgFeatureFlags RTGL1::VulkanDevice::GetSupportedFeatures() const
+{
+    RgFeatureFlags f = 0;
+
+    if( swapchain && swapchain->SupportsHDR() )
+    {
+        f |= RG_FEATURE_HDR;
+    }
+
+    if( m_supportsRayQueryAndPositionFetch )
+    {
+        f |= RG_FEATURE_FLUID;
+    }
+
+    return f;
+}
+
+RgUtilMemoryUsage RTGL1::VulkanDevice::RequestMemoryUsage() const
+{
+    auto& [ r_lastTime, r_usage ] = cachedMemoryUsage;
+
+    constexpr auto CheckEachSeconds = 0.5;
+    if( std::abs( currentFrameTime - r_lastTime ) > CheckEachSeconds )
+    {
+        r_lastTime = currentFrameTime;
+        r_usage    = RTGL1::RequestMemoryUsage( physDevice->Get() );
+    }
+
+    return r_usage;
 }
 
 RgPrimitiveVertex* RTGL1::VulkanDevice::ScratchAllocForVertices( uint32_t vertexCount )
@@ -1585,6 +2234,10 @@ void RTGL1::VulkanDevice::ScratchFree( const RgPrimitiveVertex* pPointer )
 
 void RTGL1::VulkanDevice::Print( std::string_view msg, RgMessageSeverityFlags severity ) const
 {
+    static auto printMutex = std::mutex{};
+
+    auto l = std::lock_guard{ printMutex };
+
     if( devmode )
     {
         auto getCountIfSameAsLast = [ & ]() -> uint32_t* {

@@ -25,6 +25,9 @@
 #define MATERIAL_MAX_ALBEDO_LAYERS 0
 #define MATERIAL_LIGHTMAP_LAYER_INDEX -1
 
+// use getTriangleTexInfo instead of getTriangle
+#define ONLY_LAYER0_TEXCOLOR
+
 #define DESC_SET_GLOBAL_UNIFORM 2
 #define DESC_SET_VERTEX_DATA 3
 #define DESC_SET_TEXTURES 4
@@ -38,15 +41,15 @@ hitAttributeEXT vec2 inBaryCoords;
 
 void main()
 {
-	const ShTriangle tr = getTriangle(gl_InstanceID, gl_InstanceCustomIndexEXT, gl_GeometryIndexEXT, gl_PrimitiveID);
+	const ShTriangleTexInfo tr = getTriangleTexInfo(gl_InstanceID, gl_InstanceCustomIndexEXT, gl_GeometryIndexEXT, gl_PrimitiveID);
 
 	const vec3 baryCoords = vec3(1.0f - inBaryCoords.x - inBaryCoords.y, inBaryCoords.x, inBaryCoords.y);
-    const vec2 texCoord = tr.layerTexCoord[0] * baryCoords;
+    const vec2 texCoord = tr.layerTexCoord_0 * baryCoords;
 
     // check only first material's albedo
     const vec4 color =
-        getTextureSample( tr.layerColorTextures[ 0 ], texCoord ) *
-        unpackUintColor( tr.layerColors[ 0 ] );
+        getTextureSample( tr.layerColorTextures_0, texCoord ) *
+        unpackUintColor( tr.layerColors_0 );
 
     // if must be discarded
 	if ((color.r + color.g + color.b) / 3 * color.a + color.a < ALPHA_THRESHOLD)

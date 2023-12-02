@@ -23,14 +23,14 @@
 namespace RTGL1
 {
 
-class Swapchain;
+class DebugWindows_Swapchain;
 
 class ISwapchainDependency
 {
 public:
-    virtual ~ISwapchainDependency()                               = default;
-    virtual void OnSwapchainCreate( const Swapchain* pSwapchain ) = 0;
-    virtual void OnSwapchainDestroy()                             = 0;
+    virtual ~ISwapchainDependency()                                            = default;
+    virtual void OnSwapchainCreate( const DebugWindows_Swapchain* pSwapchain ) = 0;
+    virtual void OnSwapchainDestroy()                                          = 0;
 };
 
 }

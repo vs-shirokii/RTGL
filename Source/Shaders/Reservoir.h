@@ -113,58 +113,57 @@ void updateCombinedReservoir_newSurf(inout Reservoir combined, const Reservoir b
 
 
 #ifdef DESC_SET_FRAMEBUFFERS
-uvec4 packReservoir(const Reservoir r)
+uvec2 packReservoir(const Reservoir r)
 {
     if (!isinf(r.weightSum) && !isnan(r.weightSum))
     {        
-        return uvec4(
+        return uvec2(
             (min(r.M, 65535u) << 16u) | min(r.selected, 65535u),
-            floatBitsToUint(r.selected_targetPdf),
-            floatBitsToUint(r.weightSum),
-            0
+            packHalf2x16(vec2(r.selected_targetPdf, r.weightSum))
         );
     }
     else
     {
-        return uvec4(
+        return uvec2(
             min(LIGHT_INDEX_NONE, 65535u),
-            floatBitsToUint(0.0),
-            floatBitsToUint(0.0),
-            0
+            packHalf2x16(vec2(0, 0))
         );
     }
 }
 
-Reservoir unpackReservoir(const uvec4 p)
+Reservoir unpackReservoir(const uvec2 p)
 {
     Reservoir r;
     r.selected              = (p[0]       ) & 65535u;
     r.M                     = (p[0] >> 16u) & 65535u;
-    r.selected_targetPdf    = uintBitsToFloat(p[1]);
-    r.weightSum             = uintBitsToFloat(p[2]);
+    vec2 stws               = unpackHalf2x16( p[ 1 ] );
+    {
+        r.selected_targetPdf = stws.x;
+        r.weightSum          = stws.y;
+    }
     return r;
 }
 
 void imageStoreReservoir(const Reservoir r, const ivec2 pix)
 {
-    imageStore(framebufReservoirs, pix, packReservoir(r));
+    imageStore(framebufReservoirs, pix, uvec4(packReservoir(r), 0, 0));
 }
 
 // "Rearchitecting spatiotemporal resampling for production" C. Wyman, Alexey Panteleev
 // To avoid a mid-frame global barrier, use previous frame reservoirs for reading
 Reservoir imageLoadReservoir_Prev(const ivec2 pix)
 {
-    return unpackReservoir(imageLoad(framebufReservoirs_Prev, pix));
+    return unpackReservoir(imageLoad(framebufReservoirs_Prev, pix).xy);
 }
 
 void imageStoreReservoirInitial(const Reservoir normalized, const ivec2 pix)
 {
-    imageStore(framebufReservoirsInitial, pix, packReservoir(normalized));
+    imageStore(framebufReservoirsInitial, pix, uvec4(packReservoir(normalized), 0, 0));
 }
 
 Reservoir imageLoadReservoirInitial(const ivec2 pix)
 {
-    return unpackReservoir(imageLoad(framebufReservoirsInitial, pix));
+    return unpackReservoir(imageLoad(framebufReservoirsInitial, pix).xy);
 }
 #endif // DESC_SET_FRAMEBUFFERS
 

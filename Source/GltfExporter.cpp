@@ -22,6 +22,8 @@
 
 #include "Const.h"
 #include "DrawFrameInfo.h"
+#include "JsonParser.h"
+#include "Matrix.h"
 #include "SpanCounted.h"
 #include "TextureExporter.h"
 #include "Utils.h"
@@ -117,11 +119,6 @@ auto* ConvertRefToPtr( auto& ref )
 std::filesystem::path GetGltfFolder( const std::filesystem::path& gltfPath )
 {
     return gltfPath.parent_path();
-}
-
-std::filesystem::path GetOriginalTexturesFolder( const std::filesystem::path& gltfPath )
-{
-    return GetGltfFolder( gltfPath ) / RTGL1::TEXTURES_FOLDER_JUNCTION;
 }
 
 std::filesystem::path GetGltfBinPath( std::filesystem::path gltfPath )
@@ -227,6 +224,27 @@ void CalculateNormals( std::vector< RgPrimitiveVertex_Unpacked >& verts,
         RTGL1::Utils::SafeNormalize( v.normal, fallback );
     }
 }
+
+auto MakeGltfPrimExtra( const RgMeshPrimitiveInfo& prim ) -> std::optional< RTGL1::PrimitiveExtraInfo >
+{
+    // TODO: expand for all other flags, for now, conservative for compatibility
+    if( prim.flags & RG_MESH_PRIMITIVE_SKY_VISIBILITY )
+    {
+        return RTGL1::PrimitiveExtraInfo{
+            .isGlass         = 0,
+            .isMirror        = 0,
+            .isWater         = 0,
+            .isSkyVisibility = true,
+            .isAcid          = 0,
+            .isThinMedia     = 0,
+            .noShadow        = 0,
+        };
+    }
+    return std::nullopt;
+}
+
+constexpr auto SKY_VISIBILITY_TAG = "_skyvis";
+
 }
 
 
@@ -403,12 +421,8 @@ private:
 
 
 
-RTGL1::GltfExporter::GltfExporter( const RgTransform& _worldTransform,
-                                   float              _oneGameUnitInMeters,
-                                   bool               _allowDuplicates )
-    : worldTransform( _worldTransform )
-    , oneGameUnitInMeters( _oneGameUnitInMeters )
-    , allowDuplicates( _allowDuplicates )
+RTGL1::GltfExporter::GltfExporter( const ImportExportParams& _params, bool _allowDuplicates )
+    : params{ _params }, allowDuplicates{ _allowDuplicates }
 {
 }
 
@@ -668,6 +682,8 @@ struct GltfRoot
     cgltf_mesh*                    mesh;
 
     std::vector< std::shared_ptr< RTGL1::DeepCopyOfPrimitive > > source;
+
+    bool isSkyVisibility;
 };
 
 struct GltfStorage
@@ -720,6 +736,7 @@ struct GltfStorage
                 .primitives  = r.primitives.ToSpan( allPrimitives ),
                 .mesh        = r.mesh.ToPointer( allMeshes ),
                 .source      = prims,
+                .isSkyVisibility = meshNode.name.contains( SKY_VISIBILITY_TAG ),
             };
             assert( root.source.size() == root.primitives.size() );
 
@@ -758,6 +775,22 @@ struct GltfStorage
 
 struct GltfTextures
 {
+    // https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#_sampler_magfilter
+    // https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#_sampler_minfilter
+    static constexpr int MakeGltfSamplerFilter( RgSamplerFilter f )
+    {
+        switch( f )
+        {
+            case RG_SAMPLER_FILTER_NEAREST: return 9728;
+            case RG_SAMPLER_FILTER_LINEAR: return 9729;
+            case RG_SAMPLER_FILTER_AUTO:
+                // SHIPPING_HACK begin -- TODO: must be RgDrawFrameTexturesParams::dynamicSamplerFilter
+                return 9728;
+                // SHIPPING_HACK end
+            default: return 0;
+        }
+    }
+
     explicit GltfTextures( const std::set< std::string >& sceneMaterials,
                            const std::filesystem::path&   gltfPath,
                            const RTGL1::TextureManager&   textureManager,
@@ -774,24 +807,42 @@ struct GltfTextures
         images   = rgl::span_counted( std::span( allocImages ) );
         textures = rgl::span_counted( std::span( allocTextures ) );
 
-        constexpr auto makeSampler = []( RgSamplerAddressMode addrU, RgSamplerAddressMode addrV ) {
-            // https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#_sampler_wraps
-            return cgltf_sampler{
-                .name       = nullptr,
-                .mag_filter = 0, // default
-                .min_filter = 0, // default
-                .wrap_s     = addrU == RG_SAMPLER_ADDRESS_MODE_CLAMP ? 33071 : 10497,
-                .wrap_t     = addrV == RG_SAMPLER_ADDRESS_MODE_CLAMP ? 33071 : 10497,
+        constexpr auto makeSampler =
+            []( RgSamplerAddressMode addrU, RgSamplerAddressMode addrV, RgSamplerFilter filter ) {
+                // https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#_sampler_wraps
+                return cgltf_sampler{
+                    .name       = nullptr,
+                    .mag_filter = MakeGltfSamplerFilter( filter ),
+                    .min_filter = MakeGltfSamplerFilter( filter ),
+                    .wrap_s     = addrU == RG_SAMPLER_ADDRESS_MODE_CLAMP ? 33071 : 10497,
+                    .wrap_t     = addrV == RG_SAMPLER_ADDRESS_MODE_CLAMP ? 33071 : 10497,
+                };
             };
-        };
-        allocSamplers = {
-            makeSampler( RG_SAMPLER_ADDRESS_MODE_REPEAT, RG_SAMPLER_ADDRESS_MODE_REPEAT ),
-            makeSampler( RG_SAMPLER_ADDRESS_MODE_REPEAT, RG_SAMPLER_ADDRESS_MODE_CLAMP ),
-            makeSampler( RG_SAMPLER_ADDRESS_MODE_CLAMP, RG_SAMPLER_ADDRESS_MODE_REPEAT ),
-            makeSampler( RG_SAMPLER_ADDRESS_MODE_CLAMP, RG_SAMPLER_ADDRESS_MODE_CLAMP ),
-        };
-        auto findSampler = [ this ]( const RTGL1::TextureManager::ExportResult& r ) {
-            cgltf_sampler target = makeSampler( r.addressModeU, r.addressModeV );
+
+        {
+            RgSamplerFilter allFilters[] = {
+                RG_SAMPLER_FILTER_AUTO,
+                RG_SAMPLER_FILTER_LINEAR,
+                RG_SAMPLER_FILTER_NEAREST,
+            };
+            RgSamplerAddressMode allAddrs[] = {
+                RG_SAMPLER_ADDRESS_MODE_REPEAT,
+                RG_SAMPLER_ADDRESS_MODE_CLAMP,
+            };
+            for( auto u : allAddrs )
+            {
+                for( auto v : allAddrs )
+                {
+                    for( auto f : allFilters )
+                    {
+                        allocSamplers.push_back( makeSampler( u, v, f ) );
+                    }
+                }
+            }
+        }
+
+        auto findGltfSampler = [ this ]( const RTGL1::TextureManager::ExportResult& r ) {
+            cgltf_sampler target = makeSampler( r.addressModeU, r.addressModeV, r.filter );
             for( cgltf_sampler& found : allocSamplers )
             {
                 if( std::memcmp( &found, &target, sizeof( cgltf_sampler ) ) == 0 )
@@ -804,8 +855,8 @@ struct GltfTextures
         };
 
 
-        const auto originalsFolder = std::string{ RTGL1::TEXTURES_FOLDER_JUNCTION_PREFIX };
-        const auto externalFolder  = std::string{ "ext/" };
+        const auto originalsFolder = std::string{ RTGL1::TEXTURES_FOLDER_JUNCTION } + '/';
+        const auto externalFolder  = std::string{ RTGL1::TEXTURES_FOLDER_EXTERNAL } + '/';
 
         const auto originalsFolderExportPath = GetGltfFolder( gltfPath ) / originalsFolder;
         const auto externalFolderExportPath  = GetGltfFolder( gltfPath ) / externalFolder;
@@ -821,12 +872,13 @@ struct GltfTextures
 
             const bool asExternal = textureManager.ShouldExportAsExternal( materialName.c_str() );
 
-            static_assert( RTGL1::TEXTURES_PER_MATERIAL_COUNT == 4 );
+            static_assert( RTGL1::TEXTURES_PER_MATERIAL_COUNT == 5 );
             static_assert( RTGL1::TEXTURE_ALBEDO_ALPHA_INDEX == 0 );
             static_assert( RTGL1::TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_INDEX == 1 );
             static_assert( RTGL1::TEXTURE_NORMAL_INDEX == 2 );
             static_assert( RTGL1::TEXTURE_EMISSIVE_INDEX == 3 );
-            auto [ albedo, orm, normal, emissive ] = textureManager.ExportMaterialTextures(
+            static_assert( RTGL1::TEXTURE_HEIGHT_INDEX == 4 );
+            auto [ albedo, orm, normal, emissive, height ] = textureManager.ExportMaterialTextures(
                 materialName.c_str(),
                 asExternal ? externalFolderExportPath : originalsFolderExportPath,
                 false,
@@ -866,7 +918,7 @@ struct GltfTextures
 
                     txd = cgltf_texture{
                         .image   = &img,
-                        .sampler = findSampler( r ),
+                        .sampler = findGltfSampler( r ),
                     };
 
                     return &txd;
@@ -1203,6 +1255,11 @@ public:
         // lock pointers
         storage.resize( sceneLights.size() );
         extrasStorage.resize( sceneLights.size() );
+        nameStorage.resize( sceneLights.size() );
+        for( size_t i = 0; i < sceneLights.size(); i++ )
+        {
+            nameStorage[ i ] = "explight_" + std::to_string( i );
+        }
 
         for( size_t i = 0; i < sceneLights.size(); i++ )
         {
@@ -1224,7 +1281,7 @@ public:
                 sceneLights[ i ].extension );
 
             dstLightNodes[ i ] = cgltf_node{
-                .name            = nullptr,
+                .name            = const_cast< char* >( nameStorage[ i ].c_str() ),
                 .parent          = nullptr, /* later */
                 .children        = nullptr,
                 .children_count  = 0,
@@ -1254,6 +1311,7 @@ public:
 private:
     std::vector< cgltf_light > storage;
     std::vector< std::string > extrasStorage;
+    std::vector< std::string > nameStorage;
 };
 
 
@@ -1438,59 +1496,118 @@ bool CreateDir( const std::filesystem::path& folder, bool forceEmpty )
 }
 
 
-bool CreateJunction( const std::filesystem::path& junction,
-                     const std::filesystem::path& target,
-                     bool                         forceEmpty )
+bool CreateJunction( const std::filesystem::path& junction_aspath,
+                     const std::filesystem::path& target_aspath )
 {
-    std::error_code ec;
+    const std::string junction = absolute( junction_aspath.lexically_normal() ).generic_string();
+    const std::string target   = absolute( target_aspath.lexically_normal() ).generic_string();
+
+    // ensure target exists
+    if( !CreateDir( target, false ) )
+    {
+        return false;
+    }
 
     // but there's no privilege to create symlinks,
     // so create a folder that contains texture copies from ovrd/mat or ovrd/matdev
-#if 1
-    create_directories( junction, ec );
-    if( ec && forceEmpty )
-    {
-        RTGL1::debug::Warning(
-            "std::filesystem::create_directories error: {} - {}", ec.message(), junction.string() );
-        return false;
-    }
-
-    if( !is_directory( junction ) )
-    {
-        RTGL1::debug::Warning( "Expected \'{}\' to be a directory", junction.string() );
-        return false;
-    }
-#else
+#ifdef WIN32
     assert( !target.empty() );
-    std::filesystem::create_directory_symlink( target, junction, ec );
-    if( ec && forceEmpty )
+
+    // already exists, success
+    if( std::filesystem::exists( junction ) )
     {
-        debug::Warning( "std::filesystem::create_directory_symlink error: {} - {}",
-                        ec.message(),
-                        junction.string() );
-        return false;
+        RTGL1::debug::Info(
+            R"(Wanted to create junction '{}' to '{}', but file/folder at '{}' already exists)",
+            junction,
+            target,
+            junction );
+        return true;
     }
 
-    if( !std::filesystem::is_symlink( junction ) )
+    constexpr static char powershellCreateJunction[] =
+        R"(New-Item -ItemType Junction -Path "{}" -Target "{}")";
+
+    // create .ps1 script for the user, that won't have a
     {
-        debug::Warning( "Expected \'{}\' to be a directory", junction.string() );
+        const auto folderToContain = std::filesystem::path{ junction }.parent_path();
+
+        if( auto f = std::ofstream{ ( folderToContain / "create_textures_junction.bat" ) } )
+        {
+            if( f.is_open() )
+            {
+                const auto powershellCmd =
+                    std::format( powershellCreateJunction,
+                                 relative( junction, folderToContain ).generic_string(),
+                                 relative( target, folderToContain ).generic_string() );
+                f << "powershell.exe " << powershellCmd;
+            }
+        }
+    }
+
+    // create symlink
+    {
+        const auto powershellCmd = std::format( powershellCreateJunction, junction, target );
+
+        SHELLEXECUTEINFO sei = {};
+        sei.cbSize           = sizeof( SHELLEXECUTEINFO );
+        sei.fMask            = SEE_MASK_NOCLOSEPROCESS; // get a handle to the process
+        sei.lpVerb           = "open";                  // or 'runas' to run as administrator
+        sei.lpFile           = "powershell.exe";        // powerShell executable
+        sei.lpParameters     = powershellCmd.c_str();   // command to run
+        sei.nShow            = SW_HIDE;                 // window state
+
+        if( !ShellExecuteEx( &sei ) )
+        {
+            RTGL1::debug::Warning( "Error running PowerShell command: \'{}\'", powershellCmd );
+            return false;
+        }
+
+        // blocking wait for the PowerShell command
+        WaitForSingleObject( sei.hProcess, INFINITE );
+        CloseHandle( sei.hProcess );
+    }
+
+#if _MSC_VER
+    // MSVC-specific file_type::junction
+    if( std::filesystem::status( junction ).type() == std::filesystem::file_type::junction )
+#else
+    if( std::filesystem::exists( junction ) )
+#endif
+    {
+        RTGL1::debug::Warning( "Expected \'{}\' to be a directory (is_symlink fail)", junction );
         return false;
     }
     assert( std::filesystem::equivalent( target, junction ) );
+#else
+    std::error_code ec;
+    create_directories( junction_aspath, ec );
+    if( ec && forceEmpty )
+    {
+        RTGL1::debug::Warning(
+            "std::filesystem::create_directories error: {} - {}", ec.message(), junction );
+        return false;
+    }
+
+    if( !is_directory( junction_aspath ) )
+    {
+        RTGL1::debug::Warning( "Expected \'{}\' to be a directory", junction );
+        return false;
+    }
 #endif
 
     return true;
 }
 
 
-bool PrepareFolder( const std::filesystem::path& gltfPath, bool forceEmpty )
+bool PrepareFolder( const std::filesystem::path& gltfPath,
+                    bool                         forceEmpty,
+                    const std::filesystem::path& ovrdFolder )
 {
-    auto folder         = GetGltfFolder( gltfPath );
-    auto texturesFolder = GetOriginalTexturesFolder( gltfPath );
+    auto folder = GetGltfFolder( gltfPath );
 
     if( forceEmpty && exists( folder ) )
     {
-#ifdef RG_USE_SURFACE_WIN32
+#ifdef WIN32
         auto msg = std::format( "Folder already exists:\n{}\n\n"
                                 "Are you sure you want to write ON TOP of its contents?",
                                 std::filesystem::absolute( folder ).string() );
@@ -1515,7 +1632,8 @@ bool PrepareFolder( const std::filesystem::path& gltfPath, bool forceEmpty )
     }
 
     // create junction folder to store original textures
-    if( !CreateJunction( texturesFolder, {}, forceEmpty ) )
+    if( !CreateJunction( folder / RTGL1::TEXTURES_FOLDER_JUNCTION,
+                         ovrdFolder / RTGL1::TEXTURES_FOLDER_ORIGINALS ) )
     {
         return false;
     }
@@ -1558,9 +1676,15 @@ void RTGL1::GltfExporter::AddPrimitive( const RgMeshInfo&          mesh,
         }
     }
 
+    auto meshname = std::string{ mesh.pMeshName };
+    if( primitive.flags & RG_MESH_PRIMITIVE_SKY_VISIBILITY )
+    {
+        meshname += SKY_VISIBILITY_TAG;
+    }
+
     scene[ GltfMeshNode{
-               mesh.pMeshName,
-               mesh.transform,
+               .name      = meshname,
+               .transform = mesh.transform,
            } ]
         .emplace_back( std::make_shared< DeepCopyOfPrimitive >( primitive ) );
 
@@ -1578,7 +1702,7 @@ void RTGL1::GltfExporter::AddPrimitiveLights( const RgMeshInfo&          mesh,
     if( auto* attachedLight = pnext::find< RgMeshPrimitiveAttachedLightEXT >( &primitive ) )
     {
         for( const AnyLightEXT& ext :
-             MakeLightsForPrimitive( mesh, primitive, *attachedLight, oneGameUnitInMeters ) )
+             MakeLightsForPrimitive( mesh, primitive, *attachedLight, params.oneGameUnitInMeters ) )
         {
             sceneLights.push_back( LightCopy{
                 .base       = { .sType = RG_STRUCTURE_TYPE_LIGHT_INFO, .isExportable = true },
@@ -1611,6 +1735,52 @@ void RTGL1::GltfExporter::AddLight( const LightCopy& light )
     sceneLights.push_back( light );
 }
 
+namespace
+{
+
+#define GLTF_MATRIX_IDENTITY                                          \
+    {                                                                 \
+        1, 0, 0, 0, /**/ 0, 1, 0, 0, /**/ 0, 0, 1, 0, /**/ 0, 0, 0, 1 \
+    }
+
+void TransformWorldToGltf( std::span< cgltf_node* > nodes, const RgTransform& worldTransform )
+{
+    // un-apply world transform, so it looks fine in an editor
+
+    float gltfMatrixWorld_Inverse[ 16 ];
+    {
+        float m[] = RG_TRANSFORM_TO_GLTF_MATRIX( worldTransform );
+        RTGL1::Matrix::Inverse( gltfMatrixWorld_Inverse, m );
+    }
+
+    for( cgltf_node* n : nodes )
+    {
+        if( !n )
+        {
+            continue;
+        }
+
+        float inWorld[ 16 ];
+        cgltf_node_transform_local( n, inWorld );
+
+        // overwrite matrix
+        {
+            n->has_matrix = true;
+            RTGL1::Matrix::Multiply( n->matrix, gltfMatrixWorld_Inverse, inWorld );
+        }
+        // reset others
+        {
+            n->has_translation = false;
+            n->has_rotation    = false;
+            n->has_scale       = false;
+            memset( n->translation, 0, sizeof( n->translation ) );
+            memset( n->rotation, 0, sizeof( n->rotation ) );
+            memset( n->scale, 0, sizeof( n->scale ) );
+        }
+    }
+}
+}
+
 void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,
                                          const TextureManager&        textureManager,
                                          const std::filesystem::path& ovrdFolder,
@@ -1628,7 +1798,7 @@ void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,
         return;
     }
 
-    if( !PrepareFolder( gltfPath, isSceneGltf ) )
+    if( !PrepareFolder( gltfPath, isSceneGltf, ovrdFolder ) )
     {
         debug::Warning( "Denied to write to the folder {}",
                         std::filesystem::absolute( GetGltfFolder( gltfPath ) ).string() );
@@ -1652,7 +1822,6 @@ void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,
     }
 
 
-    const char* primExtrasExample  = nullptr; // "{ portalOutPosition\" : [0,0,0] }";
     const char* sceneExtrasExample = nullptr; // "{ tonemapping_enable\" : 1 }";
 
 
@@ -1665,6 +1834,7 @@ void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,
     auto textureStorage =
         GltfTextures{ sceneMaterials, gltfPath, textureManager, ovrdFolder / TEXTURES_FOLDER_DEV };
     auto lightStorage = GltfLights{ sceneLights, storage.lightNodes };
+    auto strStorage   = std::vector< std::string >{};
 
 
     auto materialcount = 0u;
@@ -1724,6 +1894,16 @@ void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,
             };
         }
 
+
+        const char* extrastr = nullptr;
+        if( root.isSkyVisibility )
+        {
+            static_assert(
+                std::is_same_v< int, decltype( PrimitiveExtraInfo ::isSkyVisibility ) > );
+            extrastr = R"({ "isSkyVisibility" : 1 })";
+        }
+
+
         *root.mesh = cgltf_mesh{
             .name             = const_cast< char* >( root.name.c_str() ),
             .primitives       = std::data( root.primitives ),
@@ -1741,7 +1921,7 @@ void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,
             .light                   = nullptr,
             .has_matrix              = true,
             .matrix                  = RG_TRANSFORM_TO_GLTF_MATRIX( root.transform ),
-            .extras                  = { .data = const_cast< char* >( primExtrasExample ) },
+            .extras                  = { .data = const_cast< char* >( extrastr ) },
             .has_mesh_gpu_instancing = false,
             .mesh_gpu_instancing     = {},
         };
@@ -1755,9 +1935,11 @@ void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,
             .children       = std::data( storage.worldChildren ),
             .children_count = std::size( storage.worldChildren ),
             .has_matrix     = true,
-            .matrix         = RG_TRANSFORM_TO_GLTF_MATRIX( worldTransform ),
+            .matrix         = GLTF_MATRIX_IDENTITY,
             .extras         = { .data = nullptr },
         };
+        TransformWorldToGltf( std::span{ &storage.world, 1 }, params.worldTransform );
+
         for( cgltf_node* child : storage.worldChildren )
         {
             child->parent = storage.world;
@@ -1804,6 +1986,35 @@ void RTGL1::GltfExporter::ExportToFiles( const std::filesystem::path& gltfPath,
         .scenes_count       = 1,
         .scene              = &gltfScene,
     };
+    
+    {
+        auto isEmptyName = []( const cgltf_node& n ) {
+            return Utils::IsCstrEmpty( n.name );
+        };
+
+        if( std::ranges::any_of( storage.allNodes, isEmptyName ) )
+        {
+            debug::Error(
+                "Found a node doesn't have a name, expect that node to be ignored on import." );
+        }
+    }
+
+    // fixup intensities, so they look ok in the editor, and back on the import
+    for( uint32_t l = 0; l < data.lights_count; l++ )
+    {
+        float mult = 1.0f;
+        switch( data.lights[ l ].type )
+        {
+            case cgltf_light_type_directional:
+                mult = params.importedLightIntensityScaleDirectional;
+                break;
+            case cgltf_light_type_point: mult = params.importedLightIntensityScaleSphere; break;
+            case cgltf_light_type_spot: mult = params.importedLightIntensityScaleSpot; break;
+            default: assert( 0 ); break;
+        }
+
+        data.lights[ l ].intensity /= mult;
+    }
 
     cgltf_options options = {};
     cgltf_result  r;

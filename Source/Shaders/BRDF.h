@@ -83,8 +83,8 @@ float getFresnelSchlick(float n1, float n2, const vec3 V, const vec3 N)
     return mix(R0, 1.0, pow(1.0 - abs(dot(N, V)), 5.0));
 }
 
-// GGX distribution
-float D_GGX( float nm, float alpha )
+// GGX distribution - reciprocal
+float D_GGX_rcp( float nm, float alpha )
 {
 #if SHIPPING_HACK
 #ifdef FORCE_EVALBRDF_GGX_LOOSE
@@ -97,7 +97,13 @@ float D_GGX( float nm, float alpha )
     const float alphaSq = square( alpha );
 
     nm = max( 0.0, nm );
-    return alphaSq / M_PI / square( nm * nm * ( alphaSq - 1 ) + 1 );
+    return  M_PI * square( nm * nm * ( alphaSq - 1 ) + 1 ) / alphaSq;
+}
+
+// GGX distribution
+float D_GGX( float nm, float alpha )
+{
+    return 1.0 / D_GGX_rcp( nm, alpha );
 }
 
 // Smith G1 for GGX, Karis' approximation ("Real Shading in Unreal Engine 4")
@@ -150,7 +156,7 @@ vec3 evalBRDFSmithGGX(const vec3 n, const vec3 v, const vec3 l, float alpha, con
 // alpha    -- roughness
 // u1, u2   -- uniform random numbers
 // output   -- normal sampled with PDF D_v(Ne) = G1(v) * max(0, dot(v, Ne)) * D(Ne) / v.z
-vec3 sampleGGXVNDF(const vec3 v, float alpha, float u1, float u2, out float oneOverPdf)
+vec3 sampleGGXVNDF_Heitz(const vec3 v, float alpha, float u1, float u2, out float oneOverPdf)
 {
     alpha = max( alpha, MIN_GGX_ROUGHNESS );
 
@@ -194,6 +200,70 @@ vec3 sampleGGXVNDF(const vec3 v, float alpha, float u1, float u2, out float oneO
 
     return Ne;
 }
+
+// "Bounded VNDF Sampling for Smith–GGX Reflections", Kenta Eto, Yusuke Tokuyoshi
+// i        -- direction to viewer, normal's direction is (0,0,1)
+// alpha    -- roughness
+// u1, u2   -- uniform random numbers
+// output   -- normal sampled with PDF D_v(Ne) = G1(v) * max(0, dot(v, Ne)) * D(Ne) / v.z
+vec3 sampleGGXVNDF_Bounded(const vec3 i, float alpha, float u1, float u2, out float oneOverPdf)
+{
+    alpha = clamp( alpha, MIN_GGX_ROUGHNESS, 1.0 );
+
+    // fix: avoid grazing angles
+    u1 *= 0.98;
+    u2 *= 0.98;
+
+    vec3 m;
+    {
+        vec3  i_std = normalize( vec3( i.xy * alpha, i.z ) );
+        // Sample a spherical cap
+        float phi = 2.0 * M_PI * u1;
+        float s   = 1.0f + length( vec2( i.x, i.y ) ); // Omit sgn for alpha <=1
+        float a2  = alpha * alpha;
+        float s2  = s * s;
+        float k   = ( 1.0 - a2 ) * s2 / ( s2 + a2 * i.z * i.z ); // Eq. 5
+        float b   = i.z > 0 ? k * i_std.z : i_std.z;
+        // float z     = mad( 1.0 - u2, 1.0 + b, -b );
+        float z        = ( 1.0 - u2 ) * ( 1.0 + b ) - b;
+        float sinTheta = sqrt( saturate( 1.0 - z * z ) );
+        vec3  o_std    = vec3( sinTheta * cos( phi ), sinTheta * sin( phi ), z );
+        // Compute the microfacet normal m
+        vec3  m_std = i_std + o_std;
+        m           = normalize( vec3( m_std.xy * alpha, m_std.z ) );
+    }
+
+    // here, macro normal is (0,0,1), so nm=m.z
+    const float nm  = m.z;
+    const float ndf_rcp = D_GGX_rcp( nm, alpha );
+
+    {
+        vec2  ai   = alpha * i.xy;
+        float len2 = dot( ai, ai );
+        float t    = sqrt( len2 + i.z * i.z );
+        if( i.z >= 0.0 )
+        {
+            float a  = alpha; // Eq. 6
+            float s  = 1.0f + length( vec2( i.x, i.y ) );   // Omit sgn for a <=1
+            float a2 = a * a;
+            float s2 = s * s;
+            float k  = ( 1.0 - a2 ) * s2 / ( s2 + a2 * i.z * i.z ); // Eq. 5
+
+            oneOverPdf = ( 2.0 * ( k * i.z + t ) ) * ndf_rcp; // Eq. 8 * || dm/do ||
+        }
+        else
+        {
+            // Numerically stable form of the previous PDF for i.z < 0
+            oneOverPdf = ( 2.0 * len2 ) * ndf_rcp / ( t - i.z ); // = Eq. 7 * || dm/do ||
+        }
+    }
+
+    return m;
+}
+
+
+#define sampleGGXVNDF sampleGGXVNDF_Bounded
+
 
 // Sample microfacet normal
 // n        -- macrosurface normal, world space

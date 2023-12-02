@@ -115,23 +115,29 @@ RTGL1::RayTracingPipeline::RayTracingPipeline( VkDevice                         
 
     assert( _rgInfo.primaryRaysMaxAlbedoLayers <= MATERIALS_MAX_LAYER_COUNT );
     assert( _rgInfo.indirectIlluminationMaxAlbedoLayers <= MATERIALS_MAX_LAYER_COUNT );
-    assert( _rgInfo.lightmapTexCoordLayerIndex <= MATERIALS_MAX_LAYER_COUNT );
+    assert( _rgInfo.lightmapTexCoordLayerIndex < MATERIALS_MAX_LAYER_COUNT );
+
+    const uint32_t lightmapLayerIndex =
+        ( _rgInfo.lightmapTexCoordLayerIndex > 0 &&
+          _rgInfo.lightmapTexCoordLayerIndex < MATERIALS_MAX_LAYER_COUNT )
+            ? _rgInfo.lightmapTexCoordLayerIndex
+            : 0xFF;
 
     // clang-format off
     // shader modules in the pipeline will have the exact order
     shaderStageInfos = {
-        ShaderStageInfo{ "RGenPrimary",         SpecConst{ _rgInfo.primaryRaysMaxAlbedoLayers, _rgInfo.lightmapTexCoordLayerIndex } },
-        ShaderStageInfo{ "RGenReflRefr",        SpecConst{ _rgInfo.primaryRaysMaxAlbedoLayers, _rgInfo.lightmapTexCoordLayerIndex } },
-        ShaderStageInfo{ "RGenDirect",          std::nullopt },
-        ShaderStageInfo{ "RGenIndirectInit",    SpecConst{ _rgInfo.indirectIlluminationMaxAlbedoLayers, _rgInfo.lightmapTexCoordLayerIndex } },
-        ShaderStageInfo{ "RGenIndirectFinal",   SpecConst{ _rgInfo.indirectIlluminationMaxAlbedoLayers, _rgInfo.lightmapTexCoordLayerIndex } },
-        ShaderStageInfo{ "RGenGradients",       std::nullopt },
-        ShaderStageInfo{ "RInitialReservoirs",  std::nullopt },
-        ShaderStageInfo{ "RVolumetric",         std::nullopt },
-        ShaderStageInfo{ "RMiss",               std::nullopt },
-        ShaderStageInfo{ "RMissShadow",         std::nullopt },
-        ShaderStageInfo{ "RClsOpaque",          std::nullopt },
-        ShaderStageInfo{ "RAlphaTest",          std::nullopt },
+        ShaderStageInfo{ "RGenPrimary",         SpecConst{ _rgInfo.primaryRaysMaxAlbedoLayers, lightmapLayerIndex } },
+        ShaderStageInfo{ "RGenReflRefr",        SpecConst{ _rgInfo.primaryRaysMaxAlbedoLayers, lightmapLayerIndex } },
+        ShaderStageInfo{ "RGenDirect",          {} },
+        ShaderStageInfo{ "RGenIndirectInit",    SpecConst{ _rgInfo.indirectIlluminationMaxAlbedoLayers, lightmapLayerIndex } },
+    //  ShaderStageInfo{ "RGenIndirectFinal",   SpecConst{ _rgInfo.indirectIlluminationMaxAlbedoLayers, lightmapLayerIndex } },
+        ShaderStageInfo{ "RGenGradients",       {} },
+        ShaderStageInfo{ "RInitialReservoirs",  {} },
+        ShaderStageInfo{ "RVolumetric",         {} },
+        ShaderStageInfo{ "RMiss",               {} },
+        ShaderStageInfo{ "RMissShadow",         {} },
+        ShaderStageInfo{ "RClsOpaque",          {} },
+        ShaderStageInfo{ "RAlphaTest",          {} },
     };
     // clang-format on
 
@@ -158,7 +164,7 @@ RTGL1::RayTracingPipeline::RayTracingPipeline( VkDevice                         
     AddRayGenGroup( toIndex( "RGenReflRefr" ) );        assert( raygenShaderCount - 1 == SBT_INDEX_RAYGEN_REFL_REFR );
     AddRayGenGroup( toIndex( "RGenDirect" ) );          assert( raygenShaderCount - 1 == SBT_INDEX_RAYGEN_DIRECT );
     AddRayGenGroup( toIndex( "RGenIndirectInit" ) );    assert( raygenShaderCount - 1 == SBT_INDEX_RAYGEN_INDIRECT_INIT );
-    AddRayGenGroup( toIndex( "RGenIndirectFinal" ) );   assert( raygenShaderCount - 1 == SBT_INDEX_RAYGEN_INDIRECT_FINAL );
+//  AddRayGenGroup( toIndex( "RGenIndirectFinal" ) );   assert( raygenShaderCount - 1 == SBT_INDEX_RAYGEN_INDIRECT_FINAL );
     AddRayGenGroup( toIndex( "RGenGradients" ) );       assert( raygenShaderCount - 1 == SBT_INDEX_RAYGEN_GRADIENTS );
     AddRayGenGroup( toIndex( "RInitialReservoirs" ) );  assert( raygenShaderCount - 1 == SBT_INDEX_RAYGEN_INITIAL_RESERVOIRS );
     AddRayGenGroup( toIndex( "RVolumetric" ) );         assert( raygenShaderCount - 1 == SBT_INDEX_RAYGEN_VOLUMETRIC );
@@ -251,7 +257,12 @@ void RTGL1::RayTracingPipeline::CreatePipeline( const ShaderManager* shaderManag
         .pStages                      = stages.data(),
         .groupCount                   = static_cast< uint32_t >( shaderGroups.size() ),
         .pGroups                      = shaderGroups.data(),
-        .maxPipelineRayRecursionDepth = 2,
+        //
+        // !!! ASSUME NO RECURSION !!!
+        //
+        .maxPipelineRayRecursionDepth = 1,
+        //
+        //
         .pLibraryInfo                 = &libInfo,
         .layout                       = rtPipelineLayout,
     };
@@ -261,12 +272,35 @@ void RTGL1::RayTracingPipeline::CreatePipeline( const ShaderManager* shaderManag
 
     VK_CHECKERROR( r );
     SET_DEBUG_NAME( device, rtPipeline, VK_OBJECT_TYPE_PIPELINE, "Ray tracing pipeline" );
+
+    CreateComputePipelines( shaderManager );
+}
+
+void RTGL1::RayTracingPipeline::CreateComputePipelines( const ShaderManager* shaderManager )
+{
+    {
+        VkComputePipelineCreateInfo info = {
+            .sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+            .pNext  = nullptr,
+            .flags  = 0,
+            .stage  = shaderManager->GetStageInfo( "CmIndirectFinal" ),
+            .layout = rtPipelineLayout,
+        };
+
+        VkResult r = vkCreateComputePipelines(
+            device, VK_NULL_HANDLE, 1, &info, nullptr, &compPipelineIndirectFinal );
+        VK_CHECKERROR( r );
+        SET_DEBUG_NAME(
+            device, compPipelineIndirectFinal, VK_OBJECT_TYPE_PIPELINE, "CmIndirectFinal" );
+    }
 }
 
 void RTGL1::RayTracingPipeline::DestroyPipeline()
 {
     vkDestroyPipeline( device, rtPipeline, nullptr );
     rtPipeline = VK_NULL_HANDLE;
+    vkDestroyPipeline( device, compPipelineIndirectFinal, nullptr );
+    compPipelineIndirectFinal = VK_NULL_HANDLE;
 }
 
 void RTGL1::RayTracingPipeline::CreateSBT()
@@ -307,7 +341,7 @@ void RTGL1::RayTracingPipeline::DestroySBT()
     shaderBindingTable->Destroy();
 }
 
-void RTGL1::RayTracingPipeline::Bind( VkCommandBuffer cmd )
+auto RTGL1::RayTracingPipeline::GetShaderTableSafely_RayTracing( VkCommandBuffer cmd ) -> VkPipeline
 {
     if( copySBTFromStaging )
     {
@@ -315,7 +349,12 @@ void RTGL1::RayTracingPipeline::Bind( VkCommandBuffer cmd )
         copySBTFromStaging = false;
     }
 
-    vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rtPipeline );
+    return rtPipeline;
+}
+
+auto RTGL1::RayTracingPipeline::GetPipelineIndirectFinal_Compute() -> VkPipeline
+{
+    return compPipelineIndirectFinal;
 }
 
 void RTGL1::RayTracingPipeline::GetEntries( uint32_t                         sbtRayGenIndex,
@@ -328,7 +367,7 @@ void RTGL1::RayTracingPipeline::GetEntries( uint32_t                         sbt
             sbtRayGenIndex == SBT_INDEX_RAYGEN_REFL_REFR ||
             sbtRayGenIndex == SBT_INDEX_RAYGEN_DIRECT ||
             sbtRayGenIndex == SBT_INDEX_RAYGEN_INDIRECT_INIT ||
-            sbtRayGenIndex == SBT_INDEX_RAYGEN_INDIRECT_FINAL ||
+         // sbtRayGenIndex == SBT_INDEX_RAYGEN_INDIRECT_FINAL ||
             sbtRayGenIndex == SBT_INDEX_RAYGEN_GRADIENTS ||
             sbtRayGenIndex == SBT_INDEX_RAYGEN_INITIAL_RESERVOIRS ||
             sbtRayGenIndex == SBT_INDEX_RAYGEN_VOLUMETRIC );

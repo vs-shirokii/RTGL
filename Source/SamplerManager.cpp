@@ -148,6 +148,20 @@ namespace
         return std::make_pair( u, v );
     }
 
+    RgSamplerFilter GetRgFilterFromIndex( uint32_t index )
+    {
+        if( ( index & FILTER_MASK ) == FILTER_NEAREST )
+        {
+            return RG_SAMPLER_FILTER_NEAREST;
+        }
+        if( ( index & FILTER_MASK ) == FILTER_LINEAR )
+        {
+            return RG_SAMPLER_FILTER_LINEAR;
+        }
+        assert( 0 );
+        return RG_SAMPLER_FILTER_AUTO;
+    }
+
     uint32_t ToIndex( RgSamplerFilter      filter,
                       RgSamplerAddressMode addressModeU,
                       RgSamplerAddressMode addressModeV )
@@ -333,12 +347,16 @@ bool RTGL1::SamplerManager::TryChangeMipLodBias( uint32_t frameIndex, float newM
     return true;
 }
 
-std::pair< RgSamplerAddressMode, RgSamplerAddressMode > RTGL1::SamplerManager::AccessAddressModes(
-    const Handle& handle )
+auto RTGL1::SamplerManager::Deconstruct( const Handle& handle ) const
+    -> std::tuple< RgSamplerAddressMode, RgSamplerAddressMode, RgSamplerFilter >
 {
-    auto r = GetRgAddressModesFromIndex( handle.internalIndex );
+    auto [ u, v ] = GetRgAddressModesFromIndex( handle.internalIndex );
 
-    return r;
+    if( handle.hasDynamicSamplerFilter )
+    {
+        return { u, v, RG_SAMPLER_FILTER_AUTO };
+    }
+    return { u, v, GetRgFilterFromIndex( handle.internalIndex ) };
 }
 
 RTGL1::SamplerManager::Handle::Handle( RgSamplerFilter      filter,

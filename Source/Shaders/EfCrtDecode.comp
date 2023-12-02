@@ -37,7 +37,7 @@ vec3 yiq2rgb(vec3 yiq)
 }
 
 #define NTSC_CRT_GAMMA 2.4
-#define NTSC_MONITOR_GAMMA 2.0
+#define NTSC_MONITOR_GAMMA 2.2
 
 #define TAPS 32
 const float luma_filter[TAPS + 1] = float[TAPS + 1](
@@ -70,7 +70,7 @@ vec3 fetchOffset(ivec2 pix, int xoffset)
         return vec3(0.0);
     }
 
-    return decodeYiqFromStorage(effect_loadFromSource(pix + ivec2(xoffset, 0)));
+    return effect_loadFromSource(pix + ivec2(xoffset, 0));
 }
 
 vec3 decode(ivec2 pix)
@@ -88,7 +88,7 @@ vec3 decode(ivec2 pix)
         fetchOffset(pix, 0) * 
         vec3(luma_filter[TAPS], chroma_filter[TAPS], chroma_filter[TAPS]);
 
-    vec3 rgb = yiq2rgb(signal);
+    vec3 rgb = max( yiq2rgb( signal ), 0 );
     return pow(rgb, vec3(NTSC_CRT_GAMMA / NTSC_MONITOR_GAMMA));
 }
 

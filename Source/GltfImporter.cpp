@@ -33,6 +33,11 @@
 
 #include "cgltf/cgltf.h"
 
+#if 0
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#endif
+
 #include <format>
 #include <span>
 
@@ -40,6 +45,9 @@
 
 namespace RTGL1
 {
+
+extern std::filesystem::path g_ovrdFolder; // hack
+
 namespace
 {
     RgTransform ColumnsToRows( const float arr[ 16 ] )
@@ -60,10 +68,10 @@ namespace
 #undef MAT
     }
 
-    RgTransform MakeRgTransform( const cgltf_node& node )
+    RgTransform MakeRgTransformGlobal( const cgltf_node& node )
     {
         float mat[ 16 ];
-        cgltf_node_transform_local( &node, mat );
+        cgltf_node_transform_world( &node, mat );
 
         return ColumnsToRows( mat );
     }
@@ -116,27 +124,49 @@ namespace
         return ColumnsToRows( lm );
     }
 
-    void ApplyInverseWorldTransform( cgltf_node& mainNode, const RgTransform& worldTransform )
+    void TransformFromGltfToWorld( std::span< cgltf_node* > nodes,
+                                   const RgTransform&       worldTransform )
     {
-        mainNode.has_translation = false;
-        mainNode.has_rotation    = false;
-        mainNode.has_scale       = false;
-        memset( mainNode.translation, 0, sizeof( mainNode.translation ) );
-        memset( mainNode.rotation, 0, sizeof( mainNode.rotation ) );
-        memset( mainNode.scale, 0, sizeof( mainNode.scale ) );
+        // apply world transform to a normalized (editor) space
 
-        mainNode.has_matrix = true;
-
-        // columns
         const float gltfMatrixWorld[] = RG_TRANSFORM_TO_GLTF_MATRIX( worldTransform );
 
-        float inv[ 16 ];
-        RTGL1::Matrix::Inverse( inv, gltfMatrixWorld );
+        for( cgltf_node* n : nodes )
+        {
+            if( n )
+            {
+                float nonWorld[ 16 ];
+                cgltf_node_transform_local( n, nonWorld );
 
-        float original[ 16 ];
-        cgltf_node_transform_local( &mainNode, original );
+                // overwrite matrix
+                {
+                    n->has_matrix = true;
+                    Matrix::Multiply( n->matrix, gltfMatrixWorld, nonWorld );
+                }
+                // reset others
+                {
+                    n->has_translation = false;
+                    n->has_rotation    = false;
+                    n->has_scale       = false;
+                    memset( n->translation, 0, sizeof( n->translation ) );
+                    memset( n->rotation, 0, sizeof( n->rotation ) );
+                    memset( n->scale, 0, sizeof( n->scale ) );
+                }
+            }
+        }
+    }
+    
+    auto Widen( const char* cstr )
+    {
+        size_t len = std::strlen( cstr );
 
-        RTGL1::Matrix::Multiply( mainNode.matrix, inv, original );
+        auto wstr = std::wstring{};
+        wstr.resize( len );
+        for( uint32_t i = 0; i < len; i++ )
+        {
+            wstr[ i ] = static_cast< wchar_t >( cstr[ i ] );
+        }
+        return wstr;
     }
 
     cgltf_node* FindMainRootNode( cgltf_data* data )
@@ -146,21 +176,16 @@ namespace
             return nullptr;
         }
 
-        std::span ns( data->scene->nodes, data->scene->nodes_count );
-
-        for( cgltf_node* n : ns )
+        for( cgltf_node* n : std::span{ data->scene->nodes, data->scene->nodes_count } )
         {
-            if( RTGL1::Utils::IsCstrEmpty( n->name ) )
+            if( !Utils::IsCstrEmpty( n->name ) )
             {
-                continue;
-            }
-
-            if( std::strcmp( n->name, RTGL1_MAIN_ROOT_NODE ) == 0 )
-            {
-                return n;
+                if( std::strcmp( n->name, RTGL1_MAIN_ROOT_NODE ) == 0 )
+                {
+                    return n;
+                }
             }
         }
-
         return nullptr;
     }
 
@@ -176,6 +201,12 @@ namespace
     auto nodeName( const cgltf_node* n )
     {
         return n ? nodeName( *n ) : std::string_view{};
+    }
+
+    template< typename T >
+    size_t hashCombine( size_t seed, const T& v )
+    {
+        return seed ^ ( std::hash< T >{}( v ) + 0x9e3779b9 + ( seed << 6 ) + ( seed >> 2 ) );
     }
 
     bool IsAlmostIdentity( const RgTransform& tr )
@@ -522,8 +553,7 @@ namespace
         return primIndices;
     }
 
-    std::string MakePTextureName( const cgltf_material&              mat,
-                                  std::span< std::filesystem::path > fallbacks )
+    std::string MakePTextureName( const cgltf_material& mat )
     {
         const cgltf_texture* t = mat.pbr_metallic_roughness.base_color_texture.texture;
 
@@ -536,41 +566,30 @@ namespace
                 if( !std::string_view( t->image->uri )
                          .starts_with( TEXTURES_FOLDER_JUNCTION_PREFIX ) )
                 {
-                    debug::Info( "Found gltf texture (overloading disabled): \'{}\'",
-                                 t->image->uri );
+                    debug::Verbose( "Found gltf texture (overloading disabled): \'{}\'",
+                                    t->image->uri );
                 }
             }
 
             return name;
         }
 
-        for( const auto& f : fallbacks )
-        {
-            if( !f.empty() )
-            {
-                return f.string();
-            }
-        }
-
-        return "";
+        return {};
     }
 
     struct UploadTexturesResult
     {
-        RgColor4DPacked32 color        = Utils::PackColor( 255, 255, 255, 255 );
-        float             emissiveMult = 0.0f;
-        std::string       pTextureName;
-        float             metallicFactor  = 0.0f;
-        float             roughnessFactor = 1.0f;
+        RgColor4DPacked32               color{ Utils::PackColor( 255, 255, 255, 255 ) };
+        float                           emissiveMult{ 0.0f };
+        float                           metallicFactor{ 0.0f };
+        float                           roughnessFactor{ 1.0f };
+        WholeModelFile::RawMaterialData toRegister{};
     };
 
-    UploadTexturesResult UploadTextures( VkCommandBuffer              cmd,
-                                         uint32_t                     frameIndex,
-                                         const cgltf_material*        mat,
-                                         TextureManager&              textureManager,
-                                         bool                         isReplacement,
-                                         const std::filesystem::path& gltfFolder,
-                                         std::string_view             gltfPath )
+    auto UploadTextures( const cgltf_material*        mat,
+                         bool                         isReplacement,
+                         const std::filesystem::path& gltfFolder,
+                         std::string_view             gltfPath ) -> UploadTexturesResult
     {
         if( mat == nullptr )
         {
@@ -587,22 +606,41 @@ namespace
         }
 
         // clang-format off
-        std::filesystem::path fullPaths[] = {
-            std::filesystem::path(),
-            std::filesystem::path(),
-            std::filesystem::path(),
-            std::filesystem::path(),
+        auto fullPaths = std::array{
+            std::filesystem::path{},
+            std::filesystem::path{},
+            std::filesystem::path{},
+            std::filesystem::path{},
+            std::filesystem::path{},
         };
-        SamplerManager::Handle samplers[] = {
-            SamplerManager::Handle( RG_SAMPLER_FILTER_AUTO, RG_SAMPLER_ADDRESS_MODE_REPEAT, RG_SAMPLER_ADDRESS_MODE_REPEAT ),
-            SamplerManager::Handle( RG_SAMPLER_FILTER_AUTO, RG_SAMPLER_ADDRESS_MODE_REPEAT, RG_SAMPLER_ADDRESS_MODE_REPEAT ),
-            SamplerManager::Handle( RG_SAMPLER_FILTER_AUTO, RG_SAMPLER_ADDRESS_MODE_REPEAT, RG_SAMPLER_ADDRESS_MODE_REPEAT ),
-            SamplerManager::Handle( RG_SAMPLER_FILTER_AUTO, RG_SAMPLER_ADDRESS_MODE_REPEAT, RG_SAMPLER_ADDRESS_MODE_REPEAT ),
+        auto samplers = std::array{
+            // defaults to overwrite
+            WholeModelFile::DefaultSampler,
+            WholeModelFile::DefaultSampler,
+            WholeModelFile::DefaultSampler,
+            WholeModelFile::DefaultSampler,
+            WholeModelFile::DefaultSampler,
         };
+        auto postfixes = std::array{
+            TEXTURE_ALBEDO_ALPHA_POSTFIX                ,
+            TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_POSTFIX,
+            TEXTURE_NORMAL_POSTFIX                      ,
+            TEXTURE_EMISSIVE_POSTFIX                    ,
+            TEXTURE_HEIGHT_POSTFIX                      ,
+        };
+        static_assert(
+            TEXTURE_ALBEDO_ALPHA_INDEX                 == 0 &&
+            TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_INDEX == 1 &&
+            TEXTURE_NORMAL_INDEX                       == 2 &&
+            TEXTURE_EMISSIVE_INDEX                     == 3 &&
+            TEXTURE_HEIGHT_INDEX                       == 4 );
         static_assert( std::size( fullPaths ) == TEXTURES_PER_MATERIAL_COUNT );
-        static_assert( std::size( samplers ) == TEXTURES_PER_MATERIAL_COUNT );
+        static_assert( std::size( samplers )  == TEXTURES_PER_MATERIAL_COUNT );
+        static_assert( std::size( postfixes ) == TEXTURES_PER_MATERIAL_COUNT );
         // clang-format on
 
+
+        static constexpr auto nulltexview = cgltf_texture_view{};
 
         const std::pair< int, const cgltf_texture_view& > txds[] = {
             {
@@ -620,6 +658,10 @@ namespace
             {
                 TEXTURE_EMISSIVE_INDEX,
                 mat->emissive_texture,
+            },
+            {
+                TEXTURE_HEIGHT_INDEX,
+                nulltexview,
             },
         };
         static_assert( std::size( txds ) == TEXTURES_PER_MATERIAL_COUNT );
@@ -707,21 +749,12 @@ namespace
 
             if( txview.texture->sampler )
             {
-                samplers[ index ] = SamplerManager::Handle(
+                samplers[ index ] = SamplerManager::Handle{
                     makeRgSamplerFilter( txview.texture->sampler->mag_filter ),
                     makeRgSamplerAddrMode( txview.texture->sampler->wrap_s ),
-                    makeRgSamplerAddrMode( txview.texture->sampler->wrap_t ) );
+                    makeRgSamplerAddrMode( txview.texture->sampler->wrap_t ),
+                };
             }
-        }
-
-
-        std::string materialName = MakePTextureName( *mat, fullPaths );
-
-        // if fullPaths are empty
-        if( !materialName.empty() )
-        {
-            textureManager.TryCreateImportedMaterial(
-                cmd, frameIndex, materialName, fullPaths, samplers, pbrSwizzling, isReplacement );
         }
 
         if( auto t = mat->pbr_metallic_roughness.metallic_roughness_texture.texture )
@@ -731,30 +764,86 @@ namespace
                 if( std::abs( mat->pbr_metallic_roughness.metallic_factor - 1.0f ) > 0.01f ||
                     std::abs( mat->pbr_metallic_roughness.roughness_factor - 1.0f ) > 0.01f )
                 {
-                    debug::Warning(
-                        "{}: Texture with image \"{}\" of material \"{}\" has "
-                        "metallic / roughness factors that are not 1.0. These values are "
-                        "used by RTGL1 only if surface doesn't have PBR texture",
-                        gltfPath,
-                        Utils::SafeCstr( t->image->uri ),
-                        Utils::SafeCstr( mat->name ) );
+                    debug::Info( "{}: Texture with image \"{}\" of material \"{}\" has "
+                                 "metallic / roughness factors that are not 1.0. These values are "
+                                 "used by RTGL1 only if surface doesn't have PBR texture",
+                                 gltfPath,
+                                 Utils::SafeCstr( t->image->uri ),
+                                 Utils::SafeCstr( mat->name ) );
                 }
             }
+        }
+
+        auto name = MakePTextureName( *mat );
+
+#if 1
+        // SHIPPING_HACK: if original game texture referenced in gltf, 
+        bool trackOriginalTexture = false;
+        if( fullPaths[ TEXTURE_ALBEDO_ALPHA_INDEX ].native().find( TEXTURES_FOLDER_JUNCTION_W ) !=
+            std::wstring::npos )
+        {
+            {
+                // e.g. "rt/scenes/myscene/mat_junction/floor.tga"
+                const auto &filepath = fullPaths[ TEXTURE_ALBEDO_ALPHA_INDEX ];
+
+                // ignore everything before and including "mat_junction"
+                auto relname = std::filesystem::path{};
+                bool ok = false;
+                for( const auto& part : filepath )
+                {
+                    if( ok )
+                    {
+                        relname /= part;
+                    }
+                    else if( part == TEXTURES_FOLDER_JUNCTION_W )
+                    {
+                        ok = true;
+                    }
+                }
+                assert( ok );
+                relname.replace_extension();
+
+                if( !relname.empty() )
+                {
+                    name = relname.string();
+                    std::ranges::replace( name, '\\', '/' );
+                }
+            }
+            assert( !name.empty() );
+            trackOriginalTexture = true;
+            fullPaths = {};
+        }
+        // SHIPPING_HACK
+#endif
+
+        if( name.empty() )
+        {
+            // failure fallback
+            name = fullPaths[ 0 ].string();
         }
 
         return UploadTexturesResult{
             .color = Utils::PackColorFromFloat( mat->pbr_metallic_roughness.base_color_factor ),
             .emissiveMult    = Utils::Luminance( mat->emissive_factor ),
-            .pTextureName    = std::move( materialName ),
             .metallicFactor  = mat->pbr_metallic_roughness.metallic_factor,
             .roughnessFactor = mat->pbr_metallic_roughness.roughness_factor,
+            .toRegister =
+                WholeModelFile::RawMaterialData{
+                    .isReplacement = isReplacement,
+                    .pbrSwizzling  = pbrSwizzling,
+                    .pTextureName  = std::move( name ),
+                    .fullPaths     = std::move( fullPaths ),
+                    .samplers      = samplers,
+                    .trackOriginalTexture = trackOriginalTexture,
+                },
         };
     }
 
-    auto ParseNodeAsLight( const cgltf_node*  srcNode,
-                           uint64_t           uniqueId,
-                           float              oneGameUnitInMeters,
-                           const RgTransform& relativeTransform ) -> std::optional< LightCopy >
+    auto ParseNodeAsLight( uint64_t                  fileNameHash,
+                           const cgltf_node*         srcNode,
+                           uint64_t                  uniqueId,
+                           const RgTransform&        relativeTransform,
+                           const ImportExportParams& params ) -> std::optional< LightCopy >
     {
         if( !srcNode || !srcNode->light )
         {
@@ -773,10 +862,18 @@ namespace
             return lumensPerSteradian * ( 4 * float( Utils::M_PI ) );
         };
 
-        auto makeExtras = []( const char* extradata ) {
-            return json_parser::ReadStringAs< RgLightAdditionalEXT >(
-                Utils::SafeCstr( extradata ) );
-        };
+
+        const auto additional = json_parser::ReadStringAs< RgLightAdditionalEXT >(
+            Utils::SafeCstr( node.light->extras.data ) );
+
+        if( additional )
+        {
+            if( !Utils::IsCstrEmpty( additional->hashName ) )
+            {
+                uniqueId = hashCombine( fileNameHash, std::string_view{ additional->hashName } );
+            }
+        }
+
 
         const auto position = RgFloat3D{
             relativeTransform.matrix[ 0 ][ 3 ],
@@ -806,14 +903,15 @@ namespace
                         },
                     .extension =
                         RgLightDirectionalEXT{
-                            .sType                  = RG_STRUCTURE_TYPE_LIGHT_DIRECTIONAL_EXT,
-                            .pNext                  = nullptr,
-                            .color                  = packedColor,
-                            .intensity              = node.light->intensity, // already in lm/m^2
+                            .sType     = RG_STRUCTURE_TYPE_LIGHT_DIRECTIONAL_EXT,
+                            .pNext     = nullptr,
+                            .color     = packedColor,
+                            .intensity = params.importedLightIntensityScaleDirectional *
+                                         node.light->intensity, // already in lm/m^2
                             .direction              = direction,
                             .angularDiameterDegrees = 0.5f,
                         },
-                    .additional = makeExtras( node.light->extras.data ),
+                    .additional = additional,
                 };
             }
             case cgltf_light_type_point: {
@@ -831,11 +929,12 @@ namespace
                             .pNext = nullptr,
                             .color = packedColor,
                             .intensity =
+                                params.importedLightIntensityScaleSphere *
                                 candelaToLuminousFlux( node.light->intensity ), // from lm/sr to lm
                             .position = position,
-                            .radius   = 0.05f / oneGameUnitInMeters,
+                            .radius   = 0.05f / params.oneGameUnitInMeters,
                         },
-                    .additional = makeExtras( node.light->extras.data ),
+                    .additional = additional,
                 };
             }
             case cgltf_light_type_spot: {
@@ -853,14 +952,15 @@ namespace
                             .pNext = nullptr,
                             .color = packedColor,
                             .intensity =
+                                params.importedLightIntensityScaleSpot *
                                 candelaToLuminousFlux( node.light->intensity ), // from lm/sr to lm
                             .position   = position,
                             .direction  = direction,
-                            .radius     = 0.05f / oneGameUnitInMeters,
+                            .radius     = 0.05f / params.oneGameUnitInMeters,
                             .angleOuter = node.light->spot_outer_cone_angle,
                             .angleInner = node.light->spot_inner_cone_angle,
                         },
-                    .additional = makeExtras( node.light->extras.data ),
+                    .additional = additional,
                 };
             }
             case cgltf_light_type_invalid:
@@ -868,16 +968,261 @@ namespace
             default: assert( 0 ); return {};
         }
     }
+
+    auto ParseNodeAsCamera( const cgltf_node* srcNode, const RgTransform& relativeTransform )
+        -> std::optional< RgCameraInfo >
+    {
+        if( !srcNode || !srcNode->camera || srcNode->camera->type != cgltf_camera_type_perspective )
+        {
+            return {};
+        }
+
+        const cgltf_camera_perspective& src = srcNode->camera->data.perspective;
+
+        auto getColumn = []( const RgTransform& t, int column ) {
+            return RgFloat3D{
+                t.matrix[ 0 ][ column ],
+                t.matrix[ 1 ][ column ],
+                t.matrix[ 2 ][ column ],
+            };
+        };
+
+        return RgCameraInfo{
+            .sType       = RG_STRUCTURE_TYPE_CAMERA_INFO,
+            .pNext       = nullptr,
+            .flags       = 0,
+            .position    = getColumn( relativeTransform, 3 ),
+            .up          = getColumn( relativeTransform, 1 ),
+            .right       = getColumn( relativeTransform, 0 ),
+            .fovYRadians = std::clamp( src.yfov, Utils::DegToRad( 1 ), Utils::DegToRad( 179 ) ),
+            .aspect = src.has_aspect_ratio && src.aspect_ratio > 0 ? src.aspect_ratio : 16.f / 9.f,
+            .cameraNear = 0.1f,
+            .cameraFar  = 1000.f,
+        };
+    }
+
+    template< typename T >
+    auto MakeAnimationChannel( cgltf_interpolation_type    interp,
+                               const std::vector< float >& timepoints,
+                               const std::vector< T >&     values ) -> AnimationChannel< T >
+    {
+        static auto l_getinterp = []( cgltf_interpolation_type interp ) -> AnimationInterpolation {
+            switch( interp )
+            {
+                case cgltf_interpolation_type_linear: return ANIMATION_INTERPOLATION_LINEAR;
+                case cgltf_interpolation_type_step: return ANIMATION_INTERPOLATION_STEP;
+                case cgltf_interpolation_type_cubic_spline: return ANIMATION_INTERPOLATION_CUBIC;
+                default: assert( 0 ); return ANIMATION_INTERPOLATION_LINEAR;
+            }
+        };
+
+        if( timepoints.size() != values.size() )
+        {
+            debug::Warning( "gltf animation channel has {} time keys, but {} values",
+                            timepoints.size(),
+                            values.size() );
+            return {};
+        }
+        auto frames = std::vector< AnimationFrame< T > >{};
+        {
+            frames.resize( timepoints.size() );
+            for( size_t fr = 0; fr < timepoints.size(); fr++ )
+            {
+                frames[ fr ] = AnimationFrame< T >{
+                    .value         = values[ fr ],
+                    .seconds       = timepoints[ fr ],
+                    .interpolation = l_getinterp( interp ),
+                };
+            }
+        }
+        return AnimationChannel< T >{
+            .frames = std::move( frames ),
+        };
+    }
+
+    AnimationData ParseNodeAnim( const cgltf_data* data, const cgltf_node* targetnode )
+    {
+        if( !data || !targetnode )
+        {
+            return {};
+        }
+
+        AnimationData result{};
+
+        for( size_t a = 0; a < data->animations_count; a++ )
+        {
+            const cgltf_animation& anim = data->animations[ a ];
+            {
+                bool hasthisnode = false;
+                for( size_t c = 0; c < anim.channels_count; c++ )
+                {
+                    if( targetnode == anim.channels[ c ].target_node && anim.channels[ c ].sampler )
+                    {
+                        hasthisnode = true;
+                        break;
+                    }
+                }
+                if( !hasthisnode )
+                {
+                    continue;
+                }
+            }
+
+            for( size_t c = 0; c < anim.channels_count; c++ )
+            {
+                const cgltf_animation_channel& chan = anim.channels[ c ];
+
+                if( !chan.target_node || !chan.sampler )
+                {
+                    continue;
+                }
+
+                const cgltf_animation_sampler& samp = *chan.sampler;
+                if( !samp.input || !samp.output )
+                {
+                    assert( 0 );
+                    continue;
+                }
+
+                if( samp.input->count == 0 || samp.output->count == 0 || //
+                    samp.input->count != samp.output->count )
+                {
+                    debug::Warning(
+                        "Input/output samplers in gltf animation must have same count" );
+                    assert( 0 );
+                    continue;
+                }
+
+                if( samp.input->component_type != cgltf_component_type_r_32f ||
+                    samp.input->type != cgltf_type_scalar || samp.input->is_sparse ||
+                    !samp.input->buffer_view )
+                {
+                    assert( 0 );
+                    continue;
+                }
+                if( chan.target_path == cgltf_animation_path_type_translation )
+                {
+                    if( samp.output->component_type != cgltf_component_type_r_32f ||
+                        samp.output->type != cgltf_type_vec3 || samp.output->is_sparse ||
+                        !samp.output->buffer_view )
+                    {
+                        debug::Warning( "Expected Vector3 for position in gltf animation" );
+                        assert( 0 );
+                        continue;
+                    }
+                }
+                if( chan.target_path == cgltf_animation_path_type_rotation )
+                {
+                    if( samp.output->component_type != cgltf_component_type_r_32f ||
+                        samp.output->type != cgltf_type_vec4 || samp.output->is_sparse ||
+                        !samp.output->buffer_view )
+                    {
+                        debug::Warning( "Expected quaternion for rotation in gltf animation" );
+                        assert( 0 );
+                        continue;
+                    }
+                }
+
+                if( targetnode != chan.target_node )
+                {
+                    continue;
+                }
+
+                if( chan.target_path != cgltf_animation_path_type_translation &&
+                    chan.target_path != cgltf_animation_path_type_rotation )
+                {
+                    continue;
+                }
+
+                size_t framecount = samp.input->count;
+
+                std::vector< float > timekeys{};
+                {
+                    timekeys.resize( framecount );
+
+                    auto r = cgltf_accessor_unpack_floats(
+                        samp.input, timekeys.data(), timekeys.size() );
+                    if( !r )
+                    {
+                        assert( 0 );
+                        continue;
+                    }
+                }
+
+                std::vector< RgFloat3D > positions{};
+                if( chan.target_path == cgltf_animation_path_type_translation )
+                {
+                    positions.resize( framecount );
+
+                    static_assert( sizeof( RgFloat3D ) / sizeof( float ) == 3 );
+                    auto r = cgltf_accessor_unpack_floats(
+                        samp.output,
+                        reinterpret_cast< float* >( positions.data() ),
+                        3 * positions.size() );
+                    if( !r )
+                    {
+                        assert( 0 );
+                        continue;
+                    }
+                }
+
+                std::vector< RgQuaternion > quaternions{};
+                if( chan.target_path == cgltf_animation_path_type_rotation )
+                {
+                    quaternions.resize( framecount );
+
+                    static_assert( sizeof( RgQuaternion ) / sizeof( float ) == 4 );
+                    auto r = cgltf_accessor_unpack_floats(
+                        samp.output,
+                        reinterpret_cast< float* >( quaternions.data() ),
+                        4 * quaternions.size() );
+                    if( !r )
+                    {
+                        assert( 0 );
+                        continue;
+                    }
+                }
+
+                // check t[N] <= t[N+1] fot interpolation
+                for( size_t fr = 0; fr < framecount - 1; fr++ )
+                {
+                    if( timekeys[ fr ] > timekeys[ fr + 1 ] )
+                    {
+                        debug::Warning( "Time keys are not sorted, expect "
+                                        "incorrect gltf animation interpolation" );
+                        assert( 0 );
+                    }
+                }
+
+                if( !positions.empty() )
+                {
+                    result.position = MakeAnimationChannel( samp.interpolation, //
+                                                            timekeys,
+                                                            positions );
+                }
+                if( !quaternions.empty() )
+                {
+                    result.quaternion = MakeAnimationChannel( samp.interpolation, //
+                                                              timekeys,
+                                                              quaternions );
+                }
+            }
+        }
+
+        return result;
+    }
 }
 }
 
 RTGL1::GltfImporter::GltfImporter( const std::filesystem::path& _gltfPath,
-                                   const RgTransform&           _worldTransform,
-                                   float                        _oneGameUnitInMeters )
-    : data( nullptr )
-    , gltfPath( _gltfPath.string() )
-    , gltfFolder( _gltfPath.parent_path() )
-    , oneGameUnitInMeters( _oneGameUnitInMeters )
+                                   const ImportExportParams&    _params,
+                                   const TextureMetaManager&    _textureMeta,
+                                   bool                         _isReplacement )
+    : gltfPath{ _gltfPath.string() }
+    , gltfFolder{ _gltfPath.parent_path() }
+    , params{ _params }
+    , parsedModel{}
+    , isParsed{ false }
 {
     cgltf_result  r{ cgltf_result_success };
     cgltf_options options{};
@@ -885,27 +1230,25 @@ RTGL1::GltfImporter::GltfImporter( const std::filesystem::path& _gltfPath,
 
     struct FreeIfFail
     {
-        cgltf_data** data;
         cgltf_data** parsedData;
         ~FreeIfFail()
         {
-            if( *data == nullptr )
+            if( *parsedData == nullptr )
             {
                 cgltf_free( *parsedData );
             }
         }
-    } tmp = { &data, &parsedData };
+    } tmp = { &parsedData };
 
     r = cgltf_parse_file( &options, gltfPath.c_str(), &parsedData );
     if( r == cgltf_result_file_not_found )
     {
-        debug::Warning( "{}: Can't find a file, no static scene will be present", gltfPath );
+        debug::Warning( "Can't find a file, no static scene will be present: {}", gltfPath );
         return;
     }
     else if( r != cgltf_result_success )
     {
-        debug::Warning(
-            "{}: cgltf_parse_file. Error code: {} {}", gltfPath, int( r ), CgltfErrorName( r ) );
+        debug::Warning( "cgltf_parse_file error {}: {}", CgltfErrorName( r ), gltfPath );
         return;
     }
 
@@ -913,30 +1256,28 @@ RTGL1::GltfImporter::GltfImporter( const std::filesystem::path& _gltfPath,
     if( r != cgltf_result_success )
     {
         debug::Warning(
-            "{}: cgltf_load_buffers. Error code: {} {}. URI-s for .bin buffers might be incorrect",
-            gltfPath,
-            int( r ),
-            CgltfErrorName( r ) );
+            "cgltf_load_buffers error {} (URI-s for .bin buffers might be incorrect): {}",
+            CgltfErrorName( r ),
+            gltfPath );
         return;
     }
 
     r = cgltf_validate( parsedData );
     if( r != cgltf_result_success )
     {
-        debug::Warning(
-            "{}: cgltf_validate. Error code: {} {}", gltfPath, int( r ), CgltfErrorName( r ) );
+        debug::Warning( "cgltf_validate error {}: {}", CgltfErrorName( r ), gltfPath );
         return;
     }
 
     if( parsedData->scenes_count == 0 )
     {
-        debug::Warning( "{}: {}", gltfPath, "No scenes found" );
+        debug::Warning( "Ignoring gltf: No scenes found: {}", gltfPath );
         return;
     }
 
     if( parsedData->scene == nullptr )
     {
-        debug::Warning( "{}: {}", gltfPath, "No default scene, using first" );
+        debug::Warning( "No default scene, using first: {}", gltfPath );
         parsedData->scene = &parsedData->scenes[ 0 ];
     }
 
@@ -944,47 +1285,50 @@ RTGL1::GltfImporter::GltfImporter( const std::filesystem::path& _gltfPath,
 
     if( !mainNode )
     {
-        debug::Warning(
-            "{}: {}", gltfPath, "No \"" RTGL1_MAIN_ROOT_NODE "\" node in the default scene" );
+        debug::Warning( "No \'" RTGL1_MAIN_ROOT_NODE "\' node in the default scene: ", gltfPath );
         return;
     }
 
-    ApplyInverseWorldTransform( *mainNode, _worldTransform );
-
-    data = parsedData;
+    TransformFromGltfToWorld( std::span{ &mainNode, 1 }, params.worldTransform );
+    
+    ParseFile( parsedData, _isReplacement, _textureMeta );
 }
 
-RTGL1::GltfImporter::~GltfImporter()
-{
-    cgltf_free( data );
-}
-
-auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
-                                     uint32_t                  frameIndex,
-                                     TextureManager&           textureManager,
+void RTGL1::GltfImporter::ParseFile( cgltf_data*               data,
                                      bool                      isReplacement,
-                                     const TextureMetaManager& textureMeta ) const -> WholeModelFile
+                                     const TextureMetaManager& textureMeta )
 {
+    assert( data && data->scene );
+
     cgltf_node* mainNode = FindMainRootNode( data );
     if( !mainNode )
     {
-        return {};
+        return;
+    }
+
+    for( cgltf_node* n : std::span{ data->scene->nodes, data->scene->nodes_count } )
+    {
+        if( !Utils::IsCstrEmpty( n->name ) && std::strcmp( n->name, RTGL1_MAIN_ROOT_NODE ) != 0 )
+        {
+            debug::Warning( "Ignoring top-level node \'{}\'. {}", n->name, gltfPath );
+        }
     }
 
     if( mainNode->mesh || mainNode->light )
     {
-        debug::Warning(
-            "Main node ({}) should not have meshes / lights. {}", gltfPath, nodeName( mainNode ) );
+        debug::Warning( "Main node (\'{}\') should not have meshes / lights, ignoring them. {}",
+                        nodeName( mainNode ),
+                        gltfPath );
     }
 
-
-    auto hashCombine = []< typename T >( size_t seed, const T& v ) {
-        return seed ^ ( std::hash< T >{}( v ) + 0x9e3779b9 + ( seed << 6 ) + ( seed >> 2 ) );
-    };
     const auto fileNameHash = hashCombine( 0, gltfPath );
 
+    assert( parsedModel.models.empty() && parsedModel.lights.empty() &&
+            parsedModel.materials.empty() );
+    WholeModelFile& result = parsedModel;
 
-    auto result = WholeModelFile{};
+    const cgltf_node* anim_camnode = nullptr;
+
 
     for( cgltf_node* srcNode : std::span{ mainNode->children, mainNode->children_count } )
     {
@@ -995,19 +1339,37 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
 
         if( nodeName( srcNode ).empty() )
         {
-            debug::Warning( "Ignoring a node with null name: a child of {}->{}",
-                            gltfPath,
-                            nodeName( mainNode ) );
+            debug::Warning( "Ignoring a node with null name: a child of node \'{}\'. {}",
+                            nodeName( mainNode ),
+                            gltfPath );
             continue;
         }
 
 
-        const auto srcNodeHash = hashCombine( fileNameHash, nodeName( srcNode ) );
+        const auto srcNodeHash            = hashCombine( fileNameHash, nodeName( srcNode ) );
+        const auto srcNodeGlobalTransform = MakeRgTransformGlobal( *srcNode );
+
+
+        // camera
+        if( auto c = ParseNodeAsCamera( srcNode, srcNodeGlobalTransform ) )
+        {
+            if( !result.camera )
+            {
+                result.camera = c;
+                anim_camnode  = srcNode;
+            }
+            else
+            {
+                debug::Warning( "Found multiple cameras, using only one. Ignoring: \'{}\'. {}",
+                                nodeName( srcNode ),
+                                gltfPath );
+            }
+        }
 
 
         // global lights
         if( auto l = ParseNodeAsLight(
-                srcNode, srcNodeHash, oneGameUnitInMeters, MakeRgTransform( *srcNode ) ) )
+                fileNameHash, srcNode, srcNodeHash, srcNodeGlobalTransform, params ) )
         {
             result.lights.push_back( *l );
             continue;
@@ -1017,10 +1379,11 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
         // make model
         if( result.models.contains( nodeName( srcNode ) ) )
         {
-            debug::Warning( "Ignoring duplicates: multiple nodes with the same name: {}->{}->{}",
-                            gltfPath,
-                            nodeName( mainNode ),
-                            nodeName( srcNode ) );
+            debug::Warning( "Ignoring duplicates: multiple nodes with the same name: "
+                            "\'{}\'->\'{}\'. {}",
+                            nodeName( srcNode->parent ),
+                            nodeName( srcNode ),
+                            gltfPath );
             continue;
         }
 
@@ -1028,9 +1391,10 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
             result.models.emplace( nodeName( srcNode ),
                                    WholeModelFile::RawModelData{
                                        .uniqueObjectID = srcNodeHash,
-                                       .meshTransform  = MakeRgTransform( *srcNode ),
+                                       .meshTransform  = srcNodeGlobalTransform,
                                        .primitives     = {},
                                        .localLights    = {},
+                                       .animobj        = ParseNodeAnim( data, srcNode ),
                                    } );
         assert( isNew );
         auto& result_dstModel = iter->second;
@@ -1038,16 +1402,17 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
 
         // mesh
         auto AppendMeshPrimitives =
-            [ this, &cmdForTextures, &frameIndex, &textureManager, &isReplacement, & textureMeta ](
-                std::vector< WholeModelFile::RawModelData::RawPrimitiveData >& target,
-                const cgltf_node*                                              atnode,
-                const RgTransform*                                             transform ) {
+            [ this, &isReplacement, &textureMeta ](
+                std::vector< WholeModelFile::RawPrimitiveData >& target,
+                std::vector< WholeModelFile::RawMaterialData >&  targetMaterials,
+                const cgltf_node*                                atnode,
+                const RgTransform*                               transform ) {
                 if( !atnode || !atnode->mesh )
                 {
                     return;
                 }
 
-                const auto primitiveExtra = json_parser::ReadStringAs< PrimitiveExtraInfo >(
+                const auto primitiveExtra_node = json_parser::ReadStringAs< PrimitiveExtraInfo >(
                     Utils::SafeCstr( atnode->extras.data ) );
 
                 // primitives
@@ -1081,6 +1446,11 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
                     }
 
 
+                    const auto primitiveExtra_prim =
+                        json_parser::ReadStringAs< PrimitiveExtraInfo >(
+                            Utils::SafeCstr( srcPrim.extras.data ) );
+
+
                     RgMeshPrimitiveFlags dstFlags = 0;
 
                     if( srcPrim.material )
@@ -1104,27 +1474,18 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
                     }
 
 
-                    auto matinfo = UploadTextures( cmdForTextures,
-                                                   frameIndex,
-                                                   srcPrim.material,
-                                                   textureManager,
+                    auto matinfo = UploadTextures( srcPrim.material, //
                                                    isReplacement,
                                                    gltfFolder,
                                                    gltfPath );
 
-                    auto dstPrim = RgMeshPrimitiveInfo{
-                        .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
-                        .pNext                = nullptr,
-                        .flags                = dstFlags,
-                        .primitiveIndexInMesh = UINT32_MAX,
-                        .pVertices            = vertices.data(),
-                        .vertexCount          = uint32_t( vertices.size() ),
-                        .pIndices             = indices.empty() ? nullptr : indices.data(),
-                        .indexCount           = uint32_t( indices.size() ),
-                        .pTextureName         = matinfo.pTextureName.c_str(),
-                        .textureFrame         = 0,
-                        .color                = matinfo.color,
-                        .emissive             = matinfo.emissiveMult,
+                    // dummy to get flags, color, texture
+                    auto dummy = RgMeshPrimitiveInfo{
+                        .sType        = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
+                        .flags        = dstFlags,
+                        .pTextureName = matinfo.toRegister.pTextureName.c_str(),
+                        .color        = matinfo.color,
+                        .emissive     = matinfo.emissiveMult,
                     };
 
 
@@ -1133,7 +1494,7 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
 
                     // use texture meta as fallback
                     {
-                        textureMeta.Modify( dstPrim, extAttachedLight, extPbr, true );
+                        textureMeta.Modify( dummy, extAttachedLight, extPbr, true );
                     }
 
                     // gltf info has a higher priority, so overwrite
@@ -1145,53 +1506,62 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
                             .roughnessDefault = matinfo.roughnessFactor,
                         };
 
-                        if( primitiveExtra.isGlass )
+                        if( primitiveExtra_node.isGlass || primitiveExtra_prim.isGlass )
                         {
-                            dstPrim.flags |= RG_MESH_PRIMITIVE_GLASS;
+                            dummy.flags |= RG_MESH_PRIMITIVE_GLASS;
                         }
 
-                        if( primitiveExtra.isMirror )
+                        if( primitiveExtra_node.isMirror || primitiveExtra_prim.isMirror )
                         {
-                            dstPrim.flags |= RG_MESH_PRIMITIVE_MIRROR;
+                            dummy.flags |= RG_MESH_PRIMITIVE_MIRROR;
                         }
 
-                        if( primitiveExtra.isWater )
+                        if( primitiveExtra_node.isWater || primitiveExtra_prim.isWater )
                         {
-                            dstPrim.flags |= RG_MESH_PRIMITIVE_WATER;
+                            dummy.flags |= RG_MESH_PRIMITIVE_WATER;
                         }
 
-                        if( primitiveExtra.isSkyVisibility )
+                        if( primitiveExtra_node.isSkyVisibility || primitiveExtra_prim.isSkyVisibility )
                         {
-                            dstPrim.flags |= RG_MESH_PRIMITIVE_SKY_VISIBILITY;
+                            dummy.flags |= RG_MESH_PRIMITIVE_SKY_VISIBILITY;
                         }
 
-                        if( primitiveExtra.isAcid )
+                        if( primitiveExtra_node.isAcid || primitiveExtra_prim.isAcid )
                         {
-                            dstPrim.flags |= RG_MESH_PRIMITIVE_ACID;
+                            dummy.flags |= RG_MESH_PRIMITIVE_ACID;
                         }
 
-                        if( primitiveExtra.isThinMedia )
+                        if( primitiveExtra_node.isThinMedia || primitiveExtra_prim.isThinMedia )
                         {
-                            dstPrim.flags |= RG_MESH_PRIMITIVE_THIN_MEDIA;
+                            dummy.flags |= RG_MESH_PRIMITIVE_THIN_MEDIA;
+                        }
+
+                        if( primitiveExtra_node.noShadow || primitiveExtra_prim.noShadow )
+                        {
+                            dummy.flags |= RG_MESH_PRIMITIVE_NO_SHADOW;
                         }
                     }
 
 
-                    target.push_back( WholeModelFile::RawModelData::RawPrimitiveData{
+                    target.push_back( WholeModelFile::RawPrimitiveData{
                         .vertices      = std::move( vertices ),
                         .indices       = std::move( indices ),
-                        .flags         = dstPrim.flags,
-                        .textureName   = Utils::SafeCstr( dstPrim.pTextureName ),
-                        .color         = dstPrim.color,
-                        .emissive      = dstPrim.emissive,
+                        .flags         = dummy.flags,
+                        .textureName   = Utils::SafeCstr( dummy.pTextureName ),
+                        .color         = dummy.color,
+                        .emissive      = dummy.emissive,
                         .attachedLight = extAttachedLight,
                         .pbr           = extPbr,
                         .portal        = {},
                     } );
+                    targetMaterials.push_back( std::move( matinfo.toRegister ) );
                 }
             };
 
-        AppendMeshPrimitives( result_dstModel.primitives, srcNode, nullptr );
+        AppendMeshPrimitives( result_dstModel.primitives, //
+                              result.materials,
+                              srcNode,
+                              nullptr );
 
         ForEachChildNodeRecursively(
             [ & ]( const cgltf_node& child ) {
@@ -1200,13 +1570,14 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
 
                 // child meshes
                 AppendMeshPrimitives( result_dstModel.primitives,
+                                      result.materials,
                                       &child,
                                       IsAlmostIdentity( relativeTransform ) ? nullptr
                                                                             : &relativeTransform );
 
                 // local lights
                 if( auto l = ParseNodeAsLight(
-                        &child, childHash, oneGameUnitInMeters, relativeTransform ) )
+                        fileNameHash, &child, childHash, relativeTransform, params ) )
                 {
                     result_dstModel.localLights.push_back( *l );
                 }
@@ -1214,10 +1585,93 @@ auto RTGL1::GltfImporter::ParseFile( VkCommandBuffer           cmdForTextures,
             srcNode );
     }
 
-    return result;
-}
 
-RTGL1::GltfImporter::operator bool() const
-{
-    return data != nullptr;
+    if( anim_camnode )
+    {
+        result.animcamera = ParseNodeAnim( data, anim_camnode );
+
+        if( anim_camnode )
+        {
+            auto l_frame24totime = []( int frame_24fps ) -> float {
+                return float( frame_24fps ) / 24.0f;
+            };
+
+            const char* animExtraStr =
+                !Utils::IsCstrEmpty( anim_camnode->extras.data ) ? anim_camnode->extras.data
+                : anim_camnode->camera && !Utils::IsCstrEmpty( anim_camnode->camera->extras.data )
+                    ? anim_camnode->camera->extras.data
+                    : nullptr;
+
+            if( !Utils::IsCstrEmpty( animExtraStr ) )
+            {
+                auto animExtra = json_parser::ReadStringAs< CameraExtraInfo >( animExtraStr );
+
+
+                auto fovYRadians_channel = AnimationChannel< float >{};
+                for( const CameraExtraInfo::FovAnimFrame& fv : animExtra.anim_fov_24fps )
+                {
+                    fovYRadians_channel.frames.push_back( AnimationFrame< float >{
+                        .value         = Utils::DegToRad( fv.fovDegrees ),
+                        .seconds       = l_frame24totime( fv.frame24 ),
+                        .interpolation = ANIMATION_INTERPOLATION_LINEAR,
+                    } );
+                }
+                // sort
+                {
+                    auto l_sortf = []( const AnimationFrame< float >& a,
+                                       const AnimationFrame< float >& b ) {
+                        return a.seconds < b.seconds;
+                    };
+                    std::ranges::sort( fovYRadians_channel.frames, l_sortf );
+                }
+                assert( result.animcamera.fovYRadians.frames.empty() );
+                result.animcamera.fovYRadians = std::move( fovYRadians_channel );
+
+
+                for( int cut_frame24 : animExtra.anim_cuts_24fps )
+                {
+                    static auto l_insert_cutframe =
+                        []< typename T >( AnimationChannel< T >& dst_channel, float cut_timekey ) {
+                            static auto l_findfr = []( const AnimationFrame< T >& fr,
+                                                       float                      timekey ) {
+                                return fr.seconds < timekey;
+                            };
+
+                            // find a frame that is '>= cut_timekey'
+                            auto kv = std::lower_bound( dst_channel.frames.begin(),
+                                                        dst_channel.frames.end(),
+                                                        cut_timekey,
+                                                        l_findfr );
+                            if( kv == dst_channel.frames.end() )
+                            {
+                                return;
+                            }
+
+                            // make a cut frame with a value from the actual frame
+                            auto vcut = AnimationFrame< T >{
+                                .value         = kv->value,
+                                .seconds       = cut_timekey,
+                                .interpolation = ANIMATION_INTERPOLATION_STEP,
+                            };
+
+                            // insert a cut frame just before the actual frame
+                            dst_channel.frames.insert( kv, vcut );
+                        };
+
+                    const float cutframe_timekey = l_frame24totime( cut_frame24 );
+
+                    l_insert_cutframe( result.animcamera.position, cutframe_timekey );
+                    l_insert_cutframe( result.animcamera.quaternion, cutframe_timekey );
+                    l_insert_cutframe( result.animcamera.fovYRadians, cutframe_timekey );
+#ifndef NDEBUG
+                    static_assert( sizeof( AnimationData ) == 96,
+                                   "if adding a new AnimationChannel, add it also here" );
+#endif
+                }
+            }
+        }
+    }
+
+
+    isParsed = true;
 }

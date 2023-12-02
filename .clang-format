@@ -37,7 +37,7 @@ DisableFormat: 'false'
 FixNamespaceComments: 'false'
 IncludeBlocks: Regroup
 IndentCaseLabels: 'true'
-IndentPPDirectives: BeforeHash
+IndentPPDirectives: None
 IndentWidth: '4'
 IndentWrappedFunctionNames: 'true'
 KeepEmptyLinesAtTheStartOfBlocks: 'false'
@@ -63,7 +63,7 @@ SpacesInCStyleCastParentheses: 'true'
 SpacesInContainerLiterals: 'true'
 SpacesInParentheses: 'true'
 SpacesInSquareBrackets: 'true'
-Standard: Cpp11
+Standard: Latest
 TabWidth: '4'
 UseTab: Never
 IndentExternBlock: NoIndent

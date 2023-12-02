@@ -25,6 +25,9 @@ using namespace RTGL1;
 #include "Swapchain.h"
 #include "Utils.h"
 #include "CmdLabel.h"
+#include "Bloom.h"
+
+#include "DX12_Interop.h"
 
 #include <vector>
 
@@ -50,10 +53,12 @@ FramebufferImageIndex Framebuffers::FrameIndexToFBIndex(
 }
 
 Framebuffers::Framebuffers( VkDevice                                _device,
+                            VkPhysicalDevice                        _physDevice,
                             std::shared_ptr< MemoryAllocator >      _allocator,
                             std::shared_ptr< CommandBufferManager > _cmdManager,
                             const RgInstanceCreateInfo&             info )
     : device( _device )
+    , physDevice( _physDevice )
     , effectWipeIsUsed( info.effectWipeIsUsed )
     , bilinearSampler( VK_NULL_HANDLE )
     , nearestSampler( VK_NULL_HANDLE )
@@ -213,17 +218,18 @@ void RTGL1::Framebuffers::CreateSamplers()
     }
 }
 
-bool RTGL1::Framebuffers::PrepareForSize( ResolutionState resolutionState )
+bool Framebuffers::PrepareForSize( ResolutionState resolutionState, bool needShared )
 {
-    if( currentResolution == resolutionState )
+    const bool sharedExist = dxgi::Framebuf_HasSharedImages();
+    if( currentResolution == resolutionState && sharedExist == needShared )
     {
         return false;
     }
 
     vkDeviceWaitIdle( device );
 
-    DestroyImages();
-    CreateImages( resolutionState );
+    CreateImages( resolutionState, sharedExist, needShared );
+    ReportMemoryUsage( physDevice );
 
     assert( currentResolution == resolutionState );
     return true;
@@ -236,33 +242,6 @@ void RTGL1::Framebuffers::BarrierOne( VkCommandBuffer       cmd,
 {
     FramebufferImageIndex fs[] = { framebufImageIndex };
     BarrierMultiple( cmd, frameIndex, fs, barrierTypeFrom );
-}
-
-void Framebuffers::PresentToSwapchain( VkCommandBuffer                     cmd,
-                                       uint32_t                            frameIndex,
-                                       const std::shared_ptr< Swapchain >& swapchain,
-                                       FramebufferImageIndex               framebufImageIndex,
-                                       VkFilter                            filter,
-                                       bool                                showPrevious )
-{
-    CmdLabel label( cmd, "Present to swapchain" );
-
-    if( showPrevious )
-    {
-        swapchain->BlitPreviousForPresent( cmd );
-        return;
-    }
-
-    BarrierOne( cmd, frameIndex, framebufImageIndex );
-
-    VkExtent2D srcExtent = GetFramebufSize( currentResolution, framebufImageIndex );
-
-    swapchain->BlitForPresent( cmd,
-                               GetImage( framebufImageIndex, frameIndex ),
-                               srcExtent.width,
-                               srcExtent.height,
-                               filter,
-                               VK_IMAGE_LAYOUT_GENERAL );
 }
 
 namespace
@@ -376,13 +355,14 @@ RTGL1::FramebufferImageIndex RTGL1::Framebuffers::BlitForEffects(
     {
         VkImageMemoryBarrier2 bs[] = {
             {
-                .sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
-                .srcStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                .srcAccessMask       = VK_ACCESS_SHADER_WRITE_BIT,
-                .dstStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                .dstAccessMask       = VK_ACCESS_TRANSFER_READ_BIT,
-                .oldLayout           = VK_IMAGE_LAYOUT_GENERAL,
-                .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                .sType        = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
+                .srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                .dstStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+                .oldLayout     = VK_IMAGE_LAYOUT_GENERAL,
+                .newLayout     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .image               = srcImage,
@@ -636,6 +616,15 @@ std::tuple< VkImage, VkImageView, VkFormat, VkExtent2D > Framebuffers::GetImageH
     return std::make_tuple( image, view, format, GetFramebufSize( resolutionState, fbImageIndex ) );
 }
 
+auto Framebuffers::GetImageForAlias( FramebufferImageIndex fbImageIndex, uint32_t frameIndex ) const
+    -> std::tuple< VkFormat, VkDeviceMemory >
+{
+    fbImageIndex = FrameIndexToFBIndex( fbImageIndex, frameIndex );
+
+    return std::make_tuple( ShFramebuffers_Formats[ fbImageIndex ],
+                            imageMemories[ fbImageIndex ] );
+}
+
 VkExtent2D RTGL1::Framebuffers::GetFramebufSize( const ResolutionState& resolutionState,
                                                  FramebufferImageIndex  index ) const
 {
@@ -647,60 +636,63 @@ VkExtent2D RTGL1::Framebuffers::GetFramebufSize( const ResolutionState& resoluti
         }
     }
 
-
-    FramebufferImageFlags flags = ShFramebuffers_Flags[ index ];
-
-    if( flags & FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_UPSCALED_SIZE )
-    {
-        return { resolutionState.upscaledWidth, resolutionState.upscaledHeight };
-    }
+    const FramebufferImageFlags flags = ShFramebuffers_Flags[ index ];
 
     if( flags & FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_SINGLE_PIXEL_SIZE )
     {
         return { 1, 1 };
     }
 
-    std::optional< uint32_t > downscale;
-
-    if( flags & FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_1_3 )
+    if( flags & FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM )
     {
-        downscale = 3;
+        return Bloom::MakeSize(
+            resolutionState.upscaledWidth, resolutionState.upscaledHeight, index );
     }
-    else if( flags & FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_BLOOM )
-    {
-        switch( index )
+
+    auto l_shouldDownscale = []( FramebufferImageFlags flags,
+                                 FramebufferImageIndex index ) -> std::optional< uint32_t > {
+        if( flags & FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_FORCE_SIZE_1_3 )
         {
-            case FB_IMAGE_INDEX_BLOOM_MIP1: downscale = 2; break;
-            case FB_IMAGE_INDEX_BLOOM_MIP2: downscale = 4; break;
-            case FB_IMAGE_INDEX_BLOOM_MIP3: downscale = 8; break;
-            case FB_IMAGE_INDEX_BLOOM_MIP4: downscale = 16; break;
-            case FB_IMAGE_INDEX_BLOOM_MIP5: downscale = 32; break;
-            case FB_IMAGE_INDEX_BLOOM_MIP6: downscale = 64; break;
-            case FB_IMAGE_INDEX_BLOOM_MIP7: downscale = 128; break;
-            case FB_IMAGE_INDEX_BLOOM_MIP8: downscale = 256; break;
-
-            default: assert( 0 ); break;
+            return 3;
         }
-    }
+        return {};
+    };
 
-    if( !downscale )
+    const auto base =
+        flags & FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_UPSCALED_SIZE
+            ? VkExtent2D{ resolutionState.upscaledWidth, resolutionState.upscaledHeight }
+            : VkExtent2D{ resolutionState.renderWidth, resolutionState.renderHeight };
+
+    if( auto downscale = l_shouldDownscale( flags, index ) )
     {
-        return { resolutionState.renderWidth, resolutionState.renderHeight };
+        return VkExtent2D{
+            .width  = std::max( 1u, ( base.width + downscale.value() - 1 ) / downscale.value() ),
+            .height = std::max( 1u, ( base.height + downscale.value() - 1 ) / downscale.value() ),
+        };
     }
-
-    VkExtent2D extent = {
-        .width  = ( resolutionState.renderWidth + 1 ) / downscale.value(),
-        .height = ( resolutionState.renderHeight + 1 ) / downscale.value(),
-    };
-
-    return VkExtent2D{
-        .width  = std::max( 1u, extent.width ),
-        .height = std::max( 1u, extent.height ),
-    };
+    return base;
 }
 
-void Framebuffers::CreateImages( ResolutionState resolutionState )
+void Framebuffers::CreateImages( ResolutionState resolutionState,
+                                 bool            sharedExist,
+                                 bool            needShared )
 {
+    const bool recreateOnlyShared = ( currentResolution == resolutionState && //
+                                      sharedExist != needShared );
+    if( recreateOnlyShared )
+    {
+        dxgi::Framebuf_Destroy();
+        if( needShared )
+        {
+            dxgi::Framebuf_CreateDX12Resources( *cmdManager, *allocator, resolutionState );
+        }
+        NotifySubscribersAboutResize( resolutionState );
+
+        return;
+    }
+
+    DestroyImages();
+
     VkCommandBuffer cmd = cmdManager->StartGraphicsCmd();
 
     for( uint32_t i = 0; i < ShFramebuffers_Count; i++ )
@@ -795,11 +787,13 @@ void Framebuffers::CreateImages( ResolutionState resolutionState )
     cmdManager->Submit( cmd );
     cmdManager->WaitGraphicsIdle();
 
+    if( needShared )
+    {
+        dxgi::Framebuf_CreateDX12Resources( *cmdManager, *allocator, resolutionState );
+    }
+
     currentResolution = resolutionState;
-
-
     UpdateDescriptors();
-
     NotifySubscribersAboutResize( resolutionState );
 }
 
@@ -884,6 +878,8 @@ void Framebuffers::UpdateDescriptors()
 
 void Framebuffers::DestroyImages()
 {
+    dxgi::Framebuf_Destroy();
+
     for( auto& i : images )
     {
         if( i != VK_NULL_HANDLE )
@@ -914,16 +910,46 @@ void Framebuffers::DestroyImages()
 
 void Framebuffers::NotifySubscribersAboutResize( const ResolutionState& resolutionState )
 {
-    for( auto& ws : subscribers )
+    for( auto it = subscribers.begin(); it != subscribers.end(); )
     {
-        if( auto s = ws.lock() )
+        if( auto s = it->lock() )
         {
             s->OnFramebuffersSizeChange( resolutionState );
+            ++it;
+        }
+        else
+        {
+            it = subscribers.erase( it );
         }
     }
 }
 
-void Framebuffers::Subscribe( std::shared_ptr< IFramebuffersDependency > subscriber )
+void Framebuffers::Subscribe( const std::shared_ptr< IFramebuffersDependency >& subscriber )
 {
-    subscribers.emplace_back( subscriber );
+    if( !subscriber )
+    {
+        assert( 0 );
+        return;
+    }
+    subscribers.push_back( std::weak_ptr{ subscriber } );
+}
+
+void Framebuffers::Unsubscribe( const IFramebuffersDependency* subscriber )
+{
+    assert( subscriber );
+
+    auto erased =
+        erase_if( subscribers, [ & ]( const std::weak_ptr< IFramebuffersDependency >& existing ) {
+            auto s = existing.lock();
+            if( !s )
+            {
+                return true;
+            }
+            if( s.get() == subscriber )
+            {
+                return true;
+            }
+            return false;
+        } );
+    assert( erased > 0 );
 }

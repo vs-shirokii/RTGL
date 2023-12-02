@@ -107,11 +107,11 @@ FL RTGL1::VertexCollectorFilterTypeFlags_GetForGeometry( const RgMeshInfo&      
     }
     else if( primitive.flags & RG_MESH_PRIMITIVE_SKY_VISIBILITY )
     {
-#if RAYCULLMASK_SKY_IS_WORLD2
         flags |= FL( FT::PV_WORLD_2 );
-#else
-    #error Handle RG_DRAW_FRAME_RAY_CULL_SKY_BIT, if there is no WORLD_2
-#endif
+    }
+    else if( primitive.flags & RG_MESH_PRIMITIVE_NO_SHADOW )
+    {
+        flags |= FL( FT::PV_WORLD_1 );
     }
     else
     {

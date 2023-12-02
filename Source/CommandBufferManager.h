@@ -30,6 +30,20 @@
 namespace RTGL1
 {
 
+#define SEMAPHORE_IS_BINARY 0
+
+struct ToWait
+{
+    VkSemaphore semaphore;
+    uint64_t    waitvalue;
+};
+
+struct ToSignal
+{
+    VkSemaphore semaphore;
+    uint64_t    signalvalue;
+};
+
 class CommandBufferManager
 {
 public:
@@ -50,19 +64,20 @@ public:
     // Start transfer command buffer for current frame index
     VkCommandBuffer       StartTransferCmd();
 
-    void                  Submit( VkCommandBuffer cmd, VkFence fence = VK_NULL_HANDLE );
-    void                  Submit( VkCommandBuffer      cmd,
-                                  VkSemaphore          waitSemaphore,
-                                  VkPipelineStageFlags waitStages,
-                                  VkSemaphore          signalSemaphore,
-                                  VkFence              fence );
-    void                  Submit( VkCommandBuffer             cmd,
-                                  const VkSemaphore*          waitSemaphores,
-                                  const VkPipelineStageFlags* waitStages,
-                                  uint32_t                    waitCount,
-                                  VkSemaphore                 signalSemaphore,
-                                  VkFence                     fence );
-
+    void Submit( VkCommandBuffer cmd, VkFence fence = VK_NULL_HANDLE );
+    void Submit_Binary( VkCommandBuffer          cmd,
+                        std::span< VkSemaphore > waitSemaphores,
+                        VkSemaphore              signalSemaphore,
+                        VkFence                  fence );
+    void Submit_TimelineInternal( VkCommandBuffer          cmd,
+                                  std::span< VkSemaphore > waitSemaphores,
+                                  std::span< uint64_t >    waitValues,
+                                  VkSemaphore              signalSemaphore,
+                                  uint64_t                 signalValue,
+                                  VkFence                  fence );
+    void Submit_Timeline( VkCommandBuffer cmd, VkFence fence, ToWait towait, ToSignal tosignal );
+    void Submit_Timeline(
+        VkCommandBuffer cmd, VkFence fence, ToWait towait0, ToWait towait1, ToSignal tosignal );
 
     void                  WaitGraphicsIdle();
     void                  WaitComputeIdle();
@@ -80,6 +95,8 @@ private:
 private:
     VkCommandBuffer StartCmd( uint32_t frameIndex, AllocatedCmds& cmds, VkQueue queue );
 
+    VkQueue PopQueueOfCmd( VkCommandBuffer cmd );
+
 private:
     VkDevice                                       device;
 
@@ -95,5 +112,57 @@ private:
     std::shared_ptr< Queues >                      queues;
     rgl::unordered_map< VkCommandBuffer, VkQueue > cmdQueues[ MAX_FRAMES_IN_FLIGHT ];
 };
+
+inline void CommandBufferManager::Submit_Timeline( VkCommandBuffer cmd,
+                                                   VkFence         fence,
+                                                   ToWait          towait,
+                                                   ToSignal        tosignal )
+{
+    size_t wait_count = 0;
+
+    VkSemaphore wait_semaphores[ 1 ];
+    uint64_t    wait_values[ 1 ];
+    if( towait.semaphore != nullptr )
+    {
+        wait_semaphores[ wait_count ] = towait.semaphore;
+        wait_values[ wait_count ]     = towait.waitvalue;
+        wait_count++;
+    }
+
+    Submit_TimelineInternal( cmd,
+                             std::span{ wait_semaphores, wait_count },
+                             std::span{ wait_values, wait_count },
+                             tosignal.semaphore,
+                             tosignal.signalvalue,
+                             fence );
+}
+
+inline void CommandBufferManager::Submit_Timeline(
+    VkCommandBuffer cmd, VkFence fence, ToWait towait0, ToWait towait1, ToSignal tosignal )
+{
+    size_t wait_count = 0;
+
+    VkSemaphore wait_semaphores[ 1 ];
+    uint64_t    wait_values[ 1 ];
+    if( towait0.semaphore != nullptr )
+    {
+        wait_semaphores[ wait_count ] = towait0.semaphore;
+        wait_values[ wait_count ]     = towait0.waitvalue;
+        wait_count++;
+    }
+    if( towait1.semaphore != nullptr )
+    {
+        wait_semaphores[ wait_count ] = towait1.semaphore;
+        wait_values[ wait_count ]     = towait1.waitvalue;
+        wait_count++;
+    }
+
+    Submit_TimelineInternal( cmd,
+                             std::span{ wait_semaphores, wait_count },
+                             std::span{ wait_values, wait_count },
+                             tosignal.semaphore,
+                             tosignal.signalvalue,
+                             fence );
+}
 
 }

@@ -25,6 +25,8 @@
 #include "Generated/ShaderCommonC.h"
 #include "Utils.h"
 
+static_assert( ILLUMINATION_VOLUME_ == ILLUMINATION_VOLUME ); // redefinition, to not include ShaderCommonC
+
 namespace
 {
 // must be in sync with declaration in shaders
@@ -60,9 +62,11 @@ RTGL1::Volumetric::~Volumetric()
         vkDestroyImageView( device, i.view, nullptr );
         MemoryAllocator::FreeDedicated( device, i.memory );
     }
+#if ILLUMINATION_VOLUME
     vkDestroyImage( device, illumination.image, nullptr );
     vkDestroyImageView( device, illumination.view, nullptr );
     MemoryAllocator::FreeDedicated( device, illumination.memory );
+#endif
     vkDestroyPipelineLayout( device, processPipelineLayout, nullptr );
     vkDestroyPipelineLayout( device, accumPipelineLayout, nullptr );
     DestroyPipelines();
@@ -197,6 +201,7 @@ void RTGL1::Volumetric::ProcessScattering( VkCommandBuffer      cmd,
 
 void RTGL1::Volumetric::BarrierToReadIllumination( VkCommandBuffer cmd )
 {
+#if ILLUMINATION_VOLUME
     VkImageMemoryBarrier2 b = {
         .sType         = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         .pNext         = nullptr,
@@ -224,6 +229,7 @@ void RTGL1::Volumetric::BarrierToReadIllumination( VkCommandBuffer cmd )
     };
 
     svkCmdPipelineBarrier2KHR( cmd, &info );
+#endif
 }
 
 void RTGL1::Volumetric::OnShaderReload( const ShaderManager* shaderManager )
@@ -263,7 +269,9 @@ void RTGL1::Volumetric::CreateImages( CommandBufferManager& cmdManager, MemoryAl
     std::tuple< VolumeDef*, VkFormat, const char* > all[] = {
         { &scattering[ 0 ], SCATTERING_VOLUME_FORMAT, "Scattering Volume" },
         { &scattering[ 1 ], SCATTERING_VOLUME_FORMAT, "Scattering Volume" },
+#if ILLUMINATION_VOLUME
         { &illumination, ILLUMINATION_VOLUME_FORMAT, "Illumination Volume" },
+#endif
     };
 
     for( auto& [ dst, format, debugName ] : all )
@@ -358,6 +366,7 @@ void RTGL1::Volumetric::CreateDescriptors()
             .stageFlags      = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT |
                           VK_SHADER_STAGE_FRAGMENT_BIT,
         },
+#if ILLUMINATION_VOLUME
         {
             .binding         = BINDING_VOLUMETRIC_ILLUMINATION,
             .descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
@@ -371,6 +380,7 @@ void RTGL1::Volumetric::CreateDescriptors()
             .stageFlags      = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT |
                           VK_SHADER_STAGE_FRAGMENT_BIT,
         },
+#endif
     };
 
     VkDescriptorSetLayoutCreateInfo layoutInfo = {
@@ -456,6 +466,7 @@ void RTGL1::Volumetric::UpdateDescriptors()
                     scattering[ Utils::GetPreviousByModulo( i, MAX_FRAMES_IN_FLIGHT ) ].view,
                 .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
             },
+#if ILLUMINATION_VOLUME
             {
                 .sampler     = VK_NULL_HANDLE,
                 .imageView   = illumination.view,
@@ -466,6 +477,7 @@ void RTGL1::Volumetric::UpdateDescriptors()
                 .imageView   = illumination.view,
                 .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
             },
+#endif
         };
 
         VkWriteDescriptorSet wrts[] = {
@@ -496,6 +508,7 @@ void RTGL1::Volumetric::UpdateDescriptors()
                 .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 .pImageInfo      = &imgs[ 2 ],
             },
+#if ILLUMINATION_VOLUME
             {
                 .sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                 .dstSet          = descSets[ i ],
@@ -514,6 +527,7 @@ void RTGL1::Volumetric::UpdateDescriptors()
                 .descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 .pImageInfo      = &imgs[ 4 ],
             },
+#endif
         };
 
         static_assert( std::size( wrts ) == std::size( imgs ) );

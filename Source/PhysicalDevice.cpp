@@ -51,18 +51,31 @@ PhysicalDevice::PhysicalDevice( VkInstance instance )
 
     for( VkPhysicalDevice p : physicalDevices )
     {
-        VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtFeatures = {
-            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
+        auto positionFetchFeatures = VkPhysicalDeviceRayTracingPositionFetchFeaturesKHR{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_POSITION_FETCH_FEATURES_KHR,
+            .pNext = nullptr,
         };
-        VkPhysicalDeviceFeatures2 deviceFeatures2 = {
+        auto rayQueryFeatures = VkPhysicalDeviceRayQueryFeaturesKHR{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
+            .pNext = &positionFetchFeatures,
+        };
+        auto rtFeatures = VkPhysicalDeviceRayTracingPipelineFeaturesKHR{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
+            .pNext = &rayQueryFeatures,
+        };
+        auto deviceFeatures2 = VkPhysicalDeviceFeatures2{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
             .pNext = &rtFeatures,
         };
         vkGetPhysicalDeviceFeatures2( p, &deviceFeatures2 );
 
+
         if( rtFeatures.rayTracingPipeline )
         {
             physDevice = p;
+
+            supportsRayQuery      = rayQueryFeatures.rayQuery;
+            supportsPositionFetch = positionFetchFeatures.rayTracingPositionFetch;
 
             asProperties = VkPhysicalDeviceAccelerationStructurePropertiesKHR{
                 .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR
@@ -71,7 +84,7 @@ PhysicalDevice::PhysicalDevice( VkInstance instance )
                 .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR,
                 .pNext = &asProperties,
             };
-            VkPhysicalDeviceProperties2 deviceProp2 = {
+            auto deviceProp2 = VkPhysicalDeviceProperties2{
                 .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
                 .pNext = &rtPipelineProperties,
             };
@@ -95,8 +108,8 @@ VkPhysicalDevice PhysicalDevice::Get() const
     return physDevice;
 }
 
-uint32_t PhysicalDevice::GetMemoryTypeIndex( uint32_t memoryTypeBits,
-                                             VkFlags  requirementsMask ) const
+auto PhysicalDevice::GetMemoryTypeIndex( uint32_t memoryTypeBits, VkFlags requirementsMask ) const
+    -> std::optional< uint32_t >
 {
     VkMemoryPropertyFlags flagsToIgnore = 0;
 
@@ -132,9 +145,8 @@ uint32_t PhysicalDevice::GetMemoryTypeIndex( uint32_t memoryTypeBits,
         memoryTypeBits >>= 1u;
     }
 
-    throw RgException( RG_RESULT_GRAPHICS_API_ERROR,
-                       "Can't find memory type for given memory property flags (" +
-                           std::to_string( requirementsMask ) + ")" );
+    debug::Error( "Can't find memory type for given memory property flags ({})", requirementsMask );
+    return std::nullopt;
 }
 
 const VkPhysicalDeviceMemoryProperties& PhysicalDevice::GetMemoryProperties() const
@@ -151,4 +163,38 @@ const VkPhysicalDeviceRayTracingPipelinePropertiesKHR& PhysicalDevice::GetRTPipe
 const VkPhysicalDeviceAccelerationStructurePropertiesKHR& PhysicalDevice::GetASProperties() const
 {
     return asProperties;
+}
+
+auto RTGL1::PhysicalDevice::GetLUID() const -> std::optional< uint64_t >
+{
+#ifdef RG_USE_DX12
+    auto id = VkPhysicalDeviceIDProperties{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES,
+        .pNext = nullptr,
+    };
+
+    auto info = VkPhysicalDeviceProperties2{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+        .pNext = &id,
+    };
+
+    vkGetPhysicalDeviceProperties2( physDevice, &info );
+
+    if( !id.deviceLUIDValid )
+    {
+        assert( 0 );
+        return std::nullopt;
+    }
+
+    uint64_t luid = 0;
+
+    static_assert( sizeof( id.deviceLUID ) == sizeof( luid ) );
+    memcpy( &luid, id.deviceLUID, sizeof( luid ) );
+
+    return luid;
+
+#else
+    assert( 0 );
+    return {};
+#endif
 }
