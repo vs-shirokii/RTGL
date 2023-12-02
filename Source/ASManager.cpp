@@ -873,7 +873,7 @@ bool RTGL1::ASManager::AddMeshPrimitive( uint32_t                   frameIndex,
             .prevModel_1 = { /* set in geomInfoManager */ },
             .prevModel_2 = { /* set in geomInfoManager */ },
 
-            .flags = GeomInfoManager::GetPrimitiveFlags( primitive, !isStatic && !isReplacement ),
+            .flags = GeomInfoManager::GetPrimitiveFlags( &mesh, primitive, !isStatic && !isReplacement ),
 
             .texture_base = layerTextures[ 0 ].indices[ TEXTURE_ALBEDO_ALPHA_INDEX ],
             .texture_base_ORM =

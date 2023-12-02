@@ -985,7 +985,9 @@ namespace
         }
 
         if( !( primitive.flags & RG_MESH_PRIMITIVE_GLASS ) &&
+            !( mesh.flags & RG_MESH_FORCE_GLASS ) &&
             !( primitive.flags & RG_MESH_PRIMITIVE_WATER ) &&
+            !( mesh.flags & RG_MESH_FORCE_WATER ) &&
             !( primitive.flags & RG_MESH_PRIMITIVE_ACID ) )
         {
             if( primitive.flags & RG_MESH_PRIMITIVE_TRANSLUCENT )

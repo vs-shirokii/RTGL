@@ -109,7 +109,9 @@ const RgFloat2D* RTGL1::GeomInfoManager::AccessLayerTexCoords( const RgMeshPrimi
     return nullptr;
 }
 
-uint32_t RTGL1::GeomInfoManager::GetPrimitiveFlags( const RgMeshPrimitiveInfo& info, bool isDynamicVertexData )
+uint32_t RTGL1::GeomInfoManager::GetPrimitiveFlags( const RgMeshInfo*          mesh,
+                                                    const RgMeshPrimitiveInfo& info,
+                                                    bool                       isDynamicVertexData )
 {
     uint32_t f = 0;
 
@@ -126,12 +128,14 @@ uint32_t RTGL1::GeomInfoManager::GetPrimitiveFlags( const RgMeshPrimitiveInfo& i
         f |= GetMaterialBlendFlags( *layers, 3 );
     }
 
-    if( info.flags & RG_MESH_PRIMITIVE_MIRROR )
+    if( ( info.flags & RG_MESH_PRIMITIVE_MIRROR ) ||
+        ( mesh && ( mesh->flags & RG_MESH_FORCE_MIRROR ) ) )
     {
         f |= GEOM_INST_FLAG_REFLECT;
     }
 
-    if( info.flags & RG_MESH_PRIMITIVE_WATER )
+    if( ( info.flags & RG_MESH_PRIMITIVE_WATER ) ||
+        ( mesh && ( mesh->flags & RG_MESH_FORCE_WATER ) ) )
     {
         f |= GEOM_INST_FLAG_MEDIA_TYPE_WATER;
         f |= GEOM_INST_FLAG_REFLECT;
@@ -145,7 +149,8 @@ uint32_t RTGL1::GeomInfoManager::GetPrimitiveFlags( const RgMeshPrimitiveInfo& i
         f |= GEOM_INST_FLAG_REFRACT;
     }
 
-    if( info.flags & RG_MESH_PRIMITIVE_GLASS )
+    if( ( info.flags & RG_MESH_PRIMITIVE_GLASS ) ||
+        ( mesh && ( mesh->flags & RG_MESH_FORCE_GLASS ) ) )
     {
         f |= GEOM_INST_FLAG_MEDIA_TYPE_GLASS;
         f |= GEOM_INST_FLAG_REFLECT;

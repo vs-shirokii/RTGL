@@ -83,7 +83,9 @@ FL RTGL1::VertexCollectorFilterTypeFlags_GetForGeometry( const RgMeshInfo&      
         flags |= FL( FT::PT_ALPHA_TESTED );
     }
     else if( ( primitive.flags & RG_MESH_PRIMITIVE_WATER ) ||
+             ( mesh.flags & RG_MESH_FORCE_WATER ) ||
              ( primitive.flags & RG_MESH_PRIMITIVE_GLASS ) ||
+             ( mesh.flags & RG_MESH_FORCE_GLASS ) ||
              ( primitive.flags & RG_MESH_PRIMITIVE_GLASS_IF_SMOOTH ) ||
              ( primitive.flags & RG_MESH_PRIMITIVE_ACID ) )
     {

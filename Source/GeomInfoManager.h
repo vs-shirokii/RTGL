@@ -75,7 +75,9 @@ public:
 
 
     static bool     LayerExists( const RgMeshPrimitiveInfo& info, uint32_t layerIndex );
-    static uint32_t GetPrimitiveFlags( const RgMeshPrimitiveInfo& info, bool isDynamicVertexData );
+    static uint32_t GetPrimitiveFlags( const RgMeshInfo*          mesh,
+                                       const RgMeshPrimitiveInfo& info,
+                                       bool                       isDynamicVertexData );
 
     static const RgFloat2D* AccessLayerTexCoords( const RgMeshPrimitiveInfo& info,
                                                   uint32_t                   layerIndex );

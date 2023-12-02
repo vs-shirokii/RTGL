@@ -369,6 +369,12 @@ typedef enum RgMeshInfoFlagBits
     RG_MESH_EXPORT_AS_SEPARATE_FILE = 1 << 0,
     RG_MESH_FIRST_PERSON            = 1 << 1,
     RG_MESH_FIRST_PERSON_VIEWER     = 1 << 2,
+    // Force all primitives of this mesh to be a mirror. Useful for overriding replacement RgMeshPrimitiveFlags.
+    RG_MESH_FORCE_MIRROR            = 1 << 3,
+    // Force all primitives of this mesh to be a glass. Useful for overriding replacement RgMeshPrimitiveFlags.
+    RG_MESH_FORCE_GLASS             = 1 << 4,
+    // Force all primitives of this mesh to be a water. Useful for overriding replacement RgMeshPrimitiveFlags.
+    RG_MESH_FORCE_WATER             = 1 << 5,
 } RgMeshInfoFlagBits;
 typedef uint32_t RgMeshInfoFlags;
 
