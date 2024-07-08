@@ -43,6 +43,17 @@ namespace detail
             return ankerl::unordered_dense::hash< std::string_view >{}( str );
         }
     };
+
+    struct transparent_wstring_hash
+    {
+        using is_transparent = void; // enable heterogeneous overloads
+        using is_avalanching = void; // mark class as high quality avalanching hash
+
+        [[nodiscard]] auto operator()( std::wstring_view str ) const noexcept -> uint64_t
+        {
+            return ankerl::unordered_dense::hash< std::wstring_view >{}( str );
+        }
+    };
 }
 
 // For comparison without casting to std::string
@@ -54,8 +65,13 @@ using string_map = ankerl::unordered_dense::
 using string_set =
     ankerl::unordered_dense::set< std::string, detail::transparent_string_hash, std::equal_to<> >;
 
+using wstring_set =
+    ankerl::unordered_dense::set< std::wstring, detail::transparent_wstring_hash, std::equal_to<> >;
+
 static_assert( ankerl::unordered_dense::detail::is_transparent_v< string_map< int >::hasher,
                                                                   string_map< int >::key_equal > );
 static_assert( ankerl::unordered_dense::detail::is_transparent_v< string_set::hasher,
                                                                   string_set::key_equal > );
+static_assert( ankerl::unordered_dense::detail::is_transparent_v< wstring_set::hasher,
+                                                                  wstring_set::key_equal > );
 }

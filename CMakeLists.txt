@@ -98,6 +98,22 @@ set(Sources
     "Source/DX12_Vulkan.cpp"
 )
 
+if(RG_WITH_REMIX)
+    set(Sources
+        "Source/RTGL1_Remix.cpp"
+        "Source/GltfImporter.cpp"
+        "Source/ImageLoader.cpp"
+        "Source/ImageLoaderDev.cpp"
+        "Source/Matrix.cpp"
+        "Source/SceneMeta.cpp"
+        "Source/ScratchImmediate.cpp"
+        "Source/TextureMeta.cpp"
+        "Source/TextureOverrides.cpp"
+        "Source/Utils.cpp"
+        "Source/Stb/stb_image.cpp"
+    )
+endif()
+
 
 
 set(KTXSourceFolder Source/KTX/lib)
@@ -131,6 +147,8 @@ option(RG_WITH_SURFACE_XLIB     "Build with Xlib VkSurfaceKHR support"      OFF)
 option(RG_WITH_IMGUI            "Build RTGL1 with ImGui debug windows"      ON)
 option(RG_WITH_DX12             "Build RTGL1 with DX12 features"            ON)
 option(RG_WITH_NATIVE_DLSS      "Build RTGL1 with native DLSS2"             ON)
+
+option(RG_WITH_REMIX            "Replace RTGL1's renderer with Remix"       ON)
 
 option(RG_WITH_EXAMPLES         "Build with examples executable"            ON)
 
@@ -181,6 +199,7 @@ target_include_directories(Vulkan INTERFACE ${Vulkan_INCLUDE_DIRS})
 target_link_libraries(Vulkan INTERFACE ${Vulkan_LIBRARIES})
 
 
+if (NOT RG_WITH_REMIX)
 # DirectX 12
 if (RG_WITH_DX12)
     message(STATUS "RG_WITH_DX12 enabled")
@@ -191,8 +210,10 @@ if (RG_WITH_DX12)
     target_include_directories(D3D12 INTERFACE "Source/DX12/include/directx")
     target_link_libraries(D3D12 INTERFACE ${D3D12_LIBRARIES})
 endif()
+endif()
 
 
+if (NOT RG_WITH_REMIX)
 # Imgui
 if (RG_WITH_IMGUI)
     message(STATUS "RG_WITH_IMGUI enabled")
@@ -219,6 +240,7 @@ if (RG_WITH_IMGUI)
     target_link_libraries(ImGui PRIVATE glfw)
     target_include_directories(ImGui PRIVATE glfw)
 endif()
+endif()
 
 
 add_library(RayTracedGL1 SHARED  
@@ -237,6 +259,8 @@ set_target_properties(RayTracedGL1 PROPERTIES
 target_include_directories(RayTracedGL1 PUBLIC "Include")
 
 
+if (NOT RG_WITH_REMIX)
+
 # Vulkan
 target_link_libraries(RayTracedGL1 PUBLIC Vulkan)
 
@@ -244,13 +268,6 @@ target_link_libraries(RayTracedGL1 PUBLIC Vulkan)
 if (RG_WITH_DX12)
     target_link_libraries(RayTracedGL1 PRIVATE D3D12)
 endif()
-
-# GLM
-target_include_directories(RayTracedGL1 PRIVATE Source/glm)
-
-# KTX
-target_include_directories(RayTracedGL1 PRIVATE "Source/KTX/include")
-target_include_directories(RayTracedGL1 PRIVATE "Source/KTX/include" "Source/KTX/other_include" "Source/KTX/lib/basisu/zstd")
 
 # DLSS
 target_include_directories(RayTracedGL1 PRIVATE "Source/Streamline/include")
@@ -273,12 +290,31 @@ endif()
 # FSR2
 target_include_directories(RayTracedGL1 PRIVATE "Source/FSR2/include" )
 
+add_definitions(-DRG_USE_REMIX=0)
+
+else()
+
+    add_definitions(-DRG_USE_REMIX=1)
+    target_include_directories(RayTracedGL1 PRIVATE ${Vulkan_INCLUDE_DIRS})
+    target_include_directories(RayTracedGL1 PRIVATE "remixsdk/include")
+
+endif() # NOT RG_WITH_REMIX
+
+# GLM
+target_include_directories(RayTracedGL1 PRIVATE Source/glm)
+
+# KTX
+target_include_directories(RayTracedGL1 PRIVATE "Source/KTX/include")
+target_include_directories(RayTracedGL1 PRIVATE "Source/KTX/include" "Source/KTX/other_include" "Source/KTX/lib/basisu/zstd")
+
 # Debug windows - ImGui
+if (NOT RG_WITH_REMIX)
 if (RG_WITH_IMGUI)
     target_link_libraries(RayTracedGL1 PRIVATE ImGui)
     target_include_directories(RayTracedGL1 PRIVATE ImGui)
     target_link_libraries(RayTracedGL1 PRIVATE glfw)
     target_include_directories(RayTracedGL1 PRIVATE glfw)
+endif()
 endif()
 
 # Json parser - glaze
@@ -293,8 +329,17 @@ if (RG_WITH_EXAMPLES)
     add_definitions(-DASSET_DIRECTORY="../")
     add_executable(RtglExample Tests/RtglTest.cpp)
     set_property(TARGET RtglExample PROPERTY CXX_STANDARD 20)
-    target_link_libraries(RtglExample glfw)
-    target_include_directories(ImGui PRIVATE glfw)
+    if (RG_WITH_REMIX)
+        set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+        set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+        add_subdirectory(Source/glfw)
+        target_link_libraries(RtglExample PRIVATE glfw)
+        target_include_directories(RtglExample PRIVATE glfw)
+    else()
+        target_link_libraries(RtglExample glfw)
+    endif()
     target_include_directories(RtglExample PRIVATE "Include" )
     target_include_directories(RtglExample PUBLIC Source/glm)
     # not needed, but let RtglExample be built after RayTracedGL1

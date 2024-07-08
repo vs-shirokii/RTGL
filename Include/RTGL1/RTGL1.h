@@ -185,6 +185,7 @@ typedef enum RgStructureType
     RG_STRUCTURE_TYPE_START_FRAME_RENDER_RESOLUTION_PARAMS  = 33,
     RG_STRUCTURE_TYPE_SPAWN_FLUID_INFO                      = 34,
     RG_STRUCTURE_TYPE_START_FRAME_FLUID_PARAMS              = 35,
+    RG_STRUCTURE_TYPE_START_FRAME_REMIX_PARAMS              = 1024,
 } RgStructureType;
 
 typedef enum RgTextureSwizzling
@@ -788,6 +789,16 @@ typedef enum RgRenderResolutionMode
     RG_RENDER_RESOLUTION_MODE_QUALITY,
     RG_RENDER_RESOLUTION_MODE_NATIVE_AA,
 } RgRenderResolutionMode;
+
+typedef struct RgStartFrameRemixParams
+{
+    RgStructureType sType;
+    void*           pNext;
+    RgBool32        rayReconstruction;
+    RgBool32        taa;
+    RgBool32        nis;
+    RgBool32        reflex;
+} RgStartFrameRemixParams;
 
 // Can be linked after RgStartFrameInfo.
 typedef struct RgStartFrameRenderResolutionParams

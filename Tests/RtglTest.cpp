@@ -35,6 +35,7 @@ RG_D3D12CORE_HELPER( ASSET_DIRECTORY )
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -555,12 +556,16 @@ void MainLoop( RgInterface& rt, std::string_view gltfPath )
     {
         ProcessInput();
 
+
+        //Sleep( 20 );
+
         {
             auto resolution = RgStartFrameRenderResolutionParams{
                 .sType            = RG_STRUCTURE_TYPE_START_FRAME_RENDER_RESOLUTION_PARAMS,
                 .pNext            = nullptr,
                 .upscaleTechnique = RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2,
                 .resolutionMode   = RG_RENDER_RESOLUTION_MODE_BALANCED,
+                .preferDxgiPresent = 1,
             };
 
             auto startInfo = RgStartFrameInfo{
@@ -684,9 +689,19 @@ void MainLoop( RgInterface& rt, std::string_view gltfPath )
                 .isExportable   = false,
             };
 
+            auto sw = RgMeshPrimitiveSwapchainedEXT{
+                .sType           = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_SWAPCHAINED_EXT,
+                .pNext           = nullptr,
+                .flags           = 0,
+                .pViewport       = nullptr,
+                .pView           = nullptr,
+                .pProjection     = nullptr,
+                .pViewProjection = nullptr,
+            };
+
             auto prim = RgMeshPrimitiveInfo{
                 .sType                = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO,
-                .pNext                = nullptr,
+                .pNext                = &sw,
                 .flags                = 0,
                 .primitiveIndexInMesh = 0,
                 .pVertices            = GetQuadVertices(),
@@ -855,9 +870,9 @@ int main( int argc, char* argv[] )
 
         .rayCullBackFacingTriangles = false,
 
-        .allowTexCoordLayer1        = true,
-        .allowTexCoordLayer2        = true,
-        .allowTexCoordLayer3        = true,
+        .allowTexCoordLayer1        = false,
+        .allowTexCoordLayer2        = false,
+        .allowTexCoordLayer3        = false,
         .lightmapTexCoordLayerIndex = 1,
 
         .rasterizedMaxVertexCount = 1 << 24,
