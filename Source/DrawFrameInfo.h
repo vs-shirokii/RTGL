@@ -93,6 +93,9 @@ namespace detail
     template<> constexpr auto TypeToStructureType< RgOriginalTextureDetailsEXT          > = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_DETAILS_EXT         ;
     template<> constexpr auto TypeToStructureType< RgSpawnFluidInfo                     > = RG_STRUCTURE_TYPE_SPAWN_FLUID_INFO                     ;
     template<> constexpr auto TypeToStructureType< RgStartFrameFluidParams              > = RG_STRUCTURE_TYPE_START_FRAME_FLUID_PARAMS             ;
+#if RG_USE_REMIX
+    template<> constexpr auto TypeToStructureType< RgStartFrameRemixParams              > = RG_STRUCTURE_TYPE_START_FRAME_REMIX_PARAMS             ;
+#endif
     // clang-format on
 
     template< typename T >
@@ -136,6 +139,9 @@ namespace detail
     static_assert( CheckMembers< RgOriginalTextureDetailsEXT >() );
     static_assert( CheckMembers< RgSpawnFluidInfo >() );
     static_assert( CheckMembers< RgStartFrameFluidParams >() );
+#if RG_USE_REMIX
+    static_assert( CheckMembers< RgStartFrameRemixParams >() );
+#endif
 
 
     template< typename T >
@@ -159,6 +165,9 @@ namespace detail
     template<> struct LinkRootHelper< RgCameraInfoReadbackEXT            >{ using Root = RgCameraInfo; };
     template<> struct LinkRootHelper< RgStartFrameRenderResolutionParams >{ using Root = RgStartFrameInfo; };
     template<> struct LinkRootHelper< RgStartFrameFluidParams            >{ using Root = RgStartFrameInfo; };
+#if RG_USE_REMIX
+    template<> struct LinkRootHelper< RgStartFrameRemixParams            >{ using Root = RgStartFrameInfo; };
+#endif
     template<> struct LinkRootHelper< RgDrawFrameIlluminationParams      >{ using Root = RgDrawFrameInfo; };
     template<> struct LinkRootHelper< RgDrawFrameVolumetricParams        >{ using Root = RgDrawFrameInfo; };
     template<> struct LinkRootHelper< RgDrawFrameTonemappingParams       >{ using Root = RgDrawFrameInfo; };
@@ -429,6 +438,20 @@ namespace detail
             .pDither               = nullptr,
         };
     };
+
+#if RG_USE_REMIX
+    template<>
+    struct DefaultParams< RgStartFrameRemixParams >
+    {
+        constexpr static auto sType = detail::TypeToStructureType< RgStartFrameRemixParams >;
+
+        constexpr static RgStartFrameRemixParams value = {
+            .sType             = sType,
+            .pNext             = nullptr,
+            .rayReconstruction = false,
+        };
+    };
+#endif
 
     template< typename T >
     concept HasDefaultParams = requires( DefaultParams< T > t ) { t.value; };

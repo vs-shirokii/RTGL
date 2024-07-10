@@ -33,6 +33,8 @@ namespace RTGL1
 class SamplerManager
 {
 public:
+
+#if !RG_USE_REMIX
     class Handle
     {
         friend class SamplerManager;
@@ -54,6 +56,23 @@ public:
         uint32_t internalIndex{ 0 };
         bool     hasDynamicSamplerFilter{ false };
     };
+#else
+    class Handle
+    {
+    public:
+        explicit Handle() = default;
+        explicit Handle( RgSamplerFilter      filter,
+                         RgSamplerAddressMode addressModeU,
+                         RgSamplerAddressMode addressModeV )
+            : m_filter{ filter }, m_addressModeU{ addressModeU }, m_addressModeV{ addressModeV }
+        {
+        }
+
+        RgSamplerFilter      m_filter{ RG_SAMPLER_FILTER_AUTO };
+        RgSamplerAddressMode m_addressModeU{ RG_SAMPLER_ADDRESS_MODE_REPEAT };
+        RgSamplerAddressMode m_addressModeV{ RG_SAMPLER_ADDRESS_MODE_REPEAT };
+    };
+#endif
 
 public:
     SamplerManager( VkDevice device, uint32_t anisotropy, bool forceMinificationFilterLinear );

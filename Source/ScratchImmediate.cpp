@@ -216,8 +216,13 @@ std::span< const uint32_t > RTGL1::ScratchImmediate::GetIndices( RgUtilImScratch
                 indexCount,
             };
         default:
+#if !RG_USE_REMIX
             throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT,
                                "ScratchGetIndices: Unknown topology" );
+#else
+            assert( 0 );
+            return {};
+#endif
     }
 }
 
@@ -245,8 +250,13 @@ void RTGL1::ScratchImmediate::EndPrimitive()
 {
     if( !lastbatch || !accumTopology )
     {
+#if !RG_USE_REMIX
         throw RgException( RG_RESULT_WRONG_FUNCTION_CALL,
                            "Corresponding ImScratchStart was not called for rgUtilImScratchEnd" );
+#else
+        assert( 0 );
+        return;
+#endif
     }
 
     lastbatch->end = uint32_t( verts.size() );
@@ -284,9 +294,14 @@ void TrySetTexLayer( RgMeshPrimitiveInfo& target, std::span< RgFloat2D > src )
     if( !layers )
     {
         assert( 0 );
+#if !RG_USE_REMIX
         throw RTGL1::RgException(
             RG_RESULT_WRONG_FUNCTION_ARGUMENT,
             "Can't find RgMeshPrimitiveTextureLayersEXT on a RgMeshPrimitiveInfo" );
+#else
+        assert( 0 );
+        return;
+#endif
     }
 
     RgTextureLayer* dst = nullptr;
@@ -303,9 +318,14 @@ void TrySetTexLayer( RgMeshPrimitiveInfo& target, std::span< RgFloat2D > src )
     if( !dst )
     {
         assert( 0 );
+#if !RG_USE_REMIX
         throw RTGL1::RgException(
             RG_RESULT_WRONG_FUNCTION_ARGUMENT,
             "RgTextureLayer member of RgMeshPrimitiveTextureLayersEXT was null" );
+#else
+        assert( 0 );
+        return;
+#endif
     }
 
     dst->pTexCoord = src.data();
@@ -317,7 +337,12 @@ void RTGL1::ScratchImmediate::SetToPrimitive( RgMeshPrimitiveInfo* pTarget )
 {
     if( !pTarget )
     {
+#if !RG_USE_REMIX
         throw RgException( RG_RESULT_WRONG_FUNCTION_ARGUMENT, "pTarget is null" );
+#else
+        assert( 0 );
+        return;
+#endif
     }
 
     pTarget->pVertices   = verts.data();

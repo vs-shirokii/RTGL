@@ -25,12 +25,15 @@
 #include "JsonParser.h"
 #include "Matrix.h"
 #include "SamplerManager.h"
-#include "TextureManager.h"
 #include "TextureMeta.h"
 #include "Utils.h"
 
 #include "Generated/ShaderCommonC.h"
 
+#if RG_USE_REMIX
+#define CGLTF_VALIDATE_ENABLE_ASSERTS 1
+#define CGLTF_IMPLEMENTATION
+#endif
 #include "cgltf/cgltf.h"
 
 #if 0
@@ -278,7 +281,12 @@ namespace
         return cgltf_accessor_read_float( accessor, index, out, N );
     }
 
-    std::vector< RgPrimitiveVertex > GatherVertices( const cgltf_primitive& prim,
+#if !RG_USE_REMIX
+    std::vector< RgPrimitiveVertex >
+#else
+    std::vector< remixapi_HardcodedVertex >
+#endif
+    GatherVertices( const cgltf_primitive& prim,
                                                      std::string_view       gltfPath,
                                                      std::string_view       dbgNodeName,
                                                      std::string_view       dbgParentNodeName )
@@ -435,7 +443,15 @@ namespace
         }
 
 
+#if !RG_USE_REMIX
         auto primVertices = std::vector< RgPrimitiveVertex >( *vertexCount );
+#else
+        auto primVertices = std::vector< remixapi_HardcodedVertex >( *vertexCount );
+        static_assert( sizeof( remixapi_HardcodedVertex::position ) ==
+                       sizeof( RgPrimitiveVertex::position ) );
+        static_assert( sizeof( remixapi_HardcodedVertex::texcoord ) ==
+                       sizeof( RgPrimitiveVertex::texCoord ) );
+#endif
         auto defaultColor = std::optional( Utils::PackColor( 255, 255, 255, 255 ) );
 
         for( const cgltf_attribute& attr : attrSpan )
@@ -458,8 +474,14 @@ namespace
                         float n[ 3 ];
                         ok &= cgltf_accessor_read_float_h( attr.data, i, n );
 
+#if !RG_USE_REMIX
                         primVertices[ i ].normalPacked =
                             Utils::PackNormal( n[ 0 ], n[ 1 ], n[ 2 ] );
+#else
+                        primVertices[ i ].normal[ 0 ] = n[ 0 ];
+                        primVertices[ i ].normal[ 1 ] = n[ 1 ];
+                        primVertices[ i ].normal[ 2 ] = n[ 2 ];
+#endif
                     }
                     break;
 
@@ -477,8 +499,13 @@ namespace
                     int texcoordIndex = attr.index;
                     for( size_t i = 0; i < primVertices.size(); i++ )
                     {
+#if !RG_USE_REMIX
                         ok &=
                             cgltf_accessor_read_float_h( attr.data, i, primVertices[ i ].texCoord );
+#else
+                        ok &=
+                            cgltf_accessor_read_float_h( attr.data, i, primVertices[ i ].texcoord );
+#endif
                     }
                     break;
                 }
@@ -1432,8 +1459,12 @@ void RTGL1::GltfImporter::ParseFile( cgltf_data*               data,
                         for( auto& v : vertices )
                         {
                             ApplyTransformToPosition( transform, v.position );
+#if !RG_USE_REMIX
                             v.normalPacked = Utils::PackNormal( ApplyTransformToDirection(
                                 transform, Utils::UnpackNormal( v.normalPacked ) ) );
+#else
+                            ApplyTransformToDirection( transform, v.normal );
+#endif
                         }
                     }
 

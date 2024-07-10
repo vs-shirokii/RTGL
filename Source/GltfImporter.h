@@ -29,6 +29,7 @@
 #include <filesystem>
 #include <ranges>
 #include <span>
+#include <remix/remix_c.h>
 
 struct cgltf_node;
 struct cgltf_data;
@@ -97,7 +98,11 @@ struct WholeModelFile
 
     struct RawPrimitiveData
     {
+#if !RG_USE_REMIX
         std::vector< RgPrimitiveVertex >                 vertices;
+#else
+        std::vector< remixapi_HardcodedVertex >          vertices;
+#endif
         std::vector< uint32_t >                          indices;
         RgMeshPrimitiveFlags                             flags;
         std::string                                      textureName;
@@ -192,7 +197,11 @@ inline auto MakeMeshPrimitiveInfoAndProcess( const WholeModelFile::RawPrimitiveD
         .pNext                = nullptr,
         .flags                = primitive.flags,
         .primitiveIndexInMesh = index,
+#if !RG_USE_REMIX
         .pVertices            = primitive.vertices.data(),
+#else
+        .pVertices            = reinterpret_cast< const RgPrimitiveVertex* >( primitive.vertices.data() ),
+#endif
         .vertexCount          = static_cast< uint32_t >( primitive.vertices.size() ),
         .pIndices             = primitive.indices.data(),
         .indexCount           = static_cast< uint32_t >( primitive.indices.size() ),

@@ -519,3 +519,26 @@ auto RTGL1::json_parser::detail::ReadCameraExtraInfo( const std::string_view& da
     }
     return CameraExtraInfo{};
 }
+
+#if RG_USE_REMIX
+
+// clang-format off
+JSON_TYPE( RTGL1::RemixWrapperConfig )
+    "noshadow_opacity",   &T::noshadow_opacity
+,   "noshadow_emismult",  &T::noshadow_emismult
+,   "lightmult_sun",      &T::lightmult_sun
+,   "lightmult_sphere",   &T::lightmult_sphere
+,   "lightmult_spot",     &T::lightmult_spot
+,   "metallic_bias",      &T::metallic_bias
+,   "spritelight_mult",   &T::spritelight_mult
+,   "spritelight_radius", &T::spritelight_radius
+JSON_TYPE_END;
+static_assert(sizeof( RTGL1::RemixWrapperConfig) == 32, "Add json entries here");
+// clang-format on
+
+auto RTGL1::json_parser::detail::ReadRemixWrapperConfig( const std::filesystem::path& path )
+    -> RemixWrapperConfig
+{
+    return LoadFileAs< RemixWrapperConfig >( path ).value_or( RemixWrapperConfig{} );
+}
+#endif

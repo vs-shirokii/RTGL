@@ -145,6 +145,23 @@ struct CameraExtraInfo
 };
 
 
+#if RG_USE_REMIX
+struct RemixWrapperConfig
+{
+    constexpr static int Version{ 0 };
+    constexpr static int RequiredVersion{ 0 };
+
+    float noshadow_opacity   = 0.9f;
+    float noshadow_emismult  = 1.0f;
+    float lightmult_sun      = 0.4f;
+    float lightmult_sphere   = 0.15f;
+    float lightmult_spot     = 0.15f;
+    float spritelight_mult   = 0.6f;
+    float spritelight_radius = 0.05f;
+    float metallic_bias      = 0.0f;
+};
+#endif
+
 
 namespace json_parser
 {
@@ -165,6 +182,10 @@ namespace json_parser
         auto ReadPrimitiveExtraInfo( const std::string_view& data ) -> PrimitiveExtraInfo;
 
         auto ReadCameraExtraInfo( const std::string_view& data ) -> CameraExtraInfo;
+
+#if RG_USE_REMIX
+        auto ReadRemixWrapperConfig( const std::filesystem::path& path ) -> RemixWrapperConfig;
+#endif
     }
 
     // clang-format off
@@ -172,6 +193,9 @@ namespace json_parser
     template<> inline auto ReadFileAs< TextureMetaArray >( const std::filesystem::path& path ) { return detail::ReadTextureMetaArray( path ); }
     template<> inline auto ReadFileAs< SceneMetaArray   >( const std::filesystem::path& path ) { return detail::ReadSceneMetaArray( path ); }
     template<> inline auto ReadFileAs< LibraryConfig    >( const std::filesystem::path& path ) { return detail::ReadLibraryConfig( path ); }
+#if RG_USE_REMIX
+    template<> inline auto ReadFileAs< RemixWrapperConfig >( const std::filesystem::path& path ) { return detail::ReadRemixWrapperConfig( path ); }
+#endif
 
     template< typename T > auto ReadStringAs( const std::string_view& str ) = delete;
     template<> inline auto ReadStringAs< RgLightAdditionalEXT >( const std::string_view& data ) { return detail::ReadLightExtraInfo( data ); }
