@@ -50,8 +50,8 @@
           "type": "BOOL"
         },
         {
-          "name": "RG_WITH_NVIDIA_DLSS",
-          "value": "true",
+          "name": "RG_WITH_NATIVE_DLSS",
+          "value": "False",
           "type": "BOOL"
         }
       ]

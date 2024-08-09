@@ -614,8 +614,7 @@ auto RTGL1::DLSS2::RequiredVulkanExtensions_Device( VkPhysicalDevice physDevice 
 RTGL1::DLSS2::DLSS2( VkInstance       instance,
                      VkDevice         device,
                      VkPhysicalDevice physDevice,
-                     const char*      pAppGuid,
-                     bool             enableDebug )
+                     const char*      pAppGuid )
 {
 }
 

@@ -130,6 +130,7 @@ option(RG_WITH_SURFACE_XLIB     "Build with Xlib VkSurfaceKHR support"      OFF)
 
 option(RG_WITH_IMGUI            "Build RTGL1 with ImGui debug windows"      ON)
 option(RG_WITH_DX12             "Build RTGL1 with DX12 features"            ON)
+option(RG_WITH_NATIVE_DLSS      "Build RTGL1 with native DLSS2"             ON)
 
 option(RG_WITH_EXAMPLES         "Build with examples executable"            ON)
 
@@ -253,7 +254,7 @@ target_include_directories(RayTracedGL1 PRIVATE "Source/KTX/include" "Source/KTX
 
 # DLSS
 target_include_directories(RayTracedGL1 PRIVATE "Source/Streamline/include")
-if (DEFINED ENV{DLSS_SDK_PATH})
+if (RG_WITH_NATIVE_DLSS AND DEFINED ENV{DLSS_SDK_PATH})
     message(STATUS "Found Native DLSS SDK: $ENV{DLSS_SDK_PATH}")
     target_include_directories(RayTracedGL1 PRIVATE "$ENV{DLSS_SDK_PATH}/include")
     add_definitions(-DRG_USE_NATIVE_DLSS2)
