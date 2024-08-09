@@ -885,7 +885,7 @@ int main( int argc, char* argv[] )
     void* rtDll = nullptr;
 #endif
 
-    r = rgLoadLibraryAndCreate( &info, isdebug, & rt, &rtDll );
+    r = rgLoadLibraryAndCreate( &info, isdebug, nullptr, & rt, &rtDll );
     RG_CHECK( r );
 
     {
