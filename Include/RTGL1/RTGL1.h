@@ -1288,6 +1288,7 @@ typedef struct RgInterface
 
 inline RgResult rgLoadLibraryAndCreate( const RgInstanceCreateInfo* pInfo,
                                         RgBool32                    useDebugBinary,
+                                        const char*                 customBinaryPath,
                                         RgInterface*                pOutInterface,
                                         HMODULE*                    pOutDll )
 {
@@ -1313,7 +1314,9 @@ inline RgResult rgLoadLibraryAndCreate( const RgInstanceCreateInfo* pInfo,
 
     char rtglDllPath[ MAX_PATH ];
     {
-        const char* dllPath = useDebugBinary ? "\\bin\\debug\\RTGL1.dll" : "\\bin\\RTGL1.dll";
+        const char* dllPath = customBinaryPath ? customBinaryPath
+                              : useDebugBinary ? "\\bin\\debug\\RTGL1.dll"
+                                               : "\\bin\\RTGL1.dll";
 
         if( strlen( pInfo->pOverrideFolderPath ) + strlen( dllPath ) >= MAX_PATH - 1 )
         {
