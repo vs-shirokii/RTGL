@@ -253,9 +253,15 @@ add_definitions(-DRG_LIBRARY_NAME="${LibraryName}")
 set_target_properties(RayTracedGL1 PROPERTIES
     OUTPUT_NAME ${LibraryName}
 )
+if (NOT RG_WITH_REMIX)
 set_target_properties(RayTracedGL1 PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY $<IF:$<CONFIG:Debug>,${CMAKE_SOURCE_DIR}/Build/bin/debug,${CMAKE_SOURCE_DIR}/Build/bin>
 )
+else()
+    set_target_properties(RayTracedGL1 PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY $<IF:$<CONFIG:Debug>,${CMAKE_SOURCE_DIR}/Build/bin_remix/debug,${CMAKE_SOURCE_DIR}/Build/bin_remix>
+    )
+endif()
 target_include_directories(RayTracedGL1 PUBLIC "Include")
 
 
