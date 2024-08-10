@@ -532,8 +532,16 @@ JSON_TYPE( RTGL1::RemixWrapperConfig )
 ,   "metallic_bias",      &T::metallic_bias
 ,   "spritelight_mult",   &T::spritelight_mult
 ,   "spritelight_radius", &T::spritelight_radius
-JSON_TYPE_END;
-static_assert(sizeof( RTGL1::RemixWrapperConfig) == 32, "Add json entries here");
+,   "texpostfix_albedo",  &T::texpostfix_albedo
+,   "texpostfix_rough",   &T::texpostfix_rough
+,   "texpostfix_normal",  &T::texpostfix_normal
+,   "texpostfix_emis",    &T::texpostfix_emis
+,   "texpostfix_height",  &T::texpostfix_height
+,   "texpostfix_metal",   &T::texpostfix_metal
+,   "skymult",            &T::skymult
+,   "emismult",           &T::emismult
+JSON_TYPE_END;;
+static_assert(sizeof( RTGL1::RemixWrapperConfig) == 232, "Add json entries here");
 // clang-format on
 
 auto RTGL1::json_parser::detail::ReadRemixWrapperConfig( const std::filesystem::path& path )

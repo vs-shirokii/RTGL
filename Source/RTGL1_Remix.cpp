@@ -192,6 +192,8 @@ void rgInitData( const RgInstanceCreateInfo& info )
     g_pbrTextureSwizzling        = info.pbrTextureSwizzling;
     g_forceNormalMapFilterLinear = info.textureSamplerForceNormalMapFilterLinear;
 
+    // so that the user menu would not overwrite dlss options...
+    setoption_if( "rtx.defaultToAdvancedUI", 1 );
     // required for first-person weapons
     setoption_if( "rtx.viewModel.enable", 1 );
     // always set LPM Tonemapper
@@ -881,24 +883,46 @@ namespace textures
 
         REMIX_TEXTURES_PER_MAT, // count
     };
-    const auto g_postfixes = std::array{
-        toremix_path( TEXTURE_ALBEDO_ALPHA_POSTFIX ),
-        toremix_path( REMIX_TEXTURE_ROUGHNESS_postfix ),
-        toremix_path( REMIX_TEXTURE_NORMAL_postfix ),
-        toremix_path( TEXTURE_EMISSIVE_POSTFIX ),
-        toremix_path( TEXTURE_HEIGHT_POSTFIX ),
-        toremix_path( REMIX_TEXTURE_METALLIC_postfix ),
-    };
-    const auto g_postfixes_sv = std::array{
-        std::string_view{ TEXTURE_ALBEDO_ALPHA_POSTFIX },
-        std::string_view{ REMIX_TEXTURE_ROUGHNESS_postfix },
-        std::string_view{ REMIX_TEXTURE_NORMAL_postfix },
-        std::string_view{ TEXTURE_EMISSIVE_POSTFIX },
-        std::string_view{ TEXTURE_HEIGHT_POSTFIX },
-        std::string_view{ REMIX_TEXTURE_METALLIC_postfix },
-    };
-    static_assert( std::size( g_postfixes ) == REMIX_TEXTURES_PER_MAT );
-    static_assert( std::size( g_postfixes_sv ) == REMIX_TEXTURES_PER_MAT );
+
+    const std::string& postfix( remixtexindex_e index )
+    {
+        static std::string empty{};
+
+        // clang-format off
+        switch( index )
+        {
+            case REMIX_TEXINDEX_ALBEDOALPHA: return wrapconf.texpostfix_albedo;
+            case REMIX_TEXINDEX_ROUGHNESS:   return wrapconf.texpostfix_rough;
+            case REMIX_TEXINDEX_NORMAL:      return wrapconf.texpostfix_normal;
+            case REMIX_TEXINDEX_EMISSIVE:    return wrapconf.texpostfix_emis;
+            case REMIX_TEXINDEX_HEIGHT:      return wrapconf.texpostfix_height;
+            case REMIX_TEXINDEX_METALLIC:    return wrapconf.texpostfix_metal;
+            case REMIX_TEXTURES_PER_MAT:
+            default: assert( 0 ); return empty;
+        }
+        // clang-format on
+    }
+    const std::wstring& postfix_w( remixtexindex_e index )
+    {
+        static std::wstring s_wstr[ REMIX_TEXTURES_PER_MAT ];
+
+        static bool s_firsttime = true;
+        if( s_firsttime )
+        {
+            s_firsttime = false;
+
+            // recalculate
+            for( uint32_t i = 0; i < REMIX_TEXTURES_PER_MAT; i++ )
+            {
+                s_wstr[ i ] = toremix_path( postfix( remixtexindex_e( i ) ).c_str() );
+            }
+        }
+
+        static std::wstring wempty{};
+
+        assert( index < REMIX_TEXTURES_PER_MAT );
+        return index < REMIX_TEXTURES_PER_MAT ? s_wstr[ index ] : wempty;
+    }
 
     constexpr bool PreferExistingMaterials = true;
 
@@ -945,7 +969,7 @@ namespace textures
                 continue;
             }
 
-            std::wstring remiximgname = baseremixname + g_postfixes[ i ];
+            std::wstring remiximgname = baseremixname + postfix_w( remixtexindex_e( i ) );
 
             auto rinfo = remixapi_CreateImageInfo{
                 .sType     = REMIXAPI_STRUCT_TYPE_CREATE_IMAGE_INFO,
@@ -1048,12 +1072,12 @@ namespace textures
 
         // clang-format off
         TextureOverrides ovrd[] = {
-            TextureOverrides{ g_ovrdfolder, info.pTextureName, g_postfixes_sv[ 0 ], info.pPixels, info.size, rgtexture_to_vkformat( details, VK_FORMAT_R8G8B8A8_SRGB ), AnyImageLoader() },
-            TextureOverrides{ g_ovrdfolder, info.pTextureName, g_postfixes_sv[ 1 ], nullptr, {}, VK_FORMAT_R8_UNORM, AnyImageLoader() },
-            TextureOverrides{ g_ovrdfolder, info.pTextureName, g_postfixes_sv[ 2 ], nullptr, {}, VK_FORMAT_R8G8B8A8_UNORM, AnyImageLoader() },
-            TextureOverrides{ g_ovrdfolder, info.pTextureName, g_postfixes_sv[ 3 ], nullptr, {}, VK_FORMAT_R8G8B8A8_SRGB, AnyImageLoader() },
-            TextureOverrides{ g_ovrdfolder, info.pTextureName, g_postfixes_sv[ 4 ], nullptr, {}, VK_FORMAT_R8_UNORM, AnyImageLoader() },
-            TextureOverrides{ g_ovrdfolder, info.pTextureName, g_postfixes_sv[ 5 ], nullptr, {}, VK_FORMAT_R8_UNORM, AnyImageLoader() },
+            TextureOverrides{ g_ovrdfolder, info.pTextureName, postfix( REMIX_TEXINDEX_ALBEDOALPHA ), info.pPixels, info.size, rgtexture_to_vkformat( details, VK_FORMAT_R8G8B8A8_SRGB ), AnyImageLoader() },
+            TextureOverrides{ g_ovrdfolder, info.pTextureName, postfix( REMIX_TEXINDEX_ROUGHNESS   ), nullptr, {}, VK_FORMAT_R8_SRGB, AnyImageLoader() },
+            TextureOverrides{ g_ovrdfolder, info.pTextureName, postfix( REMIX_TEXINDEX_NORMAL      ), nullptr, {}, VK_FORMAT_R8G8B8A8_UNORM, AnyImageLoader() },
+            TextureOverrides{ g_ovrdfolder, info.pTextureName, postfix( REMIX_TEXINDEX_EMISSIVE    ), nullptr, {}, VK_FORMAT_R8G8B8A8_SRGB, AnyImageLoader() },
+            TextureOverrides{ g_ovrdfolder, info.pTextureName, postfix( REMIX_TEXINDEX_HEIGHT      ), nullptr, {}, VK_FORMAT_R8_UNORM, AnyImageLoader() },
+            TextureOverrides{ g_ovrdfolder, info.pTextureName, postfix( REMIX_TEXINDEX_METALLIC    ), nullptr, {}, VK_FORMAT_R8_UNORM, AnyImageLoader() },
         };
         // clang-format on
         static_assert( std::size( ovrd ) == REMIX_TEXTURES_PER_MAT );
@@ -2224,7 +2248,7 @@ RgResult RGAPI_CALL rgUploadMeshPrimitive( const RgMeshInfo*          pMesh,
         .sType         = REMIXAPI_STRUCT_TYPE_INSTANCE_INFO,
         .pNext         = nullptr,
         .categoryFlags = l_toremix_instanceflags( pMesh->flags ),
-        .mesh          = rmesh,
+        .mesh          = rmesh, // TODO: override material, for spectres
         .transform     = toremix( pMesh->transform ),
         .doubleSided   = true,
     };
@@ -2625,12 +2649,14 @@ RgResult RGAPI_CALL rgDrawFrame( const RgDrawFrameInfo* pInfo )
     }
     {
         const auto& texparams = pnext::get< RgDrawFrameTexturesParams >( *pInfo );
-        setoption_if( "rtx.emissiveIntensity", std::max( 0.0f, texparams.emissionMapBoost ) / 25 );
+        setoption_if( "rtx.emissiveIntensity",
+                      std::max( 0.0f, texparams.emissionMapBoost ) / 25 * wrapconf.emismult );
         setoption_if( "rtx.opaqueMaterial.normalIntensity", texparams.normalMapStrength );
         setoption_if( "rtx.translucentMaterial.normalIntensity", texparams.normalMapStrength );
     }
     {
-        setoption_if( "rtx.skyBrightness", modified_sky.skyColorMultiplier / 45 );
+        setoption_if( "rtx.skyBrightness",
+                      modified_sky.skyColorMultiplier / 25 * wrapconf.skymult );
         g_skyviewerpos = modified_sky.skyViewerPosition; // there will be a one frame latency...
     }
     {

@@ -449,7 +449,11 @@ namespace detail
             .sType             = sType,
             .pNext             = nullptr,
             .rayReconstruction = false,
+            .taa               = true,
+            .nis               = false,
+            .reflex            = true,
         };
+        static_assert( sizeof( RgStartFrameRemixParams ) == 32, "Change defaults here" );
     };
 #endif
 

@@ -154,11 +154,21 @@ struct RemixWrapperConfig
     float noshadow_opacity   = 0.9f;
     float noshadow_emismult  = 1.0f;
     float lightmult_sun      = 0.4f;
-    float lightmult_sphere   = 0.15f;
-    float lightmult_spot     = 0.15f;
+    float lightmult_sphere   = 0.05f;
+    float lightmult_spot     = 0.05f;
     float spritelight_mult   = 0.6f;
     float spritelight_radius = 0.05f;
     float metallic_bias      = 0.0f;
+
+    std::string texpostfix_albedo = "";
+    std::string texpostfix_rough  = "_remix_roughness";
+    std::string texpostfix_normal = "_remix_normal";
+    std::string texpostfix_emis   = "_e";
+    std::string texpostfix_height = "_h";
+    std::string texpostfix_metal  = "_remix_metallic";
+
+    float skymult  = 1.0f;
+    float emismult = 1.0f;
 };
 #endif
 
