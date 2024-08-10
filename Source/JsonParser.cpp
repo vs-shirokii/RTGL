@@ -540,8 +540,9 @@ JSON_TYPE( RTGL1::RemixWrapperConfig )
 ,   "texpostfix_metal",   &T::texpostfix_metal
 ,   "skymult",            &T::skymult
 ,   "emismult",           &T::emismult
+,   "check_framegen_support_in_log",    &T::check_framegen_support_in_log
 JSON_TYPE_END;;
-static_assert(sizeof( RTGL1::RemixWrapperConfig) == 232, "Add json entries here");
+static_assert(sizeof( RTGL1::RemixWrapperConfig) == 240, "Add json entries here");
 // clang-format on
 
 auto RTGL1::json_parser::detail::ReadRemixWrapperConfig( const std::filesystem::path& path )

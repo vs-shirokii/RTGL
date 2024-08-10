@@ -169,6 +169,8 @@ struct RemixWrapperConfig
 
     float skymult  = 1.0f;
     float emismult = 1.0f;
+
+    bool check_framegen_support_in_log = true;
 };
 #endif
 

@@ -38,6 +38,7 @@
 #include <remix/remix_c.h>
 
 #include <future>
+#include <fstream>
 
 #define RG_REMIXAPI_FILTER_NEAREST 0
 #define RG_REMIXAPI_FILTER_LINEAR  1
@@ -89,6 +90,7 @@ float g_indexOfRefractionWater     = 1.33f;
 auto  g_pbrTextureSwizzling        = RgTextureSwizzling{};
 bool  g_forceNormalMapFilterLinear = true;
 auto  g_skyviewerpos               = RgFloat3D{};
+bool  g_framegen_supported         = true;
 
 
 auto g_hwnd      = HWND{};
@@ -2776,7 +2778,7 @@ RgBool32 RGAPI_CALL rgUtilIsUpscaleTechniqueAvailable( RgRenderUpscaleTechnique 
         case RG_RENDER_UPSCALE_TECHNIQUE_NEAREST:
         case RG_RENDER_UPSCALE_TECHNIQUE_LINEAR:
         case RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS: {
-            return true;
+            return frameGeneration ? g_framegen_supported : true;
         }
         case RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2: {
             if( ppFailureReason )
@@ -2893,9 +2895,10 @@ RGAPI RgResult RGCONV RGAPI_CALL rgCreateInstance( const RgInstanceCreateInfo* p
     wrapconf = json_parser::ReadFileAs< RemixWrapperConfig >(
         std::filesystem::path{ safecstr( pInfo->pOverrideFolderPath ) } / "RTGL1_Remix.json" );
 
+    auto logpath = std::filesystem::path{};
     {
         std::error_code ec;
-        auto logpath = std::filesystem::absolute( safecstr( pInfo->pOverrideFolderPath ), ec );
+        logpath = std::filesystem::absolute( safecstr( pInfo->pOverrideFolderPath ), ec );
         logpath /= "bin_remix/";
         if( !ec )
         {
@@ -3007,6 +3010,30 @@ RGAPI RgResult RGCONV RGAPI_CALL rgCreateInstance( const RgInstanceCreateInfo* p
 
             g_hwnd = rxinfo.hwnd;
         }
+
+        // HACKHACK i don't have time.. TODO: supported features from remixapi 
+        if( wrapconf.check_framegen_support_in_log )
+        {
+            if( auto file = std::ifstream{ logpath / "gzdoom_d3d9.log" } )
+            {
+                std::string ln;
+                int         i = 0;
+                while( std::getline( file, ln ) )
+                {
+                    if( i++ > 2000 )
+                    {
+                        break;
+                    }
+                    if( ln.contains( "Frame Generation not available" ) )
+                    {
+                        g_framegen_supported = false;
+                        break;
+                    }
+                }
+            }
+        }
+        // HACKHACK
+
         rgInitData( *pInfo );
     }
 
