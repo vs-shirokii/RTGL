@@ -102,6 +102,9 @@ constexpr float MIN_SPHERE_RADIUS = 0.005f; // light
 // clang-format off
 auto   safecstr( const char* in ) -> const char* { return Utils::SafeCstr( in );    }
 auto cstr_empty( const char* in ) -> bool        { return Utils::IsCstrEmpty( in ); }
+
+template< typename T > auto saturate( const T& )        -> T     = delete;
+template<>             auto saturate( const float& in ) -> float { return Utils::Saturate( in ); };
 // clang-format on
 
 void printerror( std ::string_view func, remixapi_ErrorCode r )
@@ -197,7 +200,6 @@ void rgInitData( const RgInstanceCreateInfo& info )
     setoption_if( "rtx.tonemap.lpm", 1 );
 
     setoption_if( "rtx.skyProbeSide", std::clamp( info.rasterizedSkyCubemapSize, 32u, 2048u ) );
-    setoption_if( "rtx.opaqueMaterial.metallicBias", wrapconf.metallic_bias );
 
     // no need
     setoption_if( "rtx.terrainBaker.enableBaking", 0 );
@@ -631,7 +633,8 @@ namespace textures
     struct imageset_t
     {
         std::wstring albedo_alpha{};
-        std::wstring occlusion_roughness_metallic{};
+        std::wstring roughness{};
+        std::wstring metallic{};
         std::wstring normal{};
         std::wstring emissive{};
         std::wstring height{};
@@ -710,8 +713,8 @@ auto create_remixmaterial( const RgMeshInfo*          meshinst,
         rext.op = remixapi_MaterialInfoOpaqueEXT{
             .sType             = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_OPAQUE_EXT,
             .pNext             = nullptr,
-            .roughnessTexture  = nullptr, // TODO
-            .metallicTexture   = nullptr, // TODO
+            .roughnessTexture  = imageset ? imageset->roughness.c_str() : nullptr,
+            .metallicTexture   = imageset ? imageset->metallic.c_str() : nullptr,
             .anisotropy        = 0,
             .albedoConstant    = toremix( Utils::UnpackColor4DPacked32< RgFloat3D >( prim.color ) ),
             .opacityConstant   = noshadow      ? wrapconf.noshadow_opacity
@@ -720,9 +723,10 @@ auto create_remixmaterial( const RgMeshInfo*          meshinst,
             .roughnessConstant = mirror    ? 0.0f
                                  : src_pbr ? src_pbr->roughnessDefault
                                            : 1.0f,
-            .metallicConstant  = mirror    ? 1.0f
-                                 : src_pbr ? src_pbr->metallicDefault
-                                           : 1.0f,
+            .metallicConstant  = mirror ? 1.0f
+                                 : src_pbr
+                                     ? saturate( src_pbr->metallicDefault + wrapconf.metallic_bias )
+                                     : 0.0f,
             .thinFilmThickness_hasvalue = false,
             .thinFilmThickness_value    = {},
             .alphaIsThinFilmThickness   = false,
@@ -862,22 +866,39 @@ RgResult UploadLightEx( const RgLightInfo* pInfo, const RgTransform* transform )
 
 namespace textures
 {
+    constexpr const char* REMIX_TEXTURE_NORMAL_postfix    = "_remix_normal";
+    constexpr const char* REMIX_TEXTURE_ROUGHNESS_postfix = "_remix_roughness";
+    constexpr const char* REMIX_TEXTURE_METALLIC_postfix  = "_remix_metallic";
+
+    enum remixtexindex_e : uint32_t 
+    {
+        REMIX_TEXINDEX_ALBEDOALPHA = 0,
+        REMIX_TEXINDEX_ROUGHNESS   = 1,
+        REMIX_TEXINDEX_NORMAL      = 2,
+        REMIX_TEXINDEX_EMISSIVE    = 3,
+        REMIX_TEXINDEX_HEIGHT      = 4,
+        REMIX_TEXINDEX_METALLIC    = 5,
+
+        REMIX_TEXTURES_PER_MAT, // count
+    };
     const auto g_postfixes = std::array{
         toremix_path( TEXTURE_ALBEDO_ALPHA_POSTFIX ),
-        toremix_path( TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_POSTFIX ),
-        toremix_path( TEXTURE_NORMAL_POSTFIX ),
+        toremix_path( REMIX_TEXTURE_ROUGHNESS_postfix ),
+        toremix_path( REMIX_TEXTURE_NORMAL_postfix ),
         toremix_path( TEXTURE_EMISSIVE_POSTFIX ),
         toremix_path( TEXTURE_HEIGHT_POSTFIX ),
+        toremix_path( REMIX_TEXTURE_METALLIC_postfix ),
     };
     const auto g_postfixes_sv = std::array{
         std::string_view{ TEXTURE_ALBEDO_ALPHA_POSTFIX },
-        std::string_view{ TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_POSTFIX },
-        std::string_view{ TEXTURE_NORMAL_POSTFIX },
+        std::string_view{ REMIX_TEXTURE_ROUGHNESS_postfix },
+        std::string_view{ REMIX_TEXTURE_NORMAL_postfix },
         std::string_view{ TEXTURE_EMISSIVE_POSTFIX },
         std::string_view{ TEXTURE_HEIGHT_POSTFIX },
+        std::string_view{ REMIX_TEXTURE_METALLIC_postfix },
     };
-    static_assert( std::size( g_postfixes ) == TEXTURES_PER_MATERIAL_COUNT );
-    static_assert( std::size( g_postfixes_sv ) == TEXTURES_PER_MATERIAL_COUNT );
+    static_assert( std::size( g_postfixes ) == REMIX_TEXTURES_PER_MAT );
+    static_assert( std::size( g_postfixes_sv ) == REMIX_TEXTURES_PER_MAT );
 
     constexpr bool PreferExistingMaterials = true;
 
@@ -897,9 +918,8 @@ namespace textures
     auto g_imagesets_user     = rgl::string_map< imageset_t >{};
 
 
-    auto upload_to_remix( const char*                                                setname,
-                          std::span< TextureOverrides, TEXTURES_PER_MATERIAL_COUNT > ovrd )
-        -> imageset_t
+    auto upload_to_remix( const char*                                           setname,
+                          std::span< TextureOverrides, REMIX_TEXTURES_PER_MAT > ovrd ) -> imageset_t
     {
         if( cstr_empty( setname ) )
         {
@@ -907,19 +927,10 @@ namespace textures
         }
 
         imageset_t imgset{};
-
-        const uint32_t idx[] = {
-            TEXTURE_ALBEDO_ALPHA_INDEX, //
-            TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_INDEX,
-            TEXTURE_NORMAL_INDEX,
-            TEXTURE_EMISSIVE_INDEX,
-            TEXTURE_HEIGHT_INDEX,
-        };
-        static_assert( std::size( idx ) == TEXTURES_PER_MATERIAL_COUNT );
-
+        
         const std::wstring baseremixname = toremix_path( setname );
 
-        for( const uint32_t i : idx )
+        for( uint32_t i = 0; i < REMIX_TEXTURES_PER_MAT; i++ )
         {
             const auto& info = ovrd[ i ].result;
             if( !info )
@@ -958,11 +969,12 @@ namespace textures
             // clang-format off
             switch( i )
             {
-                case TEXTURE_ALBEDO_ALPHA_INDEX:                 imgset.albedo_alpha                 = std::move( remiximgname ); break;
-                case TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_INDEX: imgset.occlusion_roughness_metallic = std::move( remiximgname ); break;
-                case TEXTURE_NORMAL_INDEX:                       imgset.normal                       = std::move( remiximgname ); break;
-                case TEXTURE_EMISSIVE_INDEX:                     imgset.emissive                     = std::move( remiximgname ); break;
-                case TEXTURE_HEIGHT_INDEX:                       imgset.height                       = std::move( remiximgname ); break;
+                case REMIX_TEXINDEX_ALBEDOALPHA : imgset.albedo_alpha = std::move( remiximgname ); break;
+                case REMIX_TEXINDEX_ROUGHNESS   : imgset.roughness    = std::move( remiximgname ); break;
+                case REMIX_TEXINDEX_NORMAL      : imgset.normal       = std::move( remiximgname ); break;
+                case REMIX_TEXINDEX_EMISSIVE    : imgset.emissive     = std::move( remiximgname ); break;
+                case REMIX_TEXINDEX_HEIGHT      : imgset.height       = std::move( remiximgname ); break;
+                case REMIX_TEXINDEX_METALLIC    : imgset.metallic     = std::move( remiximgname ); break;
                 default: assert( 0 ); break;
             }
             // clang-format on
@@ -974,13 +986,15 @@ namespace textures
     void dealloc_from_remix( const imageset_t& imgset )
     {
         const std::wstring* idx[] = {
-            &imgset.albedo_alpha, //
-            &imgset.occlusion_roughness_metallic,
-            &imgset.normal,
-            &imgset.emissive,
-            &imgset.height,
+            &imgset.albedo_alpha, // REMIX_TEXINDEX_ALBEDOALPHA
+            &imgset.roughness,    // REMIX_TEXINDEX_ROUGHNESS
+            &imgset.normal,       // REMIX_TEXINDEX_NORMAL
+            &imgset.emissive,     // REMIX_TEXINDEX_EMISSIVE
+            &imgset.height,       // REMIX_TEXINDEX_HEIGHT
+            &imgset.metallic,     // REMIX_TEXINDEX_METALLIC
         };
-        static_assert( std::size( idx ) == TEXTURES_PER_MATERIAL_COUNT );
+        static_assert( std::size( idx ) == REMIX_TEXTURES_PER_MAT );
+        static_assert( sizeof( imageset_t ) == 192 );
 
         for( const std::wstring* remiximgname : idx )
         {
@@ -1035,39 +1049,39 @@ namespace textures
         // clang-format off
         TextureOverrides ovrd[] = {
             TextureOverrides{ g_ovrdfolder, info.pTextureName, g_postfixes_sv[ 0 ], info.pPixels, info.size, rgtexture_to_vkformat( details, VK_FORMAT_R8G8B8A8_SRGB ), AnyImageLoader() },
-            TextureOverrides{ g_ovrdfolder, info.pTextureName, g_postfixes_sv[ 1 ], nullptr, {}, VK_FORMAT_R8G8B8A8_UNORM, AnyImageLoader() },
+            TextureOverrides{ g_ovrdfolder, info.pTextureName, g_postfixes_sv[ 1 ], nullptr, {}, VK_FORMAT_R8_UNORM, AnyImageLoader() },
             TextureOverrides{ g_ovrdfolder, info.pTextureName, g_postfixes_sv[ 2 ], nullptr, {}, VK_FORMAT_R8G8B8A8_UNORM, AnyImageLoader() },
             TextureOverrides{ g_ovrdfolder, info.pTextureName, g_postfixes_sv[ 3 ], nullptr, {}, VK_FORMAT_R8G8B8A8_SRGB, AnyImageLoader() },
             TextureOverrides{ g_ovrdfolder, info.pTextureName, g_postfixes_sv[ 4 ], nullptr, {}, VK_FORMAT_R8_UNORM, AnyImageLoader() },
+            TextureOverrides{ g_ovrdfolder, info.pTextureName, g_postfixes_sv[ 5 ], nullptr, {}, VK_FORMAT_R8_UNORM, AnyImageLoader() },
         };
-        static_assert( std::size( ovrd ) == TEXTURES_PER_MATERIAL_COUNT );
         // clang-format on
+        static_assert( std::size( ovrd ) == REMIX_TEXTURES_PER_MAT );
 
-
+        
+        // clang-format off
         SamplerManager::Handle samplers[] = {
             SamplerManager::Handle{ info.filter, info.addressModeU, info.addressModeV },
             SamplerManager::Handle{ info.filter, info.addressModeU, info.addressModeV },
-            SamplerManager::Handle{ g_forceNormalMapFilterLinear ? RG_SAMPLER_FILTER_LINEAR
-                                                                 : info.filter,
-                                    info.addressModeU,
-                                    info.addressModeV },
+            SamplerManager::Handle{ g_forceNormalMapFilterLinear ? RG_SAMPLER_FILTER_LINEAR : info.filter, info.addressModeU, info.addressModeV },
             SamplerManager::Handle{ info.filter, info.addressModeU, info.addressModeV },
-            SamplerManager::Handle{
-                RG_SAMPLER_FILTER_LINEAR, info.addressModeU, info.addressModeV },
+            SamplerManager::Handle{ RG_SAMPLER_FILTER_LINEAR, info.addressModeU, info.addressModeV },
+            SamplerManager::Handle{ info.filter, info.addressModeU, info.addressModeV },
         };
-        static_assert( std::size( samplers ) == TEXTURES_PER_MATERIAL_COUNT );
-        static_assert( TEXTURE_NORMAL_INDEX == 2 );
+        // clang-format on
+        static_assert( std::size( samplers ) == REMIX_TEXTURES_PER_MAT );
+        static_assert( REMIX_TEXINDEX_NORMAL == 2 );
 
 
         std::optional< RgTextureSwizzling > swizzlings[] = {
-            std::nullopt, //
-            std::optional{ g_pbrTextureSwizzling },
-            std::nullopt,
-            std::nullopt,
-            std::nullopt,
+            std::nullopt, // REMIX_TEXINDEX_ALBEDOALPHA
+            std::nullopt, // REMIX_TEXINDEX_ROUGHNESS
+            std::nullopt, // REMIX_TEXINDEX_NORMAL
+            std::nullopt, // REMIX_TEXINDEX_EMISSIVE
+            std::nullopt, // REMIX_TEXINDEX_HEIGHT
+            std::nullopt, // REMIX_TEXINDEX_METALLIC
         };
-        static_assert( std::size( swizzlings ) == TEXTURES_PER_MATERIAL_COUNT );
-        static_assert( TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_INDEX == 1 );
+        static_assert( std::size( swizzlings ) == REMIX_TEXTURES_PER_MAT );
 
 
         auto [ iter, isnew ] = g_imagesets_user.emplace( //
@@ -1152,24 +1166,28 @@ namespace textures
             return false;
         }
 
+        // clang-format off
         TextureOverrides ovrd[] = {
-            TextureOverrides{ fullPaths[ 0 ], true, AnyImageLoader() },
-            TextureOverrides{ fullPaths[ 1 ], false, AnyImageLoader() },
-            TextureOverrides{ fullPaths[ 2 ], false, AnyImageLoader() },
-            TextureOverrides{ fullPaths[ 3 ], true, AnyImageLoader() },
-            TextureOverrides{ fullPaths[ 4 ], true, AnyImageLoader() },
+            TextureOverrides{ fullPaths[ TEXTURE_ALBEDO_ALPHA_INDEX     ],  true, AnyImageLoader() }, // REMIX_TEXINDEX_ALBEDOALPHA
+            TextureOverrides{ {} /* combined rough-metal not supported */, false, AnyImageLoader() }, // REMIX_TEXINDEX_ROUGHNESS
+            TextureOverrides{ fullPaths[ TEXTURE_NORMAL_INDEX           ], false, AnyImageLoader() }, // REMIX_TEXINDEX_NORMAL
+            TextureOverrides{ fullPaths[ TEXTURE_EMISSIVE_INDEX         ],  true, AnyImageLoader() },  // REMIX_TEXINDEX_EMISSIVE
+            TextureOverrides{ fullPaths[ TEXTURE_HEIGHT_INDEX           ],  true, AnyImageLoader() },  // REMIX_TEXINDEX_HEIGHT
+            TextureOverrides{ {} /* combined rough-metal not supported */, false, AnyImageLoader() }, // REMIX_TEXINDEX_METALLIC
         };
-        static_assert( std::size( ovrd ) == TEXTURES_PER_MATERIAL_COUNT );
+        // clang-format on
+        static_assert( std::size( ovrd ) == REMIX_TEXTURES_PER_MAT );
 
 
         std::optional< RgTextureSwizzling > swizzlings[] = {
-            std::nullopt, //
-            std::optional{ customPbrSwizzling },
-            std::nullopt,
-            std::nullopt,
-            std::nullopt,
+            std::nullopt, // REMIX_TEXINDEX_ALBEDOALPHA
+            std::nullopt, // REMIX_TEXINDEX_ROUGHNESS
+            std::nullopt, // REMIX_TEXINDEX_NORMAL
+            std::nullopt, // REMIX_TEXINDEX_EMISSIVE
+            std::nullopt, // REMIX_TEXINDEX_HEIGHT
+            std::nullopt, // REMIX_TEXINDEX_METALLIC
         };
-        static_assert( std::size( swizzlings ) == TEXTURES_PER_MATERIAL_COUNT );
+        static_assert( std::size( swizzlings ) == REMIX_TEXTURES_PER_MAT );
         static_assert( TEXTURE_OCCLUSION_ROUGHNESS_METALLIC_INDEX == 1 );
 
         // to free later / to prevent export from ExportOriginalMaterialTextures
@@ -2449,17 +2467,18 @@ RgResult RGAPI_CALL rgProvideOriginalTexture( const RgOriginalTextureInfo* pInfo
                 }
                 // relink, fix pointers
                 {
-                    std::visit( ext::overloaded{ [ & ]( remixapi_MaterialInfoOpaqueEXT& ext ) {
-                                                    ext.roughnessTexture = nullptr; // TODO
-                                                    ext.metallicTexture  = nullptr; // TODO
-                                                    ext.heightTexture    = imageset->height.c_str();
-                                                    preb.base.pNext      = &ext;
-                                                },
-                                                 [ & ]( remixapi_MaterialInfoTranslucentEXT& ext ) {
-                                                     ext.transmittanceTexture = nullptr;
-                                                     preb.base.pNext          = &ext;
-                                                 } },
-                                preb.ext );
+                    std::visit( //
+                        ext::overloaded{ [ & ]( remixapi_MaterialInfoOpaqueEXT& ext ) {
+                                            ext.roughnessTexture = imageset->roughness.c_str();
+                                            ext.metallicTexture  = imageset->metallic.c_str();
+                                            ext.heightTexture    = imageset->height.c_str();
+                                            preb.base.pNext      = &ext;
+                                        },
+                                         [ & ]( remixapi_MaterialInfoTranslucentEXT& ext ) {
+                                             ext.transmittanceTexture = nullptr;
+                                             preb.base.pNext          = &ext;
+                                         } },
+                        preb.ext );
                     preb.base.albedoTexture   = imageset->albedo_alpha.c_str();
                     preb.base.normalTexture   = imageset->normal.c_str();
                     preb.base.tangentTexture  = nullptr;
