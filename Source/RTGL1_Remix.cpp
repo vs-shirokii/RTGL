@@ -205,6 +205,9 @@ void rgInitData( const RgInstanceCreateInfo& info )
 
     // no need
     setoption_if( "rtx.terrainBaker.enableBaking", 0 );
+
+    // looks ugly with current noshadow handling...
+    setoption_if( "rtx.enableStochasticAlphaBlend", 0 );
 }
 
 RgResult RGAPI_CALL rgDestroyInstance()
@@ -701,13 +704,13 @@ auto create_remixmaterial( const RgMeshInfo*          meshinst,
         rext.tr = remixapi_MaterialInfoTranslucentEXT{
             .sType                            = REMIXAPI_STRUCT_TYPE_MATERIAL_INFO_TRANSLUCENT_EXT,
             .pNext                            = nullptr,
-            .transmittanceTexture             = nullptr,
+            .transmittanceTexture             = imageset ? imageset->albedo_alpha.c_str() : nullptr,
             .refractiveIndex                  = refrindex,
             .transmittanceColor               = { 0.97f, 0.97f, 0.97f },
             .transmittanceMeasurementDistance = 1.0f,
             .thinWallThickness_hasvalue       = thinwall,
             .thinWallThickness_value          = 0.001f,
-            .useDiffuseLayer                  = false,
+            .useDiffuseLayer                  = true,
         };
     }
     else
