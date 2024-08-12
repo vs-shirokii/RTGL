@@ -712,7 +712,7 @@ auto create_remixmaterial( const RgMeshInfo*          meshinst,
             .transmittanceMeasurementDistance = 1.0f,
             .thinWallThickness_hasvalue       = thinwall,
             .thinWallThickness_value          = 0.001f,
-            .useDiffuseLayer                  = true,
+            .useDiffuseLayer                  = imageset && !imageset->albedo_alpha.empty(),
         };
     }
     else
