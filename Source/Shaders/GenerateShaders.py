@@ -26,6 +26,8 @@ import pathlib
 
 
 TARGET_FOLDER_PATH           = "../../Build/shaders/"
+# TODO: improve extensibility
+GLSLC_EXE                    = "../../Source/VulkanSDK/1.3.280.0/Bin/glslc.exe"
 
 
 CACHE_FOLDER_PATH           = "Build/"
@@ -242,7 +244,7 @@ def main():
             print("> Building " + os.path.basename(filename))
 
             r = subprocess.run([
-                "glslc", "--target-env=vulkan1.2"
+                GLSLC_EXE, "--target-env=vulkan1.2"
                 ] + getDependentFoldersProcArg() + [
                 filename, 
                 "-o", targetSpvFile], 

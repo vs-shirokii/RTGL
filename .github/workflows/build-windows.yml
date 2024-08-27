@@ -36,38 +36,39 @@ jobs:
       - name: CMake
         run: |
           mkdir -p Build/bin
-          cmake -B ${{github.workspace}}/BuildCMake -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DRG_WITH_SURFACE_WIN32=ON -DRG_WITH_NVIDIA_DLSS=${{ matrix.dlss }}
+          cmake -B ${{github.workspace}}/BuildCMake -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DRG_WITH_SURFACE_WIN32=ON -DRG_WITH_NATIVE_DLSS=${{ matrix.dlss }}
 
       - name: Build
         run: cmake --build ${{github.workspace}}/BuildCMake --config ${{env.BUILD_TYPE}}
 
       - name: Prepare folder
         run: |
-          mkdir -p final/bin
-          copy Build/bin/RTGL1.pdb final/bin/RTGL1.pdb
-          copy Build/bin/RTGL1.dll final/bin/RTGL1.dll
-          mkdir -p final/include/RTGL1
-          copy Include/RTGL1/RTGL1.h final/include/RTGL1/RTGL1.h
-          mkdir final/ovrd
-          copy Tools/BlueNoise_LDR_RGBA_128.ktx2 final/ovrd/BlueNoise_LDR_RGBA_128.ktx2
-          copy Tools/DirtMask.ktx2 final/ovrd/DirtMask.ktx2
-          copy Tools/SceneBuildWarning.ktx2 final/ovrd/SceneBuildWarning.ktx2
-          copy Tools/CreateKTX2.py final/ovrd/CreateKTX2.py
-          mkdir final/ovrd/shaders
-          copy Build/shaders/*.spv final/ovrd/shaders
-          copy LICENSE final/LICENSE
+          mkdir -p final/rt/bin
+          copy Build/bin/RTGL1.pdb final/rt/bin/RTGL1.pdb
+          copy Build/bin/RTGL1.dll final/rt/bin/RTGL1.dll
+          copy Source/bin/* final/rt/bin
+          mkdir -p final/rt/include/RTGL1
+          copy Include/RTGL1/RTGL1.h final/rt/include/RTGL1/RTGL1.h
+          copy Tools/BlueNoise_LDR_RGBA_128.ktx2 final/rt/BlueNoise_LDR_RGBA_128.ktx2
+          copy Tools/DirtMask.ktx2 final/rt/DirtMask.ktx2
+          copy Tools/SceneBuildWarning.ktx2 final/rt/SceneBuildWarning.ktx2
+          copy Tools/CreateKTX2.py final/rt/CreateKTX2.py
+          copy Tools/ConvertFromRME.py final/rt/ConvertFromRME.py
+          mkdir final/rt/shaders
+          copy Build/shaders/*.spv final/rt/shaders
+          copy LICENSE final/rt/LICENSE
           echo "${{ github.sha }}" | Out-File -encoding ASCII final/VERSION
 
       - name: Upload
         uses: actions/upload-artifact@v3
         if: matrix.dlss != 'ON'
         with:
-          name: RayTracedGL1-Bundle
+          name: rtgl-bundle
           path: final/*
           
       - name: Upload (DLSS)
         uses: actions/upload-artifact@v3
         if: matrix.dlss == 'ON'
         with:
-          name: RayTracedGL1-Bundle-DLSS
+          name: rtgl-bundle-dlss
           path: final/*
