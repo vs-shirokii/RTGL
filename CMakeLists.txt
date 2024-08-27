@@ -174,11 +174,11 @@ endif()
 
 
 # Vulkan
-message(STATUS "Adding Vulkan. VulkanSDK: $ENV{VULKAN_SDK}")
-find_package(Vulkan REQUIRED)
+set(VulkanSdkDir "Source/VulkanSDK/1.3.280.0")
+message(STATUS "Adding Vulkan from ${VulkanSdkDir}")
 add_library(Vulkan INTERFACE)
-target_include_directories(Vulkan INTERFACE ${Vulkan_INCLUDE_DIRS})
-target_link_libraries(Vulkan INTERFACE ${Vulkan_LIBRARIES})
+target_include_directories(Vulkan INTERFACE "${VulkanSdkDir}/Include")
+target_link_libraries(Vulkan INTERFACE "${CMAKE_SOURCE_DIR}/${VulkanSdkDir}/Lib/vulkan-1.lib")
 
 
 # DirectX 12
@@ -238,7 +238,7 @@ target_include_directories(RayTracedGL1 PUBLIC "Include")
 
 
 # Vulkan
-target_link_libraries(RayTracedGL1 PUBLIC Vulkan)
+target_link_libraries(RayTracedGL1 PRIVATE Vulkan)
 
 # DirectX
 if (RG_WITH_DX12)
